@@ -133,7 +133,7 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .sec-head-wind td.row-label{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#d9f99d;text-align:left!important;padding-left:20px!important;}
 .sec-head-rain td.row-label{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#90caf9;text-align:left!important;padding-left:20px!important;}
 .sec-head-temp .hilocell,.sec-head-rain .hilocell,.sec-head-wind .hilocell{font-size:12px;color:var(--text-muted);display:block;margin-top:1px;font-weight:400;}
-.icon-row td{text-align:center;padding:10px 5px;font-size:24px;}
+.icon-row td{text-align:center;padding:4px 3px;font-size:17px;}
 .data-row td{text-align:center;padding:6px 4px;font-size:15px;color:var(--text-primary);min-width:54px;}
 .data-row td.row-label{font-family:'Inter',sans-serif;font-size:14px;}
 .model-badge{display:inline-flex;align-items:center;gap:5px;}
@@ -142,7 +142,7 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .hilocell{font-size:12px;color:var(--text-muted);display:block;margin-top:1px;font-weight:400;}
 .src-row.src-hidden{display:none;}
 .section-group.sec-off{display:none;}
-.spacer td{height:5px;}
+.spacer td{height:18px;}
 .empty{color:var(--text-dim)!important;font-size:13px;}
 
 /* Rain */
@@ -1018,15 +1018,116 @@ function setView(v,el){
   if(Object.keys(state.data).length)renderTable(); // instant table re-render
 }
 
+
+// ══════════════════════════════════════════
+// DAILY TOTALS COLUMN
+// ══════════════════════════════════════════
+function buildDailyTotals(indices, ref, onlyEnabled){
+  if(!showTotals)return{insertAfter:new Set(),totalsMap:{}};
+  const totalsMap={};
+  const insertAfter=new Set();
+  const byDate={};
+  indices.forEach(i=>{
+    const d=ref.time[i].slice(0,10);
+    if(!byDate[d])byDate[d]=[];
+    byDate[d].push(i);
+  });
+  Object.entries(byDate).forEach(([date,dayIdx])=>{
+    insertAfter.add(dayIdx[dayIdx.length-1]);
+    // Rain: sum avg precip across all hours of this day
+    const rainTotal=dayIdx.reduce((s,i)=>{
+      const v=weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.hourly?.precipitation?.[i]??null})));
+      return s+(v||0);
+    },0);
+    // Hi/lo from daily data
+    let hi=null,lo=null;
+    const rk=onlyEnabled.find(m=>state.data[m.key]?.daily)?.key;
+    if(rk){
+      const dd=state.data[rk].daily;
+      const di=dd?.time?.findIndex(t=>t===date)??-1;
+      if(di>=0){
+        hi=weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.daily?.temperature_2m_max?.[di]??null})));
+        lo=weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.daily?.temperature_2m_min?.[di]??null})));
+      }
+    }
+    totalsMap[date]={rain:rainTotal,hi,lo};
+  });
+  return{insertAfter,totalsMap};
+}
+
+// ══════════════════════════════════════════
+// VERTICAL LAYOUT — time as rows, metrics as cols
+// ══════════════════════════════════════════
+function renderVertical(){
+  const firstKey=MODELS.find(m=>state.data[m.key])?.key;if(!firstKey)return;
+  const ref=state.data[firstKey].hourly;
+  const now=new Date();
+  const step=state.view==='1h'?1:state.view==='3h'?3:8;
+  const sevenDaysAgo=new Date(now.getTime()-10*24*3600*1000);
+  let si=ref.time.findIndex(t=>new Date(t)>=sevenDaysAgo);if(si<0)si=0;
+  const nowIdx=ref.time.findIndex(t=>new Date(t)>=now);
+  const raw=[];
+  for(let i=si;i<ref.time.length&&i<si+20*24;i+=step)raw.push(i);
+  const indices=raw.slice(0,state.view==='1h'?20*24:Math.ceil(20*24/step));
+  const onlyEnabled=activeEnabled();
+  const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const nowMs=Date.now();
+  // Build actuals map
+  const actMap={};
+  if(actualData)actualData.hourly.time.forEach((t,i)=>{actMap[t]=i;});
+  // Determine columns
+  const cols=[];
+  if(secVisible.temp)cols.push('temp');
+  if(secVisible.rain)cols.push('rain');
+  if(secVisible.wind)cols.push('wind');
+  if(actualData&&secVisible.temp)cols.push('actual_t');
+  if(actualData&&secVisible.rain)cols.push('actual_r');
+  const colHdr={'temp':'🌡','rain':'🌧','wind':'💨','actual_t':'✓🌡','actual_r':'✓🌧'};
+  const colHeadCls={'temp':'sec-head-temp','rain':'sec-head-rain','wind':'sec-head-wind','actual_t':'sec-head-temp','actual_r':'sec-head-rain'};
+  const hdr=`<tr class="hour-header">
+    <th class="row-label" style="min-width:98px;max-width:98px">Time</th>
+    ${cols.map(c=>`<th class="${colHeadCls[c]}" style="min-width:64px;text-align:center">${colHdr[c]}</th>`).join('')}
+  </tr>`;
+  const rows=indices.map(i=>{
+    const d=new Date(ref.time[i]);
+    const isNow=nowIdx>=0&&i===nowIdx;
+    const ndCls=colDayCls(ref.time[i],i>0?ref.time[i-1]:null);
+    const avgT=weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.hourly?.temperature_2m?.[i]??null})));
+    const avgR=weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.hourly?.precipitation?.[i]??null})));
+    const avgW=weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.hourly?.windspeed_10m?.[i]??null})));
+    const isPast=new Date(ref.time[i]).getTime()<nowMs;
+    const ai=actMap[ref.time[i]];
+    const actT=(isPast&&ai!==undefined)?actualData.hourly.temperature_2m?.[ai]:null;
+    const actR=(isPast&&ai!==undefined)?actualData.hourly.precipitation?.[ai]:null;
+    const cells=cols.map(c=>{
+      switch(c){
+        case'temp':return`<td class="${ndCls} ${tempCls(avgT)}">${avgT!=null?avgT.toFixed(0)+'°':'—'}</td>`;
+        case'rain':return`<td class="${ndCls} ${rainCls(avgR)}">${avgR!=null?(avgR<0.05?'<span class="empty">0</span>':avgR.toFixed(1)):'—'}</td>`;
+        case'wind':return`<td class="${ndCls} ${windCls(avgW)}">${avgW!=null?avgW.toFixed(0):'—'}</td>`;
+        case'actual_t':return`<td class="${actT!=null?tempCls(actT):'empty'}">${actT!=null?actT.toFixed(0)+'°':'–'}</td>`;
+        case'actual_r':return`<td class="${actR!=null?rainCls(actR):'empty'}">${actR!=null?(actR<0.05?'<span class="empty">0</span>':actR.toFixed(1)):'–'}</td>`;
+        default:return'<td>–</td>';
+      }
+    }).join('');
+    return`<tr class="data-row${isNow?' now-row':''} ${ndCls}" ${isNow?'id="now-row"':''}><td class="row-label" style="font-family:'Inter',sans-serif;font-size:12px;white-space:nowrap">${DAYS[d.getDay()]} ${d.getDate()} <span style="color:var(--text-muted)">${fmtAmPm(d)}</span></td>${cells}</tr>`;
+  }).join('');
+  document.querySelector('.ftable').innerHTML=`<tbody>${hdr}${rows}</tbody>`;
+  requestAnimationFrame(()=>{
+    const wrap=document.querySelector('.table-wrap');
+    const nr=document.getElementById('now-row');
+    if(wrap&&nr)wrap.scrollTop=Math.max(0,nr.offsetTop-wrap.offsetTop-120);
+  });
+}
+
 function scrollToNow(){
-  // Scroll the table so the 'now' column is near the left (with a little past context)
   requestAnimationFrame(()=>{
     const wrap=document.querySelector('.table-wrap');
     const nowTh=document.querySelector('.hour-header th.now-col');
     if(!wrap||!nowTh)return;
-    // Scroll so now column is ~2 columns from the left edge
+    // Offset: sticky label is 98px, then scroll so ~2 cols of past are visible
     const colW=nowTh.offsetWidth||64;
-    const offset=nowTh.offsetLeft - wrap.offsetLeft - colW*2;
+    const labelW=98;
+    const offset=nowTh.offsetLeft - labelW - colW*2;
     wrap.scrollLeft=Math.max(0,offset);
   });
 }
@@ -1038,7 +1139,11 @@ function renderSkeleton(){
     Array(8).fill(`<tr class="data-row"><td class="row-label">${sk}</td>${Array(C).fill(`<td>${sk}</td>`).join('')}</tr>`).join('')+
     `</tbody>`;
 }
-function renderTable(){if(state.view==='daily')renderDaily();else renderHourly();}
+function renderTable(){
+  if(verticalLayout&&state.view!=='daily')renderVertical();
+  else if(state.view==='daily')renderDaily();
+  else renderHourly();
+}
 
 // ══════════════════════════════════════════
 // HOURLY RENDER — am/pm times
@@ -1062,6 +1167,8 @@ function renderHourly(){
 
   const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const ndCls=indices.map((i,ci)=>colDayCls(ref.time[i],ci>0?ref.time[indices[ci-1]]:null));
+  const onlyEnabledForTotals=activeEnabled();
+  const {insertAfter,totalsMap}=buildDailyTotals(indices,ref,onlyEnabledForTotals);
 
   const hdrCells=indices.map((i,ci)=>{
     const d=new Date(ref.time[i]);
@@ -1069,7 +1176,12 @@ function renderHourly(){
     const isNow=nowIdx>=0&&i===nowIdx;
     const cls=[isNow?'now-col':'',ndCls[ci]].filter(Boolean).join(' ');
     const dayLabel=DAYS[d.getDay()]+' '+d.getDate();
-    return`<th class="${cls}"><span class="col-day">${dayLabel}</span><span class="col-time">${timeStr}</span></th>`;
+    let thCell=`<th class="${cls}"><span class="col-day">${dayLabel}</span><span class="col-time">${timeStr}</span></th>`;
+    if(showTotals&&insertAfter.has(i)){
+      const d2=new Date(ref.time[i].slice(0,10)+'T12:00:00');
+      thCell+=`<th class="total-col" style="min-width:50px;font-size:11px;color:var(--text-dim);text-align:center;padding:6px 3px;position:sticky;top:0;background:var(--surface2)">Σ ${DAYS[d2.getDay()]} ${d2.getDate()}</th>`;
+    }
+    return thCell;
   }).join('');
 
   const allActive=activeAll();const onlyEnabled=activeEnabled();
@@ -1087,7 +1199,12 @@ function renderHourly(){
     const cls=v!=null?tempCls(v):'';
     const hl=hiloKey?dailyHiLo(hiloKey,ref.time[indices[ci]]):null;
     const hlHtml=hl&&hl.hi!=null?`<span class="hilocell">↑${hl.hi.toFixed(0)}° ↓${hl.lo!=null?hl.lo.toFixed(0)+'°':'—'}</span>`:'';
-    return injectColCls(`<td class="${cls}">${fmt(v,0)}°${hlHtml}</td>`,ndCls[ci]);
+    let tCell=injectColCls(`<td class="${cls}">${fmt(v,0)}°${hlHtml}</td>`,ndCls[ci]);
+    if(showTotals&&insertAfter.has(indices[ci])){
+      const t=totalsMap[ref.time[indices[ci]].slice(0,10)];
+      tCell+=`<td class="total-col" style="font-size:11px;text-align:center">${t&&t.hi!=null?`↑${t.hi.toFixed(0)}° ↓${t.lo!=null?t.lo.toFixed(0)+'°':'–'}`:'–'}</td>`;
+    }
+    return tCell;
   }).join('');
 
   // ── WIND ──
@@ -1143,13 +1260,13 @@ function renderHourly(){
     ${secGroup('temp',`
       <tr class="sec-head-temp"><td class="row-label">🌡 Temp</td>${avgTempCells}</tr>
       ${tempModelRows}
-      ${actualData?`<tr class="actual-row"><td class="row-label">✓ Actual</td>${actualTempCells}</tr>`:''}
+      ${actualData?`<tr class="actual-row"><td class="row-label" style="color:#86efac">✓ Actual</td>${actualTempCells}</tr>`:''}
       <tr class="spacer"><td colspan="${C}"></td></tr>
     `)}
     ${secGroup('rain',`
       <tr class="sec-head-rain"><td class="row-label">🌧 Rain</td>${avgRainCells}</tr>
       ${rainModelRows}
-      ${actualData?`<tr class="actual-row"><td class="row-label">✓ Actual</td>${actualRainCells}</tr>`:''}
+      ${actualData?`<tr class="actual-row"><td class="row-label" style="color:#90caf9">✓ Actual</td>${actualRainCells}</tr>`:''}
       <tr class="spacer"><td colspan="${C}"></td></tr>
     `)}
     ${secGroup('wind',`
