@@ -206,7 +206,6 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
     <div class="curr-hilo" id="curr-hilo">–</div>
   </div>
   <div class="curr-meta">
-    <div class="curr-line" id="curr-desc">–</div>
     <div class="curr-line" id="curr-feels">–</div>
     <div class="curr-synopsis" id="curr-synopsis"></div>
   </div>
@@ -216,16 +215,7 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
     <div class="curr-val" id="curr-today-rain">–</div>
     <div class="curr-sub" id="curr-today-sub">–</div>
   </div>
-  <div class="curr-block">
-    <div class="curr-lbl" id="curr-past-lbl">Rain past 1hr</div>
-    <div class="curr-val" id="curr-past-rain">–</div>
-    <div class="curr-sub" id="curr-past-sub">–</div>
-  </div>
-  <div class="curr-block">
-    <div class="curr-lbl" id="curr-exp-lbl">Rain expected 1hr</div>
-    <div class="curr-val" id="curr-exp-rain">–</div>
-    <div class="curr-sub" id="curr-exp-sub">–</div>
-  </div>
+
   <div class="curr-divider"></div>
   <div class="curr-block">
     <div class="curr-lbl">Wind</div>
@@ -671,69 +661,42 @@ async function fetchCurrentConditions(){
 function renderCurrentBar(){
   if(!cachedCurrent)return;
   const {c,precipHourly,daily}=cachedCurrent;
-  const stepHrs=state.view==='daily'?24:state.view==='8h'?8:state.view==='3h'?3:1;
 
-  // Past rain: last stepHrs hours
-  const past=precipHourly.slice(0,precipHourly.length-1); // exclude current hour
-  const pastRain=past.slice(Math.max(0,past.length-stepHrs)).reduce((a,v)=>a+(v||0),0);
-
-  // Rain today: measured (past hours since midnight) + expected (forecast until midnight)
-  const nowDate=new Date();
-  const hourOfDay=nowDate.getHours();
-  // measured = sum of past hourly precip from midnight (last hourOfDay values in past array)
+  // Rain today: measured since midnight + expected rest of day
+  const past=precipHourly.slice(0,precipHourly.length-1);
+  const hourOfDay=new Date().getHours();
   const measuredToday=past.slice(Math.max(0,past.length-hourOfDay)).reduce((a,v)=>a+(v||0),0);
-  // expected rest of day = sum of next (23-hourOfDay) hours from forecast
   const hoursLeftToday=Math.max(0,23-hourOfDay);
   const expectedToday=cachedForecastRain
     ?cachedForecastRain.slice(0,hoursLeftToday).reduce((a,v)=>a+(v||0),0)
     :null;
   const totalToday=expectedToday!=null?measuredToday+expectedToday:measuredToday;
 
-  // Expected rain: from cachedForecastRain, next stepHrs hours
-  const expRain=cachedForecastRain
-    ?cachedForecastRain.slice(0,stepHrs).reduce((a,v)=>a+(v||0),0)
-    :null;
-
-  const lbl=stepHrs===1?'Rain past 1hr':stepHrs===24?'Rain past 24hr':`Rain past ${stepHrs}hr`;
-  const expLbl=stepHrs===1?'Rain next 1hr':stepHrs===24?'Rain next 24hr':`Rain next ${stepHrs}hr`;
-
-  // Today's hi/lo from model average (matches table avg row)
+  // Hi/lo from model average
   const todayHi=cachedHiLo?.hi??daily?.temperature_2m_max?.[0];
   const todayLo=cachedHiLo?.lo??daily?.temperature_2m_min?.[0];
 
-  // Wind direction as arrow
   const windArrow=dirArrow16(c.winddirection_10m);
 
   document.getElementById('curr-icon').textContent=wxIcon(c.weathercode);
   document.getElementById('curr-temp').textContent=`${Math.round(c.temperature_2m)}°`;
   document.getElementById('curr-hilo').textContent=
-    todayHi!=null?`↑${Math.round(todayHi)}° ↓${todayLo!=null?Math.round(todayLo)+'°':'—'}`:'';
-  document.getElementById('curr-desc').innerHTML=`<strong>${wxDesc(c.weathercode,c.is_day)}</strong>`;
-  document.getElementById('curr-feels').textContent=`Feels ${Math.round(c.apparent_temperature)}° · ${c.relative_humidity_2m}% humidity`;
-  document.getElementById('curr-synopsis').textContent=buildSynopsis(c);
+    todayHi!=null?`↑${Math.round(todayHi)}° ↓${todayLo!=null?Math.round(todayLo)+'°':'—'}`:'' ;
+  document.getElementById('curr-feels').textContent=`Feels ${Math.round(c.apparent_temperature)}°`;
+  document.getElementById('curr-synopsis').textContent=briefSynopsis(c);
 
-  // Today rain display
+  // Rain today: total value + "x.x + x.x" sub-line
   const todayEl=document.getElementById('curr-today-rain');
   const todaySubEl=document.getElementById('curr-today-sub');
   if(todayEl){
     todayEl.textContent=`${totalToday.toFixed(1)} mm`;
-    const subParts=[];
-    if(measuredToday>0)subParts.push(`${measuredToday.toFixed(1)} measured`);
-    if(expectedToday!=null&&expectedToday>0)subParts.push(`${expectedToday.toFixed(1)} expected`);
-    todaySubEl.textContent=subParts.length?subParts.join(' + '):'None so far';
+    const mStr=measuredToday.toFixed(1);
+    const eStr=expectedToday!=null?expectedToday.toFixed(1):'?';
+    todaySubEl.textContent=`${mStr} + ${eStr}`;
   }
-
-  document.getElementById('curr-past-lbl').textContent=lbl;
-  document.getElementById('curr-past-rain').textContent=`${pastRain.toFixed(1)} mm`;
-  document.getElementById('curr-past-sub').textContent=pastRain<0.1?'No rain':'Rain detected';
-
-  document.getElementById('curr-exp-lbl').textContent=expLbl;
-  document.getElementById('curr-exp-rain').textContent=expRain!=null?`${expRain.toFixed(1)} mm`:'–';
-  document.getElementById('curr-exp-sub').textContent=expRain==null?'–':expRain<0.1?'None expected':'Rain expected';
 
   document.getElementById('curr-wind').textContent=`${Math.round(c.windspeed_10m)} km/h · ${windWord(c.windspeed_10m)}`;
   document.getElementById('curr-winddir').textContent=`${windArrow} ${dirFull(c.winddirection_10m)}`;
-
   document.getElementById('curr-bar').classList.add('loaded');
 }
 
@@ -755,14 +718,11 @@ function wxDesc(c,isDay){
   if(c<=77)return'Snow';if(c<=82)return'Rain showers';if(c<=86)return'Snow showers';
   if(c<=99)return'Thunderstorm';return'Unknown';
 }
-function buildSynopsis(c){
-  const parts=[];const t=c.temperature_2m;const w=c.windspeed_10m;const r=c.precipitation;const h=c.relative_humidity_2m;
-  if(t<0)parts.push('Freezing');else if(t<8)parts.push('Cold');else if(t<16)parts.push('Cool');else if(t<24)parts.push('Mild');else if(t<30)parts.push('Warm');else parts.push('Hot');
-  parts.push(`with ${wxDesc(c.weathercode,c.is_day).toLowerCase()}`);
-  if(r>0.5)parts.push('and active rain');else if(r>0)parts.push('and light drizzle');
-  if(w>=55)parts.push('— dangerously windy');else if(w>=35)parts.push('— strong winds');else if(w>=20)parts.push('— breezy');
-  if(h>=85&&t>10)parts.push('— humid');else if(h<=30)parts.push('— dry');
-  return parts.join(' ')+'.';
+function briefSynopsis(c){
+  const t=c.temperature_2m;
+  const tempWord=t<0?'Freezing':t<8?'Cold':t<16?'Cool':t<24?'Mild':t<30?'Warm':'Hot';
+  const condWord=wxDesc(c.weathercode,c.is_day);
+  return `${tempWord} | ${condWord}`;
 }
 
 // ══════════════════════════════════════════
