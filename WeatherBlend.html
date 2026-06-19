@@ -373,6 +373,8 @@ let cachedForecastRain = null; // array of avg precip for next hours
 let cachedHiLo = null;          // {hi, lo} avg from model daily data for today
 let modelWeights = {};             // key -> weight 0-1 (sum=1 across enabled models)
 let useWeightedAvg = true;         // toggled by config panel
+let verticalLayout = false;
+let showTotals = true;
 let actualData = null;             // historical ERA5 actuals for past 7 days
 
 let state = { lat:null, lon:null, data:{}, status:{}, view:'1h', ss:{} };
@@ -383,37 +385,28 @@ const AUTO_MS = 60*60*1000;
 // BOOT
 // ══════════════════════════════════════════
 window.addEventListener('DOMContentLoaded',()=>{
+  loadPrefs();
   buildSourcesPanel();
   updateDetailBtn();
+  document.querySelectorAll('#view-btns .btn').forEach(b=>{
+    const m=b.getAttribute('onclick')?.match(/'([^']+)'/);
+    if(m)b.classList.toggle('active',m[1]===state.view);
+  });
   getLocation();
 });
 
 function buildSourcesPanel(){
   document.getElementById('model-panel').innerHTML=
-    // ── Display toggles ──
-    `<span class="panel-label">Display</span>`+
-    `<div class="model-toggle${secVisible.temp?' enabled':' disabled'}" id="tog-temp" onclick="toggleSection('temp',document.getElementById('tog-temp'))">
-       <span style="font-size:15px">🌡</span><span class="mname" style="color:#86efac">Temp</span>
-     </div>`+
-    `<div class="model-toggle${secVisible.rain?' enabled':' disabled'}" id="tog-rain" onclick="toggleSection('rain',document.getElementById('tog-rain'))">
-       <span style="font-size:15px">🌧</span><span class="mname" style="color:#90caf9">Rain</span>
-     </div>`+
-    `<div class="model-toggle${secVisible.wind?' enabled':' disabled'}" id="tog-wind" onclick="toggleSection('wind',document.getElementById('tog-wind'))">
-       <span style="font-size:15px">💨</span><span class="mname" style="color:#d9f99d">Wind</span>
-     </div>`+
-    `<div class="model-toggle${showDetail?' enabled':' disabled'}" id="detail-in-panel" onclick="toggleDetail()">
-       <span style="font-size:15px">👁</span><span class="mname">Sources</span>
-     </div>`+
-    `<div class="model-toggle${useWeightedAvg?' enabled':' disabled'}" id="tog-weighted" onclick="toggleWeighting(this)">
-       <span style="font-size:15px">⚖️</span><span class="mname">Weighted avg</span>
-     </div>`+
-    // ── Model sources ──
-    `<span class="panel-label" style="margin-left:6px">Models</span>`+
+    `<span class="panel-label">View</span>`+
+    `<div class="model-toggle${secVisible.temp?' enabled':' disabled'}" id="tog-temp" title="Temperature" onclick="toggleSection('temp',document.getElementById('tog-temp'))"><span>🌡</span></div>`+
+    `<div class="model-toggle${secVisible.rain?' enabled':' disabled'}" id="tog-rain" title="Rain" onclick="toggleSection('rain',document.getElementById('tog-rain'))"><span>🌧</span></div>`+
+    `<div class="model-toggle${secVisible.wind?' enabled':' disabled'}" id="tog-wind" title="Wind" onclick="toggleSection('wind',document.getElementById('tog-wind'))"><span>💨</span></div>`+
+    `<div class="model-toggle${showDetail?' enabled':' disabled'}" id="detail-in-panel" title="Show individual sources" onclick="toggleDetail()"><span>👁</span></div>`+
+    `<div class="model-toggle${useWeightedAvg?' enabled':' disabled'}" id="tog-weighted" title="Weighted average" onclick="toggleWeighting(this)"><span>⚖️</span></div>`+
+    `<span class="panel-label" style="margin-left:6px">Sources</span>`+
     MODELS.map(m=>`
-      <div class="model-toggle enabled" id="toggle-${m.key}" onclick="toggleModel('${m.key}')">
+      <div class="model-toggle enabled" id="toggle-${m.key}" onclick="toggleModel('${m.key}')" title="${m.desc}">
         <span class="mdot" style="background:${m.color}">${m.short}</span>
-        <span class="mname">${m.label}</span>
-        <span class="mdesc">${m.desc}</span>
       </div>`).join('');
 }
 
@@ -426,10 +419,10 @@ function toggleModel(key){
   const el=document.getElementById('toggle-'+key);
   if(enabled.has(key)){enabled.delete(key);el.className='model-toggle disabled';}
   else{enabled.add(key);el.className='model-toggle enabled';}
-  if(Object.keys(state.data).length)renderTable();
+  savePrefs(); if(Object.keys(state.data).length)renderTable();
 }
 function toggleDetail(){
-  showDetail=!showDetail; updateDetailBtn();
+  showDetail=!showDetail; updateDetailBtn(); savePrefs();
   document.querySelectorAll('.src-row').forEach(r=>{
     if(!r.classList.contains('perm-hidden'))r.classList.toggle('src-hidden',!showDetail);
   });
@@ -438,9 +431,22 @@ function updateDetailBtn(){
   const panelBtn=document.getElementById('detail-in-panel');
   if(panelBtn){panelBtn.classList.toggle('enabled',showDetail);panelBtn.classList.toggle('disabled',!showDetail);}
 }
+function toggleTotals(btn){
+  showTotals=!showTotals;
+  if(btn){btn.classList.toggle('enabled',showTotals);btn.classList.toggle('disabled',!showTotals);}
+  savePrefs();
+  if(Object.keys(state.data).length)renderTable();
+}
+function toggleVertical(btn){
+  verticalLayout=!verticalLayout;
+  if(btn){btn.classList.toggle('enabled',verticalLayout);btn.classList.toggle('disabled',!verticalLayout);}
+  savePrefs();
+  if(Object.keys(state.data).length)renderTable();
+}
 function toggleWeighting(btn){
   useWeightedAvg=!useWeightedAvg;
   if(btn){btn.classList.toggle('enabled',useWeightedAvg);btn.classList.toggle('disabled',!useWeightedAvg);}
+  savePrefs();
   if(Object.keys(state.data).length)renderTable();
 }
 
@@ -452,6 +458,7 @@ function toggleSection(sec,btn){
     btn.classList.toggle('disabled',!secVisible[sec]);
   }
   document.querySelectorAll(`.section-group[data-sec="${sec}"]`).forEach(el=>el.classList.toggle('sec-off',!secVisible[sec]));
+  savePrefs();
 }
 
 // ══════════════════════════════════════════
@@ -527,6 +534,28 @@ function loadSavedLocation(){
   }catch{return null;}
 }
 
+function savePrefs(){
+  try{
+    localStorage.setItem('wb_prefs',JSON.stringify({
+      showDetail,useWeightedAvg,showTotals,verticalLayout,
+      secVisible:{...secVisible},
+      enabled:[...enabled],
+      view:state.view
+    }));
+  }catch(e){}
+}
+function loadPrefs(){
+  try{
+    const p=JSON.parse(localStorage.getItem('wb_prefs')||'{}');
+    if(p.showDetail!==undefined)showDetail=p.showDetail;
+    if(p.useWeightedAvg!==undefined)useWeightedAvg=p.useWeightedAvg;
+    if(p.showTotals!==undefined)showTotals=p.showTotals;
+    if(p.verticalLayout!==undefined)verticalLayout=p.verticalLayout;
+    if(p.secVisible)Object.assign(secVisible,p.secVisible);
+    if(p.enabled){enabled.clear();p.enabled.forEach(k=>{if(MODELS.find(m=>m.key===k))enabled.add(k);});}
+    if(p.view)state.view=p.view;
+  }catch(e){}
+}
 function saveLocation(lat,lon,name){
   try{localStorage.setItem('wb_location',JSON.stringify({lat,lon,name}));}catch{}
 }
@@ -1026,8 +1055,7 @@ function renderHourly(){
   const indices=raw.slice(0,state.view==='1h'?20*24:state.view==='3h'?Math.ceil(20*24/3):Math.ceil(20*24/8));
 
   document.getElementById('date-info').innerHTML=
-    `<strong>${now.toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'long'})}</strong>`+
-    ` · ${state.view==='1h'?'past 10 days + next 10 days':state.view==='3h'?'past 10 + next 10 days (3-hourly)':'past 10 + next 10 days (8-hourly)'} · ◀ past &nbsp; now &nbsp; future ▶`;
+    `<strong>${now.toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'long'})}</strong>`;
 
   const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const ndCls=indices.map((i,ci)=>colDayCls(ref.time[i],ci>0?ref.time[indices[ci-1]]:null));
@@ -1037,15 +1065,8 @@ function renderHourly(){
     const timeStr=fmtAmPm(d);  // am/pm
     const isNow=nowIdx>=0&&i===nowIdx;
     const cls=[isNow?'now-col':'',ndCls[ci]].filter(Boolean).join(' ');
-    const dateNum=d.getDate();
-    const showDate=ci===0||d.getHours()===0||(step>=8&&ci%1===0); // show date on midnight or first col
-    const dayLabel=`${DAYS[d.getDay()]}${showDate?' '+dateNum:''}`;
-    let thCell=`<th class="${cls}"><span class="col-day">${dayLabel}</span><span class="col-time">${timeStr}</span></th>`;
-    if(showTotals&&insertAfter.has(i)){
-      const d2=new Date(ref.time[i].slice(0,10)+'T12:00:00');
-      thCell+=`<th class="total-col" style="min-width:52px;font-size:11px;color:var(--text-dim);padding:6px 3px;position:sticky;top:0;background:var(--surface2)">Σ ${d2.getDate()}</th>`;
-    }
-    return thCell;
+    const dayLabel=DAYS[d.getDay()]+' '+d.getDate();
+    return`<th class="${cls}"><span class="col-day">${dayLabel}</span><span class="col-time">${timeStr}</span></th>`;
   }).join('');
 
   const allActive=activeAll();const onlyEnabled=activeEnabled();
@@ -1063,12 +1084,7 @@ function renderHourly(){
     const cls=v!=null?tempCls(v):'';
     const hl=hiloKey?dailyHiLo(hiloKey,ref.time[indices[ci]]):null;
     const hlHtml=hl&&hl.hi!=null?`<span class="hilocell">↑${hl.hi.toFixed(0)}° ↓${hl.lo!=null?hl.lo.toFixed(0)+'°':'—'}</span>`:'';
-    let tc=injectColCls(`<td class="${cls}">${fmt(v,0)}°${hlHtml}</td>`,ndCls[ci]);
-    if(showTotals&&insertAfter.has(indices[ci])){
-      const t=totalsMap[ref.time[indices[ci]].slice(0,10)];
-      tc+=`<td class="total-col" style="font-size:11px">${t&&t.hi!=null?`↑${t.hi.toFixed(0)}° ↓${t.lo!=null?t.lo.toFixed(0)+'°':'–'}`:'–'}</td>`;
-    }
-    return tc;
+    return injectColCls(`<td class="${cls}">${fmt(v,0)}°${hlHtml}</td>`,ndCls[ci]);
   }).join('');
 
   // ── WIND ──
@@ -1085,13 +1101,7 @@ function renderHourly(){
   }).join('');
   const avgRain=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:hVals(m.key,'precipitation',indices)[ci]}))));
   const avgRainCells=avgRain.map((v,ci)=>{const cls=rainCls(v);const txt=v==null?'—':v<0.05?'<span class="empty">0</span>':v.toFixed(1);
-    let rc=injectColCls(`<td class="${cls}">${txt}</td>`,ndCls[ci]);
-    if(showTotals&&insertAfter.has(indices[ci])){
-      const t=totalsMap[ref.time[indices[ci]].slice(0,10)];
-      const tCls=t?rainCls(t.rain/24):'';
-      rc+=`<td class="total-col ${tCls}">${t?t.rain.toFixed(1)+'mm':'–'}</td>`;
-    }
-    return rc;
+    return injectColCls(`<td class="${cls}">${txt}</td>`,ndCls[ci]);
   }).join('');
 
   const iconKey=onlyEnabled[0]?.key||allActive[0]?.key;
@@ -1127,13 +1137,13 @@ function renderHourly(){
     ${secGroup('temp',`
       <tr class="sec-head-temp"><td class="row-label">🌡 Temp</td>${avgTempCells}</tr>
       ${tempModelRows}
-      ${actualData?`<tr class="actual-row src-row${showDetail?'':' src-hidden'}"><td class="row-label">✓ Actual</td>${actualTempCells}</tr>`:''}
+      ${actualData?`<tr class="actual-row"><td class="row-label">✓ Actual</td>${actualTempCells}</tr>`:''}
       <tr class="spacer"><td colspan="${C}"></td></tr>
     `)}
     ${secGroup('rain',`
       <tr class="sec-head-rain"><td class="row-label">🌧 Rain mm/hr</td>${avgRainCells}</tr>
       ${rainModelRows}
-      ${actualData?`<tr class="actual-row src-row${showDetail?'':' src-hidden'}"><td class="row-label">✓ Actual</td>${actualRainCells}</tr>`:''}
+      ${actualData?`<tr class="actual-row"><td class="row-label">✓ Actual</td>${actualRainCells}</tr>`:''}
       <tr class="spacer"><td colspan="${C}"></td></tr>
     `)}
     ${secGroup('wind',`
