@@ -797,38 +797,46 @@ function isDayStart(iso,prevIso){return prevIso&&iso.slice(0,10)!==prevIso.slice
 // ══════════════════════════════════════════
 async function fetchActualsAndComputeWeights(){
   try{
-    // Fetch ERA5 reanalysis actuals for past 7 days
-    // ERA5 reanalysis typically has a 2-5 day lag before data is available
-    const endDate=new Date(); endDate.setDate(endDate.getDate()-3);
-    const startDate=new Date(); startDate.setDate(startDate.getDate()-10);
+    // Use the Historical Forecast API (historical-forecast-api.open-meteo.com)
+    // This stitches the first hours of each model run into a continuous timeseries,
+    // updated within hours — unlike ERA5 which has a 2-5 day lag.
+    // We request the past 7 days up to and including yesterday.
+    const endDate=new Date(); endDate.setDate(endDate.getDate()-0); // today (data up to last completed hour)
+    const startDate=new Date(); startDate.setDate(startDate.getDate()-7);
     const fmt=d=>d.toISOString().slice(0,10);
 
-    const url=`https://archive-api.open-meteo.com/v1/archive`
+    const url=`https://historical-forecast-api.open-meteo.com/v1/forecast`
       +`?latitude=${state.lat}&longitude=${state.lon}`
       +`&hourly=temperature_2m,precipitation`
       +`&start_date=${fmt(startDate)}&end_date=${fmt(endDate)}`
-      +`&timezone=auto`;
+      +`&timezone=auto&wind_speed_unit=kmh`;
 
     const res=await fetch(url);
-    if(!res.ok)throw new Error('Archive API failed');
+    if(!res.ok)throw new Error(`Historical API ${res.status}`);
     const json=await res.json();
     if(json.error)throw new Error(json.reason);
     actualData=json;
 
-    // For each enabled model, find matching hours and compute RMSE vs actuals
     const activeMods=activeEnabled();
-    if(activeMods.length===0)return;
+    if(!activeMods.length)return;
 
     const actTimes=json.hourly.time;
     const actTemps=json.hourly.temperature_2m;
     const actRain=json.hourly.precipitation;
+    const now=new Date();
 
-    // Build a time->index map for actuals
+    // Build time->index map for actuals
     const actMap={};
     actTimes.forEach((t,i)=>{ actMap[t]=i; });
 
-    const errors={}; // key -> {tempSqErr, rainSqErr, n}
-    activeMods.forEach(m=>{ errors[m.key]={tempSqErr:0,rainSqErr:0,n:0}; });
+    // For each model, compute recency-weighted RMSE
+    // Hours closer to now get exponentially more weight in the error calc
+    // Half-life = 48 hours (errors 48h ago count half as much as errors now)
+    const HALF_LIFE_HOURS=48;
+    const DECAY=Math.log(2)/HALF_LIFE_HOURS;
+
+    const errors={};
+    activeMods.forEach(m=>{ errors[m.key]={wTempSq:0,wRainSq:0,wN:0}; });
 
     activeMods.forEach(m=>{
       const mHourly=state.data[m.key]?.hourly;
@@ -836,47 +844,68 @@ async function fetchActualsAndComputeWeights(){
       mHourly.time.forEach((t,i)=>{
         const ai=actMap[t];
         if(ai===undefined)return;
+        // Only compare past hours (not future)
+        const rowTime=new Date(t);
+        if(rowTime>=now)return;
+
         const mTemp=mHourly.temperature_2m?.[i];
         const mRain=mHourly.precipitation?.[i];
         const aTemp=actTemps[ai];
         const aRain=actRain[ai];
-        if(mTemp!=null&&aTemp!=null){
-          errors[m.key].tempSqErr+=(mTemp-aTemp)**2;
-          errors[m.key].n++;
-        }
-        if(mRain!=null&&aRain!=null){
-          errors[m.key].rainSqErr+=(mRain-aRain)**2;
-        }
+        if(mTemp==null||aTemp==null)return;
+
+        // Recency weight: exponential decay from now backwards
+        const hoursAgo=(now-rowTime)/3600000;
+        const recencyW=Math.exp(-DECAY*hoursAgo);
+
+        errors[m.key].wTempSq+=recencyW*(mTemp-aTemp)**2;
+        errors[m.key].wRainSq+=recencyW*(mRain!=null&&aRain!=null?(mRain-aRain)**2:0);
+        errors[m.key].wN+=recencyW;
       });
     });
 
-    // RMSE per model (combined temp + rain, normalised)
+    // Weighted RMSE per model
     const rmse={};
     activeMods.forEach(m=>{
       const e=errors[m.key];
-      if(e.n===0){rmse[m.key]=999;return;}
-      const tempRMSE=Math.sqrt(e.tempSqErr/e.n);
-      const rainRMSE=Math.sqrt(e.rainSqErr/e.n);
-      // Combine: temp weighted 70%, rain 30%
+      if(e.wN<1){rmse[m.key]=999;return;} // not enough data
+      const tempRMSE=Math.sqrt(e.wTempSq/e.wN);
+      const rainRMSE=Math.sqrt(e.wRainSq/e.wN);
       rmse[m.key]=tempRMSE*0.7+rainRMSE*0.3;
     });
 
-    // Convert RMSE to weights: lower error = higher weight
-    // Use inverse-error weighting: w_i = (1/RMSE_i) / sum(1/RMSE_j)
-    const invSum=activeMods.reduce((s,m)=>s+(rmse[m.key]>0?1/rmse[m.key]:0),0);
+    // Inverse-error weighting (lower error = higher weight)
+    const invSum=activeMods.reduce((s,m)=>s+(rmse[m.key]>0&&rmse[m.key]<999?1/rmse[m.key]:0),0);
     modelWeights={};
-    activeMods.forEach(m=>{
-      modelWeights[m.key]=invSum>0?(rmse[m.key]>0?(1/rmse[m.key])/invSum:0):1/activeMods.length;
-    });
+    if(invSum>0){
+      activeMods.forEach(m=>{
+        modelWeights[m.key]=rmse[m.key]>0&&rmse[m.key]<999?(1/rmse[m.key])/invSum:0;
+      });
+      // Redistribute zero-weight models to small equal share
+      const zeroKeys=activeMods.filter(m=>modelWeights[m.key]===0);
+      if(zeroKeys.length&&activeMods.length>zeroKeys.length){
+        const share=0.02; // 2% floor for models with no data
+        const excess=zeroKeys.length*share;
+        activeMods.filter(m=>modelWeights[m.key]>0).forEach(m=>{
+          modelWeights[m.key]*=(1-excess);
+        });
+        zeroKeys.forEach(m=>{ modelWeights[m.key]=share/zeroKeys.length; });
+      }
+    } else {
+      // All models equal if no valid error data
+      activeMods.forEach(m=>{ modelWeights[m.key]=1/activeMods.length; });
+    }
 
-    console.log('Model weights:',JSON.stringify(
-      Object.fromEntries(Object.entries(modelWeights).map(([k,v])=>[k,(v*100).toFixed(1)+'%']))
-    ));
+    console.log('Recency-weighted RMSE:',
+      Object.fromEntries(activeMods.map(m=>[m.label,rmse[m.key]?.toFixed(3)])));
+    console.log('Model weights:',
+      Object.fromEntries(activeMods.map(m=>[m.label,(modelWeights[m.key]*100).toFixed(1)+'%'])));
+
   }catch(e){
-    console.warn('Actuals fetch failed:',e.message);
-    // Fall back to equal weights
+    console.warn('Actuals/weights failed:',e.message);
     const activeMods=activeEnabled();
     modelWeights={};
+    actualData=null;
     activeMods.forEach(m=>{ modelWeights[m.key]=1/activeMods.length; });
   }
 }
