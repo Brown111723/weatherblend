@@ -101,7 +101,8 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .row-label{position:sticky;left:0;z-index:5;background:var(--bg);min-width:145px;max-width:145px;text-align:left!important;padding-left:20px!important;border-right:1px solid var(--border);}
 .hour-header th.row-label{background:var(--bg);z-index:15;}
 .hour-header th{padding:12px 6px 8px;font-size:14px;font-weight:500;color:var(--text-muted);text-align:center;background:var(--bg);position:sticky;top:0;z-index:10;min-width:64px;border-bottom:2px solid var(--border);}
-.hour-header th.now-col{color:var(--accent);border-bottom-color:var(--accent);}
+.hour-header th.now-col{color:var(--accent);border-bottom-color:var(--accent);border-left:2px solid var(--accent)!important;}
+.ftable td.now-col{border-left:2px solid rgba(59,130,246,0.3)!important;}
 
 /* Day/night: DAY columns stand OUT with a slight warm tint; night stays dark base */
 .day-col{background:var(--day-bg)!important;}
@@ -615,7 +616,7 @@ async function fetchAllModels(){
         +`&hourly=precipitation,windspeed_10m,winddirection_10m,temperature_2m,weathercode`
         +`&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,`
         +`windspeed_10m_max,winddirection_10m_dominant,sunrise,sunset`
-        +`&models=${m.key}&forecast_days=10&timezone=auto&wind_speed_unit=kmh`;
+        +`&models=${m.key}&past_days=7&forecast_days=10&timezone=auto&wind_speed_unit=kmh`;
       const res=await fetch(url);if(!res.ok)throw new Error(`HTTP ${res.status}`);
       const json=await res.json();if(json.error)throw new Error(json.reason||'API error');
       if(!json.hourly?.temperature_2m?.some(v=>v!=null))throw new Error('No data');
@@ -661,11 +662,11 @@ function buildForecastRainCache(){
   const onlyEnabled=activeEnabled();if(!onlyEnabled.length)return;
   const ref=state.data[onlyEnabled[0].key].hourly;
   const now=new Date();
+  // Start from current hour (forecast only, not past data)
   let si=ref.time.findIndex(t=>new Date(t)>=now);if(si<0)si=0;
-  // store next 25 hourly avg values
   cachedForecastRain=Array.from({length:25},(_,i)=>{
     const idx=si+i;
-    return weightedAvgOf(onlyEnabled.map(m=>({key:m.key, val:state.data[m.key]?.hourly?.precipitation?.[idx]??null})));
+    return weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.hourly?.precipitation?.[idx]??null})));
   });
 }
 
@@ -970,15 +971,20 @@ function renderHourly(){
   const firstKey=MODELS.find(m=>state.data[m.key])?.key;if(!firstKey)return;
   const ref=state.data[firstKey].hourly;
   const now=new Date();
-  let si=ref.time.findIndex(t=>new Date(t)>=now);if(si<0)si=0;
+  // Start from 7 days ago so past actual data is visible; scroll right for forecast
   const step=state.view==='1h'?1:state.view==='3h'?3:8;
+  // Find index 7 days ago (or start of data)
+  const sevenDaysAgo=new Date(now.getTime()-7*24*3600*1000);
+  let si=ref.time.findIndex(t=>new Date(t)>=sevenDaysAgo);if(si<0)si=0;
+  // Find "now" index for highlighting
+  const nowIdx=ref.time.findIndex(t=>new Date(t)>=now);
   const raw=[];
-  for(let i=si;i<ref.time.length&&i<si+10*24;i+=step)raw.push(i);
-  const indices=raw.slice(0,state.view==='1h'?48:state.view==='3h'?64:30);
+  for(let i=si;i<ref.time.length&&i<si+17*24;i+=step)raw.push(i);
+  const indices=raw.slice(0,state.view==='1h'?17*24:state.view==='3h'?Math.ceil(17*24/3):Math.ceil(17*24/8));
 
   document.getElementById('date-info').innerHTML=
     `<strong>${now.toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'long'})}</strong>`+
-    ` · ${state.view==='1h'?'next 48 hours':state.view==='3h'?'next 8 days (3-hourly)':'next 10 days (8-hourly)'}`;
+    ` · ${state.view==='1h'?'past 7 days + next 10 days':state.view==='3h'?'past 7 + next 10 days (3-hourly)':'past 7 + next 10 days (8-hourly)'} · scroll for forecast →`;
 
   const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const ndCls=indices.map((i,ci)=>colDayCls(ref.time[i],ci>0?ref.time[indices[ci-1]]:null));
@@ -986,7 +992,7 @@ function renderHourly(){
   const hdrCells=indices.map((i,ci)=>{
     const d=new Date(ref.time[i]);
     const timeStr=fmtAmPm(d);  // am/pm
-    const isNow=Math.abs(d-now)<(step*3600000/2);
+    const isNow=nowIdx>=0&&i===nowIdx;
     const cls=[isNow?'now-col':'',ndCls[ci]].filter(Boolean).join(' ');
     return`<th class="${cls}"><span class="col-day">${DAYS[d.getDay()]}</span><span class="col-time">${timeStr}</span></th>`;
   }).join('');
@@ -1033,15 +1039,15 @@ function renderHourly(){
     if(!actualData)return indices.map(()=>'<td class="empty">–</td>').join('');
     const actTimes=actualData.hourly.time;
     const actVals=actualData.hourly[field]||[];
-    const actMap={};actTimes.forEach((t,i)=>{actMap[t]=i;});
-    return indices.map(i=>{
-      const t=ref.time[i];
+    const actMap={};actTimes.forEach((t,ai)=>{actMap[t]=ai;});
+    return indices.map((hourIdx,ci)=>{
+      const t=ref.time[hourIdx];
       const ai=actMap[t];
       if(ai===undefined)return '<td class="empty">–</td>';
       const v=actVals[ai];
       if(v==null)return '<td class="empty">–</td>';
       const cls=clsFn?clsFn(v):'';
-      return injectColCls(`<td class="${cls}">${fmtFn(v)}</td>`,ndCls[i<indices.length?indices.indexOf(i):0]);
+      return injectColCls(`<td class="${cls}">${fmtFn(v)}</td>`,ndCls[ci]);
     }).join('');
   }
   const actualTempCells=buildActualCells('temperature_2m',indices,v=>v.toFixed(0)+'°',tempCls);
