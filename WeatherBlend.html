@@ -86,11 +86,6 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .mname{font-weight:600;color:var(--text-primary);}.mdesc{font-size:10px;color:var(--text-muted);}
 .munavail{font-size:9px;color:#b45309;font-style:italic;}
 
-/* ── Legend ── */
-.legend{padding:6px 20px;display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:var(--text-muted);border-bottom:1px solid var(--border);}
-.legend.hidden{display:none;}
-.statusbar.hidden{display:none;}
-.lsw{width:11px;height:7px;border-radius:2px;display:inline-block;vertical-align:middle;}
 
 /* ── Table ── */
 .table-wrap{overflow-x:auto;padding-bottom:40px;}
@@ -125,16 +120,14 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 
 .col-day{font-size:9px;color:var(--text-dim);display:block;margin-bottom:1px;}
 .col-time{display:block;}
-/* Section headings — now double as avg row, so data cells sit on same row as label */
+/* Section heading rows — double as avg data rows */
 .sec-head-temp td,.sec-head-wind td,.sec-head-rain td{
-  padding:10px 3px 6px;font-size:12px;font-weight:600;
-  border-bottom:2px solid var(--border2);text-align:center;
+  padding:8px 3px 6px;font-size:12px;font-weight:600;
+  border-bottom:2px solid var(--border2);text-align:center;color:var(--text-primary);
 }
-/* The label cell (first td) in each heading row */
-.sec-head-temp td.row-label{font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#86efac;text-align:left!important;}
-.sec-head-wind td.row-label{font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#d9f99d;text-align:left!important;}
-.sec-head-rain td.row-label{font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#90caf9;text-align:left!important;}
-/* hilocell inside heading row */
+.sec-head-temp td.row-label{font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#86efac;text-align:left!important;padding-left:20px!important;}
+.sec-head-wind td.row-label{font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#d9f99d;text-align:left!important;padding-left:20px!important;}
+.sec-head-rain td.row-label{font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#90caf9;text-align:left!important;padding-left:20px!important;}
 .sec-head-temp .hilocell,.sec-head-wind .hilocell,.sec-head-rain .hilocell{font-size:9px;color:var(--text-muted);display:block;margin-top:1px;font-weight:400;}
 .icon-row td{text-align:center;padding:8px 4px;font-size:19px;}
 .data-row td{text-align:center;padding:4px 3px;font-size:12px;color:var(--text-primary);min-width:54px;}
@@ -226,19 +219,8 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 
 <div class="model-panel" id="model-panel"></div>
 
-<div class="statusbar hidden" id="statusbar">
-  <span class="dot spin" id="status-dot"></span>
-  <span id="status-text">Fetching models…</span>
-  <span id="model-pills"></span>
-</div>
 <div id="err-area"></div>
 
-<div class="legend hidden" id="legend">
-  🌡 <span class="lsw" style="background:#0d1a2e"></span>cold <span class="lsw" style="background:#0d2e1a"></span>mild <span class="lsw" style="background:#3a1000"></span>hot
-  &nbsp;|&nbsp; 🌧 <span class="lsw" style="background:#0d2540"></span>trace <span class="lsw" style="background:#0f4c8a"></span>0.5 <span class="lsw" style="background:#1976d2"></span>1mm+
-  &nbsp;|&nbsp; 💨 <span class="lsw" style="background:#0a1a0f"></span>calm <span class="lsw" style="background:#2a3a0a"></span>mod <span class="lsw" style="background:#4a1a0a"></span>strong
-  &nbsp;|&nbsp; ☀️ lighter col=daytime &nbsp; ▏=new day
-</div>
 
 <div class="table-wrap">
   <table class="ftable"><tbody id="tbody">
@@ -270,8 +252,6 @@ const MODELS = [
 const enabled    = new Set(MODELS.map(m=>m.key));
 const autoHidden = new Set();
 let showDetail = false;
-let showLegend = false;   // hidden by default
-let showStatus = false;   // hidden by default
 const secVisible = { temp:true, wind:false, rain:true };
 
 // Cached current fetch data for instant re-calc on view change
@@ -287,7 +267,6 @@ const AUTO_MS = 60*60*1000;
 // ══════════════════════════════════════════
 window.addEventListener('DOMContentLoaded',()=>{
   buildSourcesPanel();
-  applyDisplayPrefs();  // apply legend/status prefs once at startup
   updateDetailBtn();
   getLocation();
 });
@@ -300,41 +279,9 @@ function buildSourcesPanel(){
         <span class="mdot" style="background:${m.color}">${m.short}</span>
         <span class="mname">${m.label}</span>
         <span class="mdesc">${m.desc}</span>
-      </div>`).join('')+
-    `<span class="panel-label" style="margin-left:8px">Display</span>`+
-    `<div class="model-toggle${showLegend?' enabled':''}" id="tog-legend" onclick="toggleLegend()">
-       <span style="font-size:11px">🎨</span>
-       <span class="mname">Legend</span>
-     </div>`+
-    `<div class="model-toggle${showStatus?' enabled':''}" id="tog-status" onclick="toggleStatus()">
-       <span style="font-size:11px">📡</span>
-       <span class="mname">Status bar</span>
-     </div>`;
+      </div>`).join('');
 }
 
-// Apply legend/status visibility — called once at boot only
-function applyDisplayPrefs(){
-  document.getElementById('legend').classList.toggle('hidden',!showLegend);
-  document.getElementById('statusbar').classList.toggle('hidden',!showStatus);
-}
-
-function toggleLegend(){
-  showLegend=!showLegend;
-  document.getElementById('legend').classList.toggle('hidden',!showLegend);
-  const el=document.getElementById('tog-legend');
-  if(el)el.className='model-toggle'+(showLegend?' enabled':'');
-}
-function toggleStatus(){
-  showStatus=!showStatus;
-  document.getElementById('statusbar').classList.toggle('hidden',!showStatus);
-  const el=document.getElementById('tog-status');
-  if(el)el.className='model-toggle'+(showStatus?' enabled':'');
-}
-
-function toggleSourcesPanel(){
-  document.getElementById('model-panel').classList.toggle('open');
-  document.getElementById('sources-btn').classList.toggle('active');
-}
 function toggleModel(key){
   if(autoHidden.has(key))return;
   const el=document.getElementById('toggle-'+key);
@@ -382,38 +329,11 @@ function updateAutoLabel(){
 // ══════════════════════════════════════════
 function getLocation(){
   setStatus('spin','Detecting location…');
-  if(!navigator.geolocation){
-    geoFailed('Geolocation not supported by this browser.');
-    return;
-  }
-  // Use a manual timeout as backup — getCurrentPosition can hang silently
-  const geoTimer = setTimeout(()=>geoFailed('Location timed out.'), 8000);
+  if(!navigator.geolocation){useDefault();return;}
   navigator.geolocation.getCurrentPosition(
-    pos=>{
-      clearTimeout(geoTimer);
-      state.lat=pos.coords.latitude;
-      state.lon=pos.coords.longitude;
-      reverseGeocode(state.lat,state.lon);
-      fetchAllModels();
-    },
-    err=>{
-      clearTimeout(geoTimer);
-      // err.code: 1=PERMISSION_DENIED, 2=UNAVAILABLE, 3=TIMEOUT
-      const msg = err.code===1
-        ? 'Location access denied — click 📍 to enter your city manually.'
-        : 'Could not detect location — click 📍 to enter your city.';
-      geoFailed(msg);
-    },
-    {timeout:7000, maximumAge:300000, enableHighAccuracy:false}
+    pos=>{state.lat=pos.coords.latitude;state.lon=pos.coords.longitude;reverseGeocode(state.lat,state.lon);fetchAllModels();},
+    ()=>useDefault()
   );
-}
-
-function geoFailed(reason){
-  // Fall back to London but show a friendly notice so user knows to set city
-  state.lat=51.5074; state.lon=-0.1278;
-  document.getElementById('loc-name').textContent='Set your city →';
-  setStatus('ok', reason);
-  fetchAllModels();
 }
 function useDefault(){
   state.lat=51.5074;state.lon=-0.1278;
