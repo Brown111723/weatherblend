@@ -805,14 +805,11 @@ function renderCurrentBar(){
   document.getElementById('curr-synopsis').textContent=briefSynopsis(c);
 
   // Rain today: total value + "x.x + x.x" sub-line
+  // Today rain — Recorded and Expected separately
   const todayEl=document.getElementById('curr-today-rain');
-  const todaySubEl=document.getElementById('curr-today-sub');
-  if(todayEl){
-    todayEl.textContent=`${totalToday.toFixed(1)} mm`;
-    const mStr=measuredToday.toFixed(1);
-    const eStr=expectedToday!=null?expectedToday.toFixed(1):'?';
-    todaySubEl.textContent=`${mStr} + ${eStr}`;
-  }
+  const todayExpEl=document.getElementById('curr-today-exp');
+  if(todayEl) todayEl.textContent=measuredToday.toFixed(1)+' mm';
+  if(todayExpEl) todayExpEl.textContent=(expectedToday!=null?expectedToday.toFixed(1):'–')+' mm';
 
   document.getElementById('curr-wind').textContent=`${Math.round(c.windspeed_10m)} km/h · ${windWord(c.windspeed_10m)}`;
   document.getElementById('curr-winddir').textContent=`${windArrow} ${dirFull(c.winddirection_10m)}`;
