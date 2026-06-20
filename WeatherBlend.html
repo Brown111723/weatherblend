@@ -106,14 +106,18 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 
 /* ── Table ── */
 .table-wrap{overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 280px);padding-bottom:40px;position:relative;}
-#now-overlay{position:absolute;top:0;height:100%;width:0;border-left:1px dotted #ef4444;pointer-events:none;z-index:13;display:none;}
-#past-overlay{position:absolute;top:0;left:0;width:0;height:100%;background:rgba(0,0,0,0.35);pointer-events:none;z-index:12;display:none;}
-#past-overlay-h{position:absolute;left:0;top:0;width:100%;height:0;background:rgba(0,0,0,0.35);pointer-events:none;z-index:12;display:none;}
-#now-overlay-h{position:absolute;left:0;width:100%;height:0;border-top:1px dotted #ef4444;pointer-events:none;z-index:13;display:none;}
+#now-overlay{position:absolute;top:0;height:100%;width:0;border-left:1px dotted #ef4444;pointer-events:none;z-index:11;display:none;}
+#past-overlay{position:absolute;top:0;left:0;width:0;height:100%;background:rgba(0,0,0,0.35);pointer-events:none;z-index:10;display:none;}
+#past-overlay-h{position:absolute;left:0;top:0;width:100%;height:0;background:rgba(0,0,0,0.35);pointer-events:none;z-index:10;display:none;}
+/* Vertical layout z-index swap: date-header high, row-label low */
+.table-wrap.vertical-mode .row-label{z-index:8;}
+.table-wrap.vertical-mode .hour-header th{z-index:14;}
+.table-wrap.vertical-mode .hour-header th.row-label{z-index:16;}
+#now-overlay-h{position:absolute;left:0;width:100%;height:0;border-top:1px dotted #ef4444;pointer-events:none;z-index:11;display:none;}
 .ftable{width:100%;border-collapse:separate;border-spacing:0;font-family:'JetBrains Mono',monospace;}
 .ftable th,.ftable td{white-space:nowrap;}
-.row-label{position:sticky;left:0;z-index:20;background:var(--bg);min-width:98px;max-width:98px;text-align:left!important;padding-left:20px!important;border-right:1px solid var(--border);}
-.hour-header th.row-label{background:var(--bg);z-index:25;}
+.row-label{position:sticky;left:0;z-index:14;background:var(--bg);min-width:98px;max-width:98px;text-align:left!important;padding-left:20px!important;border-right:1px solid var(--border);}
+.hour-header th.row-label{background:var(--bg);z-index:16;}
 .hour-header th{padding:12px 6px 8px;font-size:14px;font-weight:500;color:var(--text-muted);text-align:center;background:var(--bg);position:sticky;top:0;z-index:8;min-width:64px;border-bottom:2px solid var(--border);}
 .hour-header th.now-col{color:#ef4444;}
 .hour-header th.now-col .col-day,.hour-header th.now-col .col-time{color:#ef4444!important;}
@@ -327,7 +331,7 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
     </div>
 
     <h3>Weather sources (9 models)</h3>
-    <div class="src-grid">
+    <div class="src-grid"><div class="src-item"><div class="src-name" style="color:#ea4335">GOOG</div><div class="src-desc">Google Weather forecast plus today actuals</div></div>
       <div class="src-item"><div class="src-name" style="color:#0891b2">WApi</div><div class="src-desc">WeatherAPI.com · Observations + 14-day Forecast · Used for Actual data</div></div>
       <div class="src-item"><div class="src-name" style="color:#2563eb">GFS</div><div class="src-desc">NOAA · USA · Global 25km · 16-day</div></div>
       <div class="src-item"><div class="src-name" style="color:#059669">ECMWF</div><div class="src-desc">European Centre · 9km · Open data since Oct 2025</div></div>
@@ -389,7 +393,7 @@ const MODELS = [
   { key:'ukmo_seamless',     ep:'/v1/forecast', label:'UKMO',  short:'U', color:'#dc2626', desc:'Met Office · UK' },
   { key:'cma_grapes_global', ep:'/v1/forecast', label:'CMA',   short:'X', color:'#d97706', desc:'CMA · China'     },
   { key:'jma_seamless',      ep:'/v1/forecast', label:'JMA',   short:'J', color:'#6366f1', desc:'JMA · Japan'     },
-  { key:'weatherapi',          ep:'wa',             label:'WApi',  short:'W', color:'#0891b2', desc:'WeatherAPI · Obs+Fcst', wa:true },
+  { key:'google',            ep:'goog',           label:'GOOG',  short:'G', color:'#ea4335', desc:'Google Weather', goog:true }
 ];
 
 const enabled    = new Set(MODELS.map(m=>m.key));
@@ -678,7 +682,7 @@ async function fetchAllModels(){
   fetchCurrentConditions();
 
   await Promise.all(MODELS.map(async m=>{
-    if(m.wa){await fetchWeatherAPI(m);return;}
+    if(m.goog){await fetchGoogleWeather(m);return;}
     try{
       const url=`https://api.open-meteo.com${m.ep}`
         +`?latitude=${state.lat}&longitude=${state.lon}`
@@ -860,105 +864,76 @@ function isDayStart(iso,prevIso){return prevIso&&iso.slice(0,10)!==prevIso.slice
 
 
 // ══════════════════════════════════════════
-// WEATHERAPI.COM — fetch + normalise
+// GOOGLE WEATHER — forecast source + today's actuals
 // ══════════════════════════════════════════
-const WA_KEY='57528791b9a246b881984427262006';
-const WA_BASE='https://api.weatherapi.com/v1';
+const GOOG_KEY='AIzaSyA0Hb0mSYASgli7WiVOOlDEDAOCrhFCCG8';
+const GOOG_BASE='https://weather.googleapis.com/v1';
 
-// Map WeatherAPI condition codes → WMO codes
-function waCodeToWMO(code){
-  if(!code)return 1;
-  // Clear/Sunny
-  if(code===1000)return 0;
-  // Partly cloudy
-  if(code===1003)return 2;
-  // Cloudy/Overcast
-  if(code===1006||code===1009)return 3;
-  // Fog/mist
-  if(code>=1030&&code<=1135)return 45;
-  // Drizzle
-  if(code>=1150&&code<=1153)return 51;
-  if(code>=1168&&code<=1171)return 57;
-  // Rain
-  if(code===1063||code===1180||code===1183)return 61;
-  if(code===1186||code===1189)return 63;
-  if(code===1192||code===1195||code===1243||code===1246)return 65;
-  // Showers
-  if(code===1240||code===1243)return 80;
-  // Sleet
-  if(code===1069||code===1204||code===1207)return 68;
-  // Snow
-  if(code>=1210&&code<=1225)return 73;
-  if(code===1066||code===1114||code===1117)return 71;
-  // Blizzard
-  if(code===1117)return 75;
-  // Thunder
-  if(code>=1273&&code<=1282)return 95;
+function googTypeToWMO(type){
+  if(!type)return 1;
+  const t=String(type).toUpperCase();
+  if(t.includes('THUNDERSTORM'))return 95;
+  if(t.includes('SNOW')||t.includes('BLIZZARD')||t.includes('FLURR'))return 73;
+  if(t.includes('HEAVY_RAIN')||t.includes('HEAVY_SHOWER'))return 65;
+  if(t.includes('RAIN_SHOWER')||t.includes('SHOWER'))return 80;
+  if(t.includes('RAIN')||t.includes('DRIZZLE'))return 61;
+  if(t.includes('FOG')||t.includes('MIST')||t.includes('HAZE'))return 45;
+  if(t.includes('MOSTLY_CLEAR')||t.includes('PARTLY'))return 2;
+  if(t.includes('CLEAR')||t.includes('SUNNY'))return 0;
+  if(t.includes('CLOUDY')||t.includes('OVERCAST'))return 3;
   return 1;
 }
 
-async function fetchWeatherAPI(m){
+function googTimeToLocal(iso){
+  const d=new Date(iso);
+  const pad=n=>String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':00';
+}
+
+async function fetchGoogleWeather(m){
   state.status[m.key]='load';
   try{
-    const q=`${state.lat},${state.lon}`;
-
-    // ── Fetch forecast (today + 14 days) ──
-    const fcstUrl=`${WA_BASE}/forecast.json?key=${WA_KEY}&q=${q}&days=14&aqi=no&alerts=no`;
-    const fcstRes=await fetch(fcstUrl);
-    if(!fcstRes.ok)throw new Error(`WA forecast HTTP ${fcstRes.status}`);
-    const fcstJson=await fcstRes.json();
-
-    // ── Fetch past 7 days history in parallel (free plan: 1 day per call) ──
-    const histDates=[];
-    for(let d=7;d>=1;d--){
-      const dt=new Date(); dt.setDate(dt.getDate()-d);
-      histDates.push(dt.toISOString().slice(0,10));
-    }
-    const histResults=await Promise.all(histDates.map(async dt=>{
-      const url=`${WA_BASE}/history.json?key=${WA_KEY}&q=${q}&dt=${dt}`;
-      const r=await fetch(url);
-      if(!r.ok)return null;
-      return r.json();
-    }));
-
-    // ── Merge history + forecast days ──
-    const allDays=[
-      ...histResults.filter(Boolean).flatMap(h=>h.forecast?.forecastday||[]),
-      ...(fcstJson.forecast?.forecastday||[])
-    ];
-    // Deduplicate by date
-    const seen=new Set();
-    const days=allDays.filter(d=>{
-      if(seen.has(d.date))return false;
-      seen.add(d.date);return true;
-    }).sort((a,b)=>a.date.localeCompare(b.date));
-
-    // ── Normalise to Open-Meteo shape ──
+    const lat=state.lat, lon=state.lon;
     const hTime=[],hTemp=[],hPrecip=[],hWind=[],hWindDir=[],hCloud=[],hWCode=[];
-    const dTime=[],dTMax=[],dTMin=[],dPrecip=[],dWind=[],dWCode=[];
-
-    for(const day of days){
-      dTime.push(day.date);
-      dTMax.push(day.day?.maxtemp_c??null);
-      dTMin.push(day.day?.mintemp_c??null);
-      dPrecip.push(day.day?.totalprecip_mm??0);
-      dWind.push(day.day?.maxwind_kph??null);
-      dWCode.push(waCodeToWMO(day.day?.condition?.code));
-
-      for(const hr of (day.hour||[])){
-        // WA time format: "2024-01-15 14:00"
-        const t=hr.time.replace(' ','T').slice(0,16);
-        // Only include on-the-hour entries
-        if(!hr.time.endsWith(':00'))continue;
-        hTime.push(t.slice(0,16));
-        hTemp.push(hr.temp_c??null);
-        hPrecip.push(hr.precip_mm??0);
-        hWind.push(hr.wind_kph??null);
-        hWindDir.push(hr.wind_degree??null);
-        hCloud.push(hr.cloud??null);
-        hWCode.push(waCodeToWMO(hr.condition?.code));
+    let pageToken=null, pages=0;
+    do{
+      let url=GOOG_BASE+'/forecast/hours:lookup?key='+GOOG_KEY
+        +'&location.latitude='+lat+'&location.longitude='+lon+'&hours=240&pageSize=24';
+      if(pageToken)url+='&pageToken='+pageToken;
+      const r=await fetch(url);
+      if(!r.ok)throw new Error('GOOG fcst HTTP '+r.status);
+      const j=await r.json();
+      for(const h of (j.forecastHours||[])){
+        hTime.push(googTimeToLocal(h.interval?.startTime));
+        hTemp.push(h.temperature?.degrees??null);
+        hPrecip.push(h.precipitation?.qpf?.quantity??0);
+        hWind.push(h.wind?.speed?.value??null);
+        hWindDir.push(h.wind?.direction?.degrees??null);
+        hCloud.push(h.cloudCover??null);
+        hWCode.push(googTypeToWMO(h.weatherCondition?.type));
       }
-    }
+      pageToken=j.nextPageToken; pages++;
+    } while(pageToken && pages<10);
+
+    const dTime=[],dTMax=[],dTMin=[],dPrecip=[],dWind=[],dWCode=[];
+    try{
+      const dr=await fetch(GOOG_BASE+'/forecast/days:lookup?key='+GOOG_KEY
+        +'&location.latitude='+lat+'&location.longitude='+lon+'&days=10');
+      if(dr.ok){
+        const dj=await dr.json();
+        for(const d of (dj.forecastDays||[])){
+          const dd=d.displayDate;
+          if(!dd)continue;
+          const dateStr=dd.year+'-'+String(dd.month).padStart(2,'0')+'-'+String(dd.day).padStart(2,'0');
+          dTime.push(dateStr);
+          dTMax.push(d.maxTemperature?.degrees??null);
+          dTMin.push(d.minTemperature?.degrees??null);
+          dPrecip.push((d.daytimeForecast?.precipitation?.qpf?.quantity??0)+(d.nighttimeForecast?.precipitation?.qpf?.quantity??0));
+          dWind.push(d.daytimeForecast?.wind?.speed?.value??null);
+          dWCode.push(googTypeToWMO(d.daytimeForecast?.weatherCondition?.type));
+        }
+      }
+    }catch(e){console.warn('GOOG daily failed',e.message);}
 
     state.data[m.key]={
       hourly:{time:hTime,temperature_2m:hTemp,precipitation:hPrecip,
@@ -966,39 +941,49 @@ async function fetchWeatherAPI(m){
               cloudcover:hCloud,weathercode:hWCode},
       daily:{time:dTime,temperature_2m_max:dTMax,temperature_2m_min:dTMin,
              precipitation_sum:dPrecip,windspeed_10m_max:dWind,weathercode:dWCode},
-      timezone:fcstJson.location?.tz_id||'auto',
-      utc_offset_seconds:0
+      timezone:'auto',utc_offset_seconds:0
     };
     state.status[m.key]='ok';
-
-    // ── Also use WA as actuals source if actualData not yet populated ──
-    // WA history gives real station-blended observations
-    if(!actualData||actualData._source!=='wa'){
-      const actHourly={time:[],temperature_2m:[],precipitation:[],cloudcover:[]};
-      const actDaily={time:[],temperature_2m_max:[],temperature_2m_min:[],precipitation_sum:[]};
-      const histDays=histResults.filter(Boolean).flatMap(h=>h.forecast?.forecastday||[]);
-      for(const day of histDays.sort((a,b)=>a.date.localeCompare(b.date))){
-        actDaily.time.push(day.date);
-        actDaily.temperature_2m_max.push(day.day?.maxtemp_c??null);
-        actDaily.temperature_2m_min.push(day.day?.mintemp_c??null);
-        actDaily.precipitation_sum.push(day.day?.totalprecip_mm??0);
-        for(const hr of (day.hour||[])){
-          if(!hr.time.endsWith(':00'))continue;
-          actHourly.time.push(hr.time.replace(' ','T').slice(0,16));
-          actHourly.temperature_2m.push(hr.temp_c??null);
-          actHourly.precipitation.push(hr.precip_mm??0);
-          actHourly.cloudcover.push(hr.cloud??null);
-        }
-      }
-      actualData={hourly:actHourly,daily:actDaily,_source:'wa'};
-      console.log('Using WeatherAPI as actual/historical data source');
-    }
-
   }catch(e){
-    console.warn('WeatherAPI fetch failed:',e.message);
+    console.warn('Google Weather fetch failed:',e.message);
     state.status[m.key]='fail';
     autoHidden.add(m.key);
     enabled.delete(m.key);
+  }
+}
+
+async function fetchGoogleTodayActuals(){
+  try{
+    const lat=state.lat, lon=state.lon;
+    const r=await fetch(GOOG_BASE+'/history/hours:lookup?key='+GOOG_KEY
+      +'&location.latitude='+lat+'&location.longitude='+lon+'&hours=24&pageSize=24');
+    if(!r.ok)throw new Error('GOOG hist HTTP '+r.status);
+    const j=await r.json();
+    if(!j.historyHours?.length)return;
+    if(!actualData)actualData={hourly:{time:[],temperature_2m:[],precipitation:[],cloudcover:[]},daily:{time:[],temperature_2m_max:[],temperature_2m_min:[],precipitation_sum:[]}};
+    if(!actualData.hourly.cloudcover)actualData.hourly.cloudcover=[];
+    const existing=new Set(actualData.hourly.time);
+    const nowMs=Date.now();
+    for(const h of j.historyHours){
+      const t=googTimeToLocal(h.interval?.startTime);
+      if(new Date(t).getTime()>nowMs)continue;
+      if(existing.has(t))continue;
+      actualData.hourly.time.push(t);
+      actualData.hourly.temperature_2m.push(h.temperature?.degrees??null);
+      actualData.hourly.precipitation.push(h.precipitation?.qpf?.quantity??0);
+      actualData.hourly.cloudcover.push(h.cloudCover??null);
+      existing.add(t);
+    }
+    const idx=actualData.hourly.time.map((t,i)=>i).sort((a,b)=>
+      actualData.hourly.time[a].localeCompare(actualData.hourly.time[b]));
+    const reorder=arr=>idx.map(i=>arr[i]);
+    actualData.hourly.time=reorder(actualData.hourly.time);
+    actualData.hourly.temperature_2m=reorder(actualData.hourly.temperature_2m);
+    actualData.hourly.precipitation=reorder(actualData.hourly.precipitation);
+    actualData.hourly.cloudcover=reorder(actualData.hourly.cloudcover);
+    console.log('Google today actuals merged. Last:',actualData.hourly.time[actualData.hourly.time.length-1]);
+  }catch(e){
+    console.warn('Google today actuals failed:',e.message);
   }
 }
 
@@ -1007,9 +992,6 @@ async function fetchWeatherAPI(m){
 // HISTORICAL ACTUALS + MODEL WEIGHT CALC
 // ══════════════════════════════════════════
 async function fetchActualsAndComputeWeights(){
-  // We always fetch OM historical for weight calculations (it covers all models).
-  // If WA also loaded, it will override actualData for display after this.
-  const waActuals=actualData?._source==='wa'?actualData:null;
   try{
     // Use the Historical Forecast API (historical-forecast-api.open-meteo.com)
     // This stitches the first hours of each model run into a continuous timeseries,
@@ -1032,8 +1014,8 @@ async function fetchActualsAndComputeWeights(){
     if(!res.ok)throw new Error(`Historical API ${res.status}`);
     const json=await res.json();
     if(json.error)throw new Error(json.reason);
-    // Use OM data temporarily for weight calculations
     actualData=json;
+    await fetchGoogleTodayActuals();
 
     const activeMods=activeEnabled();
     if(!activeMods.length)return;
@@ -1114,8 +1096,6 @@ async function fetchActualsAndComputeWeights(){
       activeMods.forEach(m=>{ modelWeights[m.key]=1/activeMods.length; });
     }
 
-    // Weight calc done using OM data. Now restore WA actuals for display if available.
-    if(waActuals)actualData=waActuals;
     console.log('Recency-weighted RMSE:',
       Object.fromEntries(activeMods.map(m=>[m.label,rmse[m.key]?.toFixed(3)])));
     console.log('Model weights:',
@@ -1301,6 +1281,7 @@ function renderVertical_cellVal(colId,i,onlyEnabled,actMap,nowMs,ref){
 }
 
 function renderVerticalHourly(){
+  document.getElementById('table-wrap')?.classList.add('vertical-mode');
   const firstKey=MODELS.find(m=>state.data[m.key])?.key;if(!firstKey)return;
   const ref=state.data[firstKey].hourly;
   const now=new Date();
@@ -1347,6 +1328,7 @@ function renderVerticalHourly(){
 }
 
 function renderVerticalDaily(){
+  document.getElementById('table-wrap')?.classList.add('vertical-mode');
   const allActive=activeAll();if(!allActive.length)return;
   const onlyEnabled=activeEnabled();
   const firstKey=onlyEnabled[0]?.key||allActive[0].key;
@@ -1528,6 +1510,7 @@ function renderTable(){
 // HOURLY RENDER — am/pm times
 // ══════════════════════════════════════════
 function renderHourly(){
+  document.getElementById('table-wrap')?.classList.remove('vertical-mode');
   const firstKey=MODELS.find(m=>state.data[m.key])?.key;if(!firstKey)return;
   const ref=state.data[firstKey].hourly;
   const now=new Date();
@@ -1653,6 +1636,7 @@ function renderHourly(){
 // DAILY RENDER
 // ══════════════════════════════════════════
 function renderDaily(){
+  document.getElementById('table-wrap')?.classList.remove('vertical-mode');
   const allActive=activeAll();if(!allActive.length){renderHourly();return;}
   const onlyEnabled=activeEnabled();
   const firstKey=onlyEnabled[0]?.key||allActive[0].key;
