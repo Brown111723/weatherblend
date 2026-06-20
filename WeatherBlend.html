@@ -470,7 +470,7 @@ function toggleModel(key){
   const el=document.getElementById('toggle-'+key);
   if(enabled.has(key)){enabled.delete(key);el.className='model-toggle disabled';}
   else{enabled.add(key);el.className='model-toggle enabled';}
-  savePrefs(); if(Object.keys(state.data).length)renderTable();
+  savePrefs(); if(Object.keys(state.data).length){renderCurrentBar();renderTable();}
 }
 function toggleDetail(){
   showDetail=!showDetail; updateDetailBtn(); savePrefs();
@@ -495,7 +495,7 @@ function toggleWeighting(btn){
   useWeightedAvg=!useWeightedAvg;
   if(btn){btn.classList.toggle('enabled',useWeightedAvg);btn.classList.toggle('disabled',!useWeightedAvg);}
   savePrefs();
-  if(Object.keys(state.data).length)renderTable();
+  if(Object.keys(state.data).length){renderCurrentBar();renderTable();}
 }
 
 function toggleSection(sec,btn){
@@ -787,55 +787,91 @@ async function fetchCurrentConditions(){
   }catch(e){console.warn('Current:',e.message);}
 }
 
-function renderCurrentBar(){
-  if(!cachedCurrent)return;
-  const {c,precipHourly,daily}=cachedCurrent;
 
-  // Rain today: measured since midnight + expected rest of day
-  const past=precipHourly.slice(0,precipHourly.length-1);
-  const hourOfDay=new Date().getHours();
-  // Measured today from Google actuals (sum precip for today's past hours)
-  let measuredToday=0;
+// Compute current conditions from models' hourly data (avg/weighted per toggle)
+function computeCurrentFromHourly(){
+  const onlyEnabled=activeEnabled();if(!onlyEnabled.length)return null;
+  const ref=state.data[onlyEnabled[0].key]?.hourly;if(!ref)return null;
+  const now=new Date();
+  const todayStr=now.toISOString().slice(0,10);
+  // Current hour index (last hour <= now)
+  let nowIdx=0;
+  for(let k=0;k<ref.time.length;k++){if(new Date(ref.time[k])<=now)nowIdx=k;else break;}
+
+  const wAt=(field,idx)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.hourly?.[field]?.[idx]??null})));
+
+  // Current values
+  const temp=wAt('temperature_2m',nowIdx);
+  const wind=wAt('windspeed_10m',nowIdx);
+  const windDir=wAt('winddirection_10m',nowIdx);
+  const wcode=state.data[onlyEnabled[0].key]?.hourly?.weathercode?.[nowIdx]??null;
+
+  // Today's hi/lo from weighted-avg hourly temps across all of today
+  const todayTemps=[];
+  ref.time.forEach((t,i)=>{
+    if(t.slice(0,10)===todayStr){const v=wAt('temperature_2m',i);if(v!=null)todayTemps.push(v);}
+  });
+  const hi=todayTemps.length?Math.max(...todayTemps):null;
+  const lo=todayTemps.length?Math.min(...todayTemps):null;
+
+  // Rain recorded: sum actual precip since midnight today (from actualData)
+  let rainRecorded=0;
   if(actualData?.hourly?.time){
-    const todayStr=new Date().toISOString().slice(0,10);
     actualData.hourly.time.forEach((t,i)=>{
-      if(t.slice(0,10)===todayStr){measuredToday+=(actualData.hourly.precipitation[i]||0);}
+      if(t.slice(0,10)===todayStr)rainRecorded+=(actualData.hourly.precipitation[i]||0);
     });
   }
-  const hoursLeftToday=Math.max(0,23-hourOfDay);
-  const expectedToday=cachedForecastRain
-    ?cachedForecastRain.slice(0,hoursLeftToday).reduce((a,v)=>a+(v||0),0)
-    :null;
-  const totalToday=expectedToday!=null?measuredToday+expectedToday:measuredToday;
 
-  // Hi/lo from model average
-  const todayHi=cachedHiLo?.hi??daily?.temperature_2m_max?.[0];
-  const todayLo=cachedHiLo?.lo??daily?.temperature_2m_min?.[0];
+  // Rain expected: sum weighted-avg forecast precip for remaining hours today
+  let rainExpected=0;
+  ref.time.forEach((t,i)=>{
+    if(t.slice(0,10)===todayStr && new Date(t)>now){
+      const v=wAt('precipitation',i);if(v!=null)rainExpected+=v;
+    }
+  });
 
-  const windArrow=dirArrow16(c.winddirection_10m);
+  return {temp,wind,windDir,wcode,hi,lo,rainRecorded,rainExpected};
+}
 
-  document.getElementById('curr-icon').textContent=wxIcon(c.weathercode);
-  document.getElementById('curr-temp').textContent=`${Math.round(c.temperature_2m)}°`;
+function renderCurrentBar(){
+  // Prefer computed values from models' hourly data (avg/weighted per toggle)
+  const comp=computeCurrentFromHourly();
+  // Fall back to the API current snapshot for feels-like / icon if needed
+  const c=cachedCurrent?.c;
+  if(!comp&&!c)return;
+
+  const temp   = comp?.temp ?? c?.temperature_2m;
+  const wind   = comp?.wind ?? c?.windspeed_10m;
+  const windDir= comp?.windDir ?? c?.winddirection_10m;
+  const wcode  = comp?.wcode ?? c?.weathercode;
+  const todayHi= comp?.hi ?? cachedHiLo?.hi;
+  const todayLo= comp?.lo ?? cachedHiLo?.lo;
+  const measuredToday = comp?.rainRecorded ?? 0;
+  const expectedToday = comp?.rainExpected ?? 0;
+  const totalToday = measuredToday + expectedToday;
+
+  const windArrow=dirArrow16(windDir??0);
+
+  document.getElementById('curr-icon').textContent=wxIcon(wcode);
+  document.getElementById('curr-temp').textContent=temp!=null?`${Math.round(temp)}°`:'—';
   document.getElementById('curr-hilo').textContent=
     todayHi!=null?`↑${Math.round(todayHi)}° ↓${todayLo!=null?Math.round(todayLo)+'°':'—'}`:'—';
   document.getElementById('curr-date').textContent=new Date().toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'long'});
-  document.getElementById('curr-feels').textContent=`Feels ${Math.round(c.apparent_temperature)}°`;
-  document.getElementById('curr-synopsis').textContent=briefSynopsis(c);
+  // Feels-like still comes from API current (not in hourly models)
+  document.getElementById('curr-feels').textContent=c?`Feels ${Math.round(c.apparent_temperature)}°`:'';
+  document.getElementById('curr-synopsis').textContent=c?briefSynopsis(c):'';
 
-  // Rain today: total value + "x.x + x.x" sub-line
-  // Today rain — Total (Actual + Forecast). Forecast respects weighted/avg toggle.
   const todayActEl=document.getElementById('curr-today-rain');
   const todayExpEl=document.getElementById('curr-today-exp');
   const todayTotEl=document.getElementById('curr-today-total');
-  const actMm=measuredToday;
-  const expMm=expectedToday!=null?expectedToday:0;
-  const totMm=actMm+expMm;
-  if(todayActEl) todayActEl.textContent=actMm.toFixed(1)+' mm';
-  if(todayExpEl) todayExpEl.textContent=expMm.toFixed(1)+' mm';
-  if(todayTotEl) todayTotEl.textContent=totMm.toFixed(1)+' mm';
+  if(todayActEl) todayActEl.textContent=measuredToday.toFixed(1)+' mm';
+  if(todayExpEl) todayExpEl.textContent=expectedToday.toFixed(1)+' mm';
+  if(todayTotEl) todayTotEl.textContent=totalToday.toFixed(1)+' mm';
 
-  document.getElementById('curr-wind').textContent=`${Math.round(c.windspeed_10m)} km/h · ${windWord(c.windspeed_10m)}`;
-  document.getElementById('curr-winddir').textContent=`${windArrow} ${dirFull(c.winddirection_10m)}`;
+  if(wind!=null){
+    document.getElementById('curr-wind').textContent=`${Math.round(wind)} km/h · ${windWord(wind)}`;
+    document.getElementById('curr-winddir').textContent=`${windArrow} ${dirFull(windDir??0)}`;
+  }
   document.getElementById('curr-bar').classList.add('loaded');
 }
 
@@ -1077,11 +1113,23 @@ async function fetchActualsAndComputeWeights(){
     if(!res.ok)throw new Error(`Historical API ${res.status}`);
     const json=await res.json();
     if(json.error)throw new Error(json.reason);
-    // Keep OM data for weight computation (needs 7 days of overlap)
-    const omForWeights=json;
-    // But DISPLAY only Google actuals for consistency
-    actualData={hourly:{time:[],temperature_2m:[],precipitation:[],cloudcover:[]},daily:{time:[],temperature_2m_max:[],temperature_2m_min:[],precipitation_sum:[]},_omWeights:omForWeights};
-    await fetchGoogleActualsFull();
+    // Start with OM historical data (covers past 7 days up to ~11pm yesterday)
+    actualData={
+      hourly:{
+        time:[...(json.hourly?.time||[])],
+        temperature_2m:[...(json.hourly?.temperature_2m||[])],
+        precipitation:[...(json.hourly?.precipitation||[])],
+        cloudcover:[...(json.hourly?.cloudcover||[])]
+      },
+      daily:{
+        time:[...(json.daily?.time||[])],
+        temperature_2m_max:[...(json.daily?.temperature_2m_max||[])],
+        temperature_2m_min:[...(json.daily?.temperature_2m_min||[])],
+        precipitation_sum:[...(json.daily?.precipitation_sum||[])]
+      }
+    };
+    // Merge Google's recent hours on top (fills today's gap midnight→now)
+    await fetchGoogleTodayActuals();
 
     const activeMods=activeEnabled();
     if(!activeMods.length)return;
@@ -1219,7 +1267,25 @@ function buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled,r
 function tempCls(v){if(v==null)return'';if(v<5)return'tc';if(v<12)return'tk';if(v<22)return'tm';if(v<30)return'tw';return'th';}
 function wxIcon(c){if(c==null)return'–';if(c===0)return'☀️';if(c<=2)return'⛅';if(c<=45)return'🌥️';if(c<=55)return'🌦️';if(c<=65)return'🌧️';if(c<=77)return'❄️';if(c<=82)return'🌧️';return'⛈️';}
 function dirArrow(deg){const a=['↑','↗','→','↘','↓','↙','←','↖'],d=['N','NE','E','SE','S','SW','W','NW'];const i=Math.round(((deg%360)+360)%360/45)%8;return`${a[i]} ${d[i]}`;}
-function hVals(key,field,indices){const d=state.data[key];if(!d)return indices.map(()=>null);return indices.map(i=>d.hourly[field]?.[i]??null);}
+function hVals(key,field,indices){
+  const d=state.data[key];if(!d)return indices.map(()=>null);
+  const arr=d.hourly[field];if(!arr)return indices.map(()=>null);
+  const step=state.view==='3h'?3:state.view==='8h'?8:1;
+  if(step===1)return indices.map(i=>arr[i]??null);
+  // Aggregate across each window [i, i+step): sum rain, avg others
+  const isSum=(field==='precipitation');
+  const isFirst=(field==='weathercode'||field==='winddirection_10m');
+  if(isFirst)return indices.map(i=>arr[i]??null);
+  return indices.map(i=>{
+    let sum=0,cnt=0;
+    for(let k=0;k<step;k++){
+      const v=arr[i+k];
+      if(v!=null&&!isNaN(v)){sum+=v;cnt++;}
+    }
+    if(cnt===0)return null;
+    return isSum?sum:sum/cnt;
+  });
+}
 function dailyHiLo(key,isoTime){
   const d=state.data[key]?.daily;if(!d)return null;
   const di=d.time.findIndex(t=>t===isoTime.slice(0,10));if(di<0)return null;
