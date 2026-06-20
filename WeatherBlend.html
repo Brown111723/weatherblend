@@ -106,10 +106,10 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 
 /* ── Table ── */
 .table-wrap{overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 280px);padding-bottom:40px;position:relative;}
-#now-overlay{position:absolute;top:0;height:100%;width:0;border-left:1px dotted #ef4444;pointer-events:none;z-index:5;display:none;}
-#past-overlay{position:absolute;top:0;left:0;width:0;height:100%;background:rgba(0,0,0,0.35);pointer-events:none;z-index:4;display:none;}
-#past-overlay-h{position:absolute;left:0;top:0;width:100%;height:0;background:rgba(0,0,0,0.35);pointer-events:none;z-index:4;display:none;}
-#now-overlay-h{position:absolute;left:0;width:100%;height:0;border-top:1px dotted #ef4444;pointer-events:none;z-index:5;display:none;}
+#now-overlay{position:absolute;top:0;height:100%;width:0;border-left:1px dotted #ef4444;pointer-events:none;z-index:8;display:none;}
+#past-overlay{position:absolute;top:0;left:0;width:0;height:100%;background:rgba(0,0,0,0.35);pointer-events:none;z-index:7;display:none;}
+#past-overlay-h{position:absolute;left:0;top:0;width:100%;height:0;background:rgba(0,0,0,0.35);pointer-events:none;z-index:7;display:none;}
+#now-overlay-h{position:absolute;left:0;width:100%;height:0;border-top:1px dotted #ef4444;pointer-events:none;z-index:8;display:none;}
 .ftable{width:100%;border-collapse:separate;border-spacing:0;font-family:'JetBrains Mono',monospace;}
 .ftable th,.ftable td{white-space:nowrap;}
 .row-label{position:sticky;left:0;z-index:5;background:var(--bg);min-width:98px;max-width:98px;text-align:left!important;padding-left:20px!important;border-right:1px solid var(--border);}
@@ -245,9 +245,11 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
   </div>
   <div class="curr-divider"></div>
   <div class="curr-block">
-    <div class="curr-lbl">Rain today</div>
-    <div class="curr-val" id="curr-today-rain">–</div>
-    <div class="curr-sub" id="curr-today-sub">–</div>
+    <div class="curr-lbl">Rain today <span style="font-size:8px;opacity:.6">(model)</span></div>
+    <div class="curr-sub" style="margin-top:2px" id="curr-recorded-lbl">Recorded:</div>
+    <div class="curr-val" id="curr-today-rain" style="font-size:14px">–</div>
+    <div class="curr-sub" id="curr-exp-lbl2">Expected:</div>
+    <div class="curr-val" id="curr-today-exp" style="font-size:14px">–</div>
   </div>
 
   <div class="curr-divider"></div>
@@ -1189,7 +1191,7 @@ function renderVerticalHourly(){
   requestAnimationFrame(()=>{
     const wrap=document.querySelector('.table-wrap');
     const nr=document.getElementById('now-row');
-    if(wrap&&nr)wrap.scrollTop=Math.max(0,nr.offsetTop-80);
+    if(wrap&&nr)wrap.scrollTop=Math.max(0,nr.offsetTop-116);
   });
   positionNowOverlay();
 }
