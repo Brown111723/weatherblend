@@ -78,8 +78,17 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .mpill.ok{background:#0d2a1a;color:#4ade80;}.mpill.fail{background:#2a0d0d;color:#f87171;}.mpill.load{background:#1a1a0d;color:#fbbf24;}
 
 /* ── Sources panel ── */
-.model-panel{padding:8px 20px 10px;border-bottom:1px solid var(--border);background:var(--surface2);display:none;flex-direction:column;gap:4px;position:sticky;top:57px;z-index:90;}
+.model-panel{padding:8px 20px 10px;border-bottom:1px solid var(--border);background:var(--surface2);display:none;flex-direction:column;gap:2px;position:sticky;top:57px;z-index:90;}
 .model-panel.open{display:flex;}
+.config-row{display:flex;align-items:flex-start;gap:6px;width:100%;padding:4px 0;}
+.config-row-label{font-size:10px;color:var(--text-dim);font-weight:700;letter-spacing:1px;text-transform:uppercase;width:100%;margin-bottom:3px;}
+.tog-item{display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;min-width:44px;}
+.tog-item .tog-btn{width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:10px;border:1px solid var(--border);background:transparent;transition:all .15s;font-size:18px;}
+.tog-item .tog-btn.enabled{border-color:var(--border2);background:var(--surface);}
+.tog-item .tog-btn.disabled{opacity:.4;}
+.tog-item:hover .tog-btn:not(.disabled){border-color:var(--border2);opacity:1;}
+.tog-label{font-size:9px;color:var(--text-dim);text-align:center;white-space:nowrap;}
+.tog-item .tog-btn.enabled ~ .tog-label{color:var(--text-muted);}
 .panel-label{font-size:13px;color:var(--text-dim);font-weight:700;letter-spacing:1px;text-transform:uppercase;}
 .model-toggle{display:flex;align-items:center;gap:7px;padding:7px 11px;border-radius:9px;border:1px solid var(--border);cursor:pointer;transition:all .15s;user-select:none;font-size:14px;}
 .model-toggle.enabled{border-color:var(--border2);background:var(--surface);}
@@ -145,7 +154,6 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .spacer td{height:18px;}
 .empty{color:var(--text-dim)!important;font-size:13px;}
 
-/* Cloud cover */
 .cl0{background:#0a1a12;color:#4ade80!important;}
 .cl1{background:#161a22;color:#93c5fd!important;}
 .cl2{background:#1e2030;color:#c4b5fd!important;}
@@ -196,7 +204,7 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .weight-badge.low{color:#f87171;}
 /* Actual data row */
 .now-row td{border-top:2px solid var(--accent)!important;border-bottom:2px solid var(--accent)!important;}
-.past-col{opacity:0.42!important;}
+.past-col{opacity:0.60!important;}
 .actual-row td{text-align:center;padding:5px 3px;font-size:13px;color:var(--text-primary);border-top:1px dashed var(--border2);font-style:italic;}
 .actual-row td.row-label{font-family:'Inter',sans-serif;font-size:11px;color:var(--text-muted);font-style:normal;}
 .err-banner{margin:10px 20px;padding:12px 16px;background:#2a1010;border:1px solid #5a1a1a;border-radius:8px;color:#f87171;font-size:15px;}
@@ -399,28 +407,31 @@ window.addEventListener('DOMContentLoaded',()=>{
 });
 
 function buildSourcesPanel(){
-  const tog=(id,cls,icon,fn,ttl)=>`<div class="model-toggle ${cls}" id="${id}" title="${ttl}" onclick="${fn}"><span style="font-size:18px">${icon}</span></div>`;
-  const T=secVisible.temp?'enabled':'disabled', R=secVisible.rain?'enabled':'disabled';
-  const W=secVisible.wind?'enabled':'disabled', CL=secVisible.cloud?'enabled':'disabled';
-  const SD=showDetail?'enabled':'disabled', WA=useWeightedAvg?'enabled':'disabled';
-  const VL=verticalLayout?'enabled':'disabled';
-  document.getElementById('model-panel').innerHTML=
-    `<div class="config-row"><span class="config-row-label">Show</span>`+
-    tog('tog-temp',T,'🌡',"toggleSection('temp',document.getElementById('tog-temp'))",'Temperature')+
-    tog('tog-rain',R,'🌧',"toggleSection('rain',document.getElementById('tog-rain'))",'Rain')+
-    tog('tog-wind',W,'💨',"toggleSection('wind',document.getElementById('tog-wind'))",'Wind')+
-    tog('tog-cloud',CL,'☁️',"toggleSection('cloud',document.getElementById('tog-cloud'))",'Cloud cover')+
-    tog('detail-in-panel',SD,'👁',"toggleDetail()",'Show individual sources')+
+  const e=(v)=>v?"enabled":"disabled";
+  const ti=(id,cls,icon,fn,lbl)=>
+    `<div class="tog-item" onclick="${fn}">`+
+    `<div class="tog-btn ${cls}" id="${id}">${icon}</div>`+
+    `<span class="tog-label">${lbl}</span></div>`;
+  document.getElementById("model-panel").innerHTML=
+    `<div class="config-row"><div class="config-row-label">Show</div>`+
+    ti("tog-temp",e(secVisible.temp),"🌡","toggleSection('temp',document.getElementById('tog-temp'))","Temp")+
+    ti("tog-rain",e(secVisible.rain),"🌧","toggleSection('rain',document.getElementById('tog-rain'))","Rain")+
+    ti("tog-wind",e(secVisible.wind),"💨","toggleSection('wind',document.getElementById('tog-wind'))","Wind")+
+    ti("tog-cloud",e(secVisible.cloud),"☁️","toggleSection('cloud',document.getElementById('tog-cloud'))","Cloud")+
+    ti("detail-in-panel",e(showDetail),"👁","toggleDetail()","Sources")+
     `</div>`+
-    `<div class="config-row"><span class="config-row-label">Options</span>`+
-    tog('tog-weighted',WA,'⚖️',"toggleWeighting(this)",'Weighted average')+
-    tog('tog-vert',VL,'⇅',"toggleVertical(this)",'Vertical layout')+
+    `<div class="config-row"><div class="config-row-label">Options</div>`+
+    ti("tog-weighted",e(useWeightedAvg),"⚖️","toggleWeighting(this)","Weighted")+
+    ti("tog-vert",e(verticalLayout),"⇅","toggleVertical(this)","Vertical")+
     `</div>`+
-    `<div class="config-row"><span class="config-row-label">Sources</span>`+
-    MODELS.map(m=>`<div class="model-toggle enabled" id="toggle-${m.key}" onclick="toggleModel('${m.key}')" title="${m.desc}"><span class="mdot" style="background:${m.color}">${m.short}</span></div>`).join('')+
+    `<div class="config-row"><div class="config-row-label">Sources</div>`+
+    MODELS.map(m=>
+      `<div class="tog-item" onclick="toggleModel('${m.key}')" title="${m.desc}">`+
+      `<div class="tog-btn enabled" id="toggle-${m.key}"><span class="mdot" style="background:${m.color}">${m.short}</span></div>`+
+      `<span class="tog-label">${m.label}</span></div>`
+    ).join("")+
     `</div>`;
 }
-
 
 function toggleSourcesPanel(){
   document.getElementById('model-panel').classList.toggle('open');
@@ -972,10 +983,12 @@ function avgOf(arr){const v=arr.filter(x=>x!=null&&!isNaN(x));return v.length?v.
 function fmt(v,dp=1){return v==null?'<span class="empty">—</span>':v.toFixed(dp);}
 function rainCls(v){if(!v||v<0.05)return'r0';if(v<0.2)return'r1';if(v<0.5)return'r2';if(v<1)return'r3';if(v<2)return'r4';if(v<5)return'r5';return'r6';}
 function windCls(v){if(!v||v<10)return'wc';if(v<20)return'wl';if(v<35)return'wm';if(v<55)return'wh';return'wx';}
-function cloudCls(v){
-  if(v==null)return'';
-  if(v<=12)return'cl0';if(v<=25)return'cl1';if(v<=50)return'cl2';
-  if(v<=75)return'cl3';if(v<=87)return'cl4';return'cl5';
+function cloudCls(v){if(v==null)return"";if(v<=12)return"cl0";if(v<=25)return"cl1";if(v<=50)return"cl2";if(v<=75)return"cl3";if(v<=87)return"cl4";return"cl5";}
+function buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled){
+  const avg=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:hVals(m.key,"cloudcover",indices)[ci]}))));
+  const avgCells=avg.map((v,ci)=>{const cls=cloudCls(v);const nc=ci===nowCi?"now-col":"";const txt=v!=null?Math.round(v)+"%":"—";return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(" ")}">${txt}</td>`,(ndCls[ci]+" "+pastCls[ci]).trim());}).join("");
+  const srcRows=allActive.map(m=>{const v=hVals(m.key,"cloudcover",indices);const cells=v.map((x,ci)=>{const cls=cloudCls(x);const nc=ci===nowCi?"now-col":"";return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(" ")}">${x!=null?Math.round(x)+"%":"—"}</td>`,(ndCls[ci]+" "+pastCls[ci]).trim());}).join("");return`<tr class="${srcRowClass(m)}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span></span></td>${cells}</tr>`;}).join("");
+  return`<tr class="sec-head-temp"><td class="row-label" style="color:#c4b5fd">☁️ Cloud</td>${avgCells}</tr>${srcRows}`;
 }
 function tempCls(v){if(v==null)return'';if(v<5)return'tc';if(v<12)return'tk';if(v<22)return'tm';if(v<30)return'tw';return'th';}
 function wxIcon(c){if(c==null)return'–';if(c===0)return'☀️';if(c<=2)return'⛅';if(c<=45)return'🌥️';if(c<=55)return'🌦️';if(c<=65)return'🌧️';if(c<=77)return'❄️';if(c<=82)return'🌧️';return'⛈️';}
@@ -1056,10 +1069,7 @@ function renderVertical_buildColDef(){
     if(actualData) cols.push({id:'act_r', hdr:'✓🌧', hdrCls:'sec-head-rain'});
   }
   if(secVisible.wind){
-    cols.push({id:'wind', hdr:'💨', hdrCls:'sec-head-wind'});
-  }
-  if(secVisible.cloud){
-    cols.push({id:'cloud', hdr:'☁️', hdrCls:''});
+    cols.push({id:'wind',   hdr:'💨', hdrCls:'sec-head-wind'});
   }
   return{cols,actMap,nowMs};
 }
@@ -1091,10 +1101,7 @@ function renderVertical_cellVal(colId,i,onlyEnabled,actMap,nowMs,ref){
       const v=ai!==undefined?actualData.hourly.precipitation?.[ai]:null;
       return`<td class="${v!=null?rainCls(v):''}">${v!=null?(v<0.05?'<span class="empty">0</span>':v.toFixed(1)):'–'}</td>`;
     }
-    case'cloud':{
-      const v=weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.hourly?.cloudcover?.[i]??null})));
-      return`<td class="${cloudCls(v)}">${v!=null?Math.round(v)+'%':'—'}</td>`;
-    }
+    case'cloud':{const v=weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.hourly?.cloudcover?.[i]??null})));return`<td class="${cloudCls(v)}">${v!=null?Math.round(v)+'%':'—'}</td>`;}
     default:return'<td>–</td>';
   }
 }
@@ -1123,16 +1130,15 @@ function renderVerticalHourly(){
   const rows=indices.map(i=>{
     const d=new Date(ref.time[i]);
     const isNow=nowIdx>=0&&i===nowIdx;
-    const isPast=nowIdx>=0&&i<nowIdx;
     const ndCls=colDayCls(ref.time[i],i>0?ref.time[i-1]:null);
+    // Day-start border: add left border on first col of new day
     const isDayStart=i>0&&ref.time[i].slice(0,10)!==ref.time[i-1].slice(0,10);
     const rowStyle=isDayStart?'border-top:2px solid var(--day-line)':'';
     const cells=cols.map(c=>renderVertical_cellVal(c.id,i,onlyEnabled,actMap,nowMs,ref)).join('');
-    const labelStyle=`font-family:'Inter',sans-serif;font-size:13px;white-space:nowrap;${isNow?'color:var(--accent);font-weight:700':isPast?'opacity:0.42':''}`;
-    const nowBorder=isNow?'border-top:2px solid var(--accent);border-bottom:2px solid var(--accent);':'';
-    return`<tr class="data-row ${ndCls}${isNow?' now-row':''}" ${isNow?'id="now-row"':''} style="${rowStyle}${nowBorder}">
+    const labelStyle=`font-family:'Inter',sans-serif;font-size:13px;white-space:nowrap;${isNow?'color:var(--accent);font-weight:700':''}`;
+    return`<tr class="data-row ${ndCls}${isNow?' now-row':''}" ${isNow?'id="now-row"':''} style="${rowStyle}">
       <td class="row-label ${ndCls}" style="${labelStyle}">${DAYS[d.getDay()]} ${d.getDate()} <span style="opacity:.7">${fmtAmPm(d)}</span></td>
-      ${isPast?cells.replace(/<td /g,'<td style="opacity:0.42" '):cells}
+      ${cells}
     </tr>`;
   }).join('');
 
@@ -1141,8 +1147,7 @@ function renderVerticalHourly(){
   requestAnimationFrame(()=>{
     const wrap=document.querySelector('.table-wrap');
     const nr=document.getElementById('now-row');
-    if(!wrap||!nr)return;
-    wrap.scrollTop=Math.max(0,nr.offsetTop-wrap.offsetTop-60);
+    if(wrap&&nr)wrap.scrollTop=Math.max(0,nr.offsetTop-wrap.offsetTop-120);
   });
 }
 
@@ -1231,28 +1236,10 @@ function renderVerticalDaily(){
   requestAnimationFrame(()=>{
     const wrap=document.querySelector('.table-wrap');
     const nr=document.getElementById('now-row');
-    if(wrap&&nr)wrap.scrollTop=Math.max(0,nr.offsetTop-wrap.offsetTop-60);
+    if(wrap&&nr)wrap.scrollTop=Math.max(0,nr.offsetTop-wrap.offsetTop-380);
   });
 }
 
-
-function buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled){
-  const avgCloud=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:hVals(m.key,'cloudcover',indices)[ci]}))));
-  const avgCloudCells=avgCloud.map((v,ci)=>{
-    const cls=cloudCls(v);const nc=ci===nowCi?'now-col':'';
-    const txt=v!=null?Math.round(v)+'%':'—';
-    return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(' ')}">${txt}</td>`,(ndCls[ci]+' '+pastCls[ci]).trim());
-  }).join('');
-  const cloudModelRows=allActive.map(m=>{
-    const v=hVals(m.key,'cloudcover',indices);
-    const cells=v.map((x,ci)=>{
-      const cls=cloudCls(x);const nc=ci===nowCi?'now-col':'';
-      return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(' ')}">${x!=null?Math.round(x)+'%':'—'}</td>`,(ndCls[ci]+' '+pastCls[ci]).trim());
-    }).join('');
-    return`<tr class="${srcRowClass(m)}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span><span style="font-size:10px;color:var(--text-muted)">${(()=>{const w=modelWeights[m.key];if(!w)return '';const pct=Math.round(w*100);const cls=pct>=20?'high':pct>=10?'mid':'low';return '<span class="weight-badge '+cls+'">'+pct+'%</span>';})()}</span></span></td>${cells}</tr>`;
-  }).join('');
-  return`<tr class="sec-head-temp" style="--clr:#c4b5fd"><td class="row-label" style="color:#c4b5fd">☁️ Cloud</td>${avgCloudCells}</tr>${cloudModelRows}`;
-}
 
 function scrollToNow(){
   requestAnimationFrame(()=>{
@@ -1397,7 +1384,7 @@ function renderHourly(){
       <tr class="sec-head-wind"><td class="row-label">💨 Wind</td>${avgWindCells}</tr>
       <tr class="data-row src-row"><td class="row-label" style="font-size:13px;color:var(--text-dim)">Direction</td>${avgDirCells}</tr>
     `)}
-    ${secGroup('cloud',buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled))}`;
+    ${secGroup("cloud",buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled))}`;
   scrollToNow();
 }
 
