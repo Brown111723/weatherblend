@@ -189,6 +189,7 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .weight-badge.low{color:#f87171;}
 /* Actual data row */
 .now-row td{border-top:2px solid var(--accent)!important;border-bottom:2px solid var(--accent)!important;}
+.past-col{opacity:0.65!important;}
 .actual-row td{text-align:center;padding:5px 3px;font-size:13px;color:var(--text-primary);border-top:1px dashed var(--border2);font-style:italic;}
 .actual-row td.row-label{font-family:'Inter',sans-serif;font-size:11px;color:var(--text-muted);font-style:normal;}
 .err-banner{margin:10px 20px;padding:12px 16px;background:#2a1010;border:1px solid #5a1a1a;border-radius:8px;color:#f87171;font-size:15px;}
@@ -1123,39 +1124,65 @@ function renderVerticalDaily(){
   const now=new Date();
   const todayStr=now.toISOString().slice(0,10);
   let si=ref.time.findIndex(t=>t>=todayStr);if(si<0)si=0;
-  // Show past 3 days + next 10 days
-  const pastSi=Math.max(0,si-3);
-  const indices=Array.from({length:Math.min(13,ref.time.length-pastSi)},(_,i)=>pastSi+i);
+  const pastSi=Math.max(0,si-7);
+  const indices=Array.from({length:Math.min(17,ref.time.length-pastSi)},(_,i)=>pastSi+i);
   const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
-  // Build columns for daily: temp hi/lo, rain total, wind max
+  // Build actuals map for daily
+  const actDailyMap={};
+  if(actualData?.daily?.time){
+    actualData.daily.time.forEach((t,i)=>{actDailyMap[t]=i;});
+  }
+
+  // Columns — respects secVisible, includes actual cols for past days
   const cols=[];
-  if(secVisible.temp) cols.push({id:'temp_hl',hdr:'🌡 Hi/Lo',hdrCls:'sec-head-temp'});
-  if(secVisible.rain) cols.push({id:'rain_sum',hdr:'🌧 mm',hdrCls:'sec-head-rain'});
-  if(secVisible.wind) cols.push({id:'wind_max',hdr:'💨 km/h',hdrCls:'sec-head-wind'});
+  if(secVisible.temp){
+    cols.push({id:'temp_hl', hdr:'🌡', hdrCls:'sec-head-temp'});
+    if(actualData?.daily) cols.push({id:'act_t', hdr:'✓🌡', hdrCls:'sec-head-temp'});
+  }
+  if(secVisible.rain){
+    cols.push({id:'rain_sum', hdr:'🌧', hdrCls:'sec-head-rain'});
+    if(actualData?.daily) cols.push({id:'act_r', hdr:'✓🌧', hdrCls:'sec-head-rain'});
+  }
+  if(secVisible.wind){
+    cols.push({id:'wind_max', hdr:'💨', hdrCls:'sec-head-wind'});
+  }
 
   const hdr=`<tr class="hour-header">
     <th class="row-label">Date</th>
-    ${cols.map(c=>`<th class="${c.hdrCls}" style="min-width:80px;text-align:center">${c.hdr}</th>`).join('')}
+    ${cols.map(c=>`<th class="${c.hdrCls}" style="min-width:72px;text-align:center">${c.hdr}</th>`).join('')}
   </tr>`;
 
   const rows=indices.map(i=>{
     const dateStr=ref.time[i];
     const d=new Date(dateStr+'T12:00:00');
     const isToday=dateStr===todayStr;
-    const labelStyle=`font-family:'Inter',sans-serif;font-size:13px;white-space:nowrap;${isToday?'color:var(--accent);font-weight:700':''}`;
+    const isPast=dateStr<todayStr;
+    const labelStyle=`font-family:'Inter',sans-serif;font-size:13px;white-space:nowrap;${isToday?'color:var(--accent);font-weight:700':isPast?'opacity:.65':''}`;
+    const ai=actDailyMap[dateStr];
     const cells=cols.map(c=>{
       switch(c.id){
         case'temp_hl':{
           const hi=weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.daily?.temperature_2m_max?.[i]??null})));
           const lo=weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.daily?.temperature_2m_min?.[i]??null})));
-          const cls=hi!=null?tempCls(hi):'';
-          return`<td class="${cls}">${hi!=null?hi.toFixed(0)+'°':'—'}<span style="color:var(--text-muted);font-size:11px"> / ${lo!=null?lo.toFixed(0)+'°':'—'}</span></td>`;
+          const cls=hi!=null?tempCls(hi):'', loCls=lo!=null?tempCls(lo):'';
+          return`<td class="${cls}">↑${hi!=null?hi.toFixed(0)+'°':'—'} <span class="${loCls}" style="font-size:11px">↓${lo!=null?lo.toFixed(0)+'°':'—'}</span></td>`;
+        }
+        case'act_t':{
+          if(!isPast||ai===undefined)return'<td class="empty">–</td>';
+          const hi=actualData.daily.temperature_2m_max?.[ai];
+          const lo=actualData.daily.temperature_2m_min?.[ai];
+          const cls=hi!=null?tempCls(hi):'', loCls=lo!=null?tempCls(lo):'';
+          return`<td class="${cls}">↑${hi!=null?hi.toFixed(0)+'°':'–'} <span class="${loCls}" style="font-size:11px">↓${lo!=null?lo.toFixed(0)+'°':'–'}</span></td>`;
         }
         case'rain_sum':{
           const v=weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.daily?.precipitation_sum?.[i]??null})));
-          const cls=rainCls(v);
-          return`<td class="${cls}">${v!=null?(v<0.1?'<span class="empty">0</span>':v.toFixed(1)):'—'}</td>`;
+          return`<td class="${rainCls(v)}">${v!=null?(v<0.1?'<span class="empty">0</span>':v.toFixed(1)):'—'}</td>`;
+        }
+        case'act_r':{
+          if(!isPast||ai===undefined)return'<td class="empty">–</td>';
+          const v=actualData.daily.precipitation_sum?.[ai];
+          return`<td class="${rainCls(v)}">${v!=null?(v<0.1?'<span class="empty">0</span>':v.toFixed(1)):'–'}</td>`;
         }
         case'wind_max':{
           const v=weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.daily?.windspeed_10m_max?.[i]??null})));
@@ -1174,7 +1201,7 @@ function renderVerticalDaily(){
   requestAnimationFrame(()=>{
     const wrap=document.querySelector('.table-wrap');
     const nr=document.getElementById('now-row');
-    if(wrap&&nr)wrap.scrollTop=Math.max(0,nr.offsetTop-wrap.offsetTop-80);
+    if(wrap&&nr)wrap.scrollTop=Math.max(0,nr.offsetTop-wrap.offsetTop-60);
   });
 }
 
@@ -1187,7 +1214,7 @@ function scrollToNow(){
     // Offset: sticky label is 98px, then scroll so ~2 cols of past are visible
     const colW=nowTh.offsetWidth||64;
     const labelW=98;
-    const offset=nowTh.offsetLeft - labelW - colW*2;
+    const offset=nowTh.offsetLeft - labelW;
     wrap.scrollLeft=Math.max(0,offset);
   });
 }
@@ -1227,12 +1254,14 @@ function renderHourly(){
 
   const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const ndCls=indices.map((i,ci)=>colDayCls(ref.time[i],ci>0?ref.time[indices[ci-1]]:null));
+  const pastCls=indices.map(i=>(nowIdx>=0&&i<nowIdx)?'past-col':'');
 
   const hdrCells=indices.map((i,ci)=>{
     const d=new Date(ref.time[i]);
     const timeStr=fmtAmPm(d);  // am/pm
     const isNow=nowIdx>=0&&i===nowIdx;
-    const cls=[isNow?'now-col':'',ndCls[ci]].filter(Boolean).join(' ');
+    const isPastCol=nowIdx>=0&&i<nowIdx;
+    const cls=[isNow?'now-col':'',ndCls[ci],isPastCol?'past-col':''].filter(Boolean).join(' ');
     const dayLabel=DAYS[d.getDay()]+' '+d.getDate();    return`<th class="${cls}"><span class="col-day">${dayLabel}</span><span class="col-time">${timeStr}</span></th>`;
   }).join('');
 
@@ -1249,15 +1278,14 @@ function renderHourly(){
   const avgTemp=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:hVals(m.key,'temperature_2m',indices)[ci]}))));
   const avgTempCells=avgTemp.map((v,ci)=>{
     const cls=v!=null?tempCls(v):'';
-    const hl=hiloKey?dailyHiLo(hiloKey,ref.time[indices[ci]]):null;
-    const hlHtml=hl&&hl.hi!=null?`<span class="hilocell">↑${hl.hi.toFixed(0)}° ↓${hl.lo!=null?hl.lo.toFixed(0)+'°':'—'}</span>`:'';    return injectColCls(`<td class="${cls}">${fmt(v,0)}°${hlHtml}</td>`,ndCls[ci]);
+    return injectColCls(`<td class="${cls}">${fmt(v,0)}°</td>`,(ndCls[ci]+' '+pastCls[ci]).trim());
   }).join('');
 
   // ── WIND ──
   const avgWind=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:hVals(m.key,'windspeed_10m',indices)[ci]}))));
-  const avgWindCells=avgWind.map((v,ci)=>injectColCls(`<td class="${v!=null?windCls(v):''}">${fmt(v,0)}</td>`,ndCls[ci])).join('');
+  const avgWindCells=avgWind.map((v,ci)=>injectColCls(`<td class="${(v!=null?windCls(v):'')+' '+(pastCls[ci]||'')}">${fmt(v,0)}</td>`,ndCls[ci])).join('');
   const avgDir=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:hVals(m.key,'winddirection_10m',indices)[ci]}))));
-  const avgDirCells=avgDir.map((v,ci)=>injectColCls(`<td class="dir-cell">${v!=null?dirArrow(v):'—'}</td>`,ndCls[ci])).join('');
+  const avgDirCells=avgDir.map((v,ci)=>injectColCls(`<td class="dir-cell ${pastCls[ci]||''}">${v!=null?dirArrow(v):'—'}</td>`,ndCls[ci])).join('');
 
   // ── RAIN ──
   const rainModelRows=allActive.map(m=>{
@@ -1271,7 +1299,7 @@ function renderHourly(){
   }).join('');
 
   const iconKey=onlyEnabled[0]?.key||allActive[0]?.key;
-  const iconCells=hVals(iconKey,'weathercode',indices).map((c,ci)=>injectColCls(`<td>${wxIcon(c)}</td>`,ndCls[ci])).join('');
+  const iconCells=hVals(iconKey,'weathercode',indices).map((c,ci)=>injectColCls(`<td class="${pastCls[ci]||''}">${wxIcon(c)}</td>`,ndCls[ci])).join('');
 
 
   // ── Actual (ERA5) data rows ──
@@ -1344,8 +1372,7 @@ function renderDaily(){
     const d=new Date(ref.time[i]+'T12:00:00');
     const isToday=ref.time[i]===todayStr;
     const isPast=ref.time[i]<todayStr;
-    const style=isPast?'opacity:.75':'';
-    return`<th class="${isToday?'now-col':''}" style="min-width:72px;${style}"><span class="col-day">${DAYS[d.getDay()]} ${d.getDate()}</span><span class="col-time">${d.toLocaleDateString('en-AU',{month:'short'})}</span></th>`;
+    return`<th class="${isToday?'now-col':''}${isPast?' past-col':''}" style="min-width:72px"><span class="col-day">${DAYS[d.getDay()]} ${d.getDate()}</span><span class="col-time">${d.toLocaleDateString('en-AU',{month:'short'})}</span></th>`;
   }).join('');
 
   function dVals(key,field){const d=state.data[key]?.daily;if(!d)return indices.map(()=>null);return indices.map(i=>d[field]?.[i]??null);}
@@ -1358,8 +1385,8 @@ function renderDaily(){
   const tempModelRows=allActive.map(m=>{
     const mx=dVals(m.key,'temperature_2m_max'),mn=dVals(m.key,'temperature_2m_min');
     const cells=mx.map((hi,ci)=>{
-      const lo=mn[ci],cls=hi!=null?tempCls(hi):'';
-      return`<td class="${cls}"><span>${hi!=null?hi.toFixed(0)+'°':'—'}</span><span style="color:var(--text-muted);font-size:13px"> / ${lo!=null?lo.toFixed(0)+'°':'—'}</span></td>`;
+      const lo=mn[ci],cls=hi!=null?tempCls(hi):'',loCls=lo!=null?tempCls(lo):'';
+      return`<td class="${cls}">↑${hi!=null?hi.toFixed(0)+'°':'—'} <span class="${loCls}" style="font-size:13px">↓${lo!=null?lo.toFixed(0)+'°':'—'}</span></td>`;
     }).join('');
     return`<tr class="${srcRowClass(m)}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span><span style="font-size:10px;color:var(--text-muted)">${(()=>{const w=modelWeights[m.key];if(!w)return '';const pct=Math.round(w*100);const cls=pct>=20?'high':pct>=10?'mid':'low';return '<span class="weight-badge '+cls+'">'+pct+'%</span>';})()}</span></span></td>${cells}</tr>`;
   }).join('');
@@ -1367,7 +1394,8 @@ function renderDaily(){
   const avgMin=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:dVals(m.key,'temperature_2m_min')[ci]}))));
   const avgTempCells=avgMax.map((hi,ci)=>{
     const lo=avgMin[ci],cls=hi!=null?tempCls(hi):'';
-    return`<td class="${cls}"><span>${hi!=null?hi.toFixed(0)+'°':'—'}</span><span style="color:var(--text-muted);font-size:13px"> / ${lo!=null?lo.toFixed(0)+'°':'—'}</span></td>`;
+    const loCls=lo!=null?tempCls(lo):'';
+    return`<td class="${cls}">↑${hi!=null?hi.toFixed(0)+'°':'—'} <span class="${loCls}" style="font-size:13px">↓${lo!=null?lo.toFixed(0)+'°':'—'}</span></td>`;
   }).join('');
 
   // Actual daily temp — from Historical Forecast API daily data
@@ -1379,8 +1407,8 @@ function renderDaily(){
     if(ai<0)return'<td class="empty">–</td>';
     const hi=actualData.daily.temperature_2m_max?.[ai];
     const lo=actualData.daily.temperature_2m_min?.[ai];
-    const cls=hi!=null?tempCls(hi):'';
-    return`<td class="${cls}"><span>${hi!=null?hi.toFixed(0)+'°':'–'}</span><span style="color:var(--text-muted);font-size:13px"> / ${lo!=null?lo.toFixed(0)+'°':'–'}</span></td>`;
+    const cls=hi!=null?tempCls(hi):'',loCls=lo!=null?tempCls(lo):'';
+    return`<td class="${cls}">↑${hi!=null?hi.toFixed(0)+'°':'–'} <span class="${loCls}" style="font-size:13px">↓${lo!=null?lo.toFixed(0)+'°':'–'}</span></td>`;
   }).join('');
 
   // ── WIND ──
@@ -1437,7 +1465,7 @@ function renderDaily(){
     if(!wrap||!nowTh)return;
     const labelW=98;
     const colW=nowTh.offsetWidth||72;
-    wrap.scrollLeft=Math.max(0,nowTh.offsetLeft-labelW-colW*2);
+    wrap.scrollLeft=Math.max(0,nowTh.offsetLeft-labelW);
   });
 }
 
