@@ -330,17 +330,17 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
       <div class="swatch"><span class="sw" style="background:#4a1a0a"></span> Storm 55+</div>
     </div>
 
-    <h3>Weather sources (8 models)</h3>
-    <div class="src-grid"><div class="src-item"><div class="src-name" style="color:#ea4335">GOOG</div><div class="src-desc">Google Weather · hourly + daily forecast</div></div>
-      <div class="src-item"><div class="src-name" style="color:#2563eb">GFS</div><div class="src-desc">NOAA · USA · Global 25km · 16-day</div></div>
+    <h3>Weather sources (7 models)</h3>
+    <div class="src-grid"><div class="src-item"><div class="src-name" style="color:#2563eb">GFS</div><div class="src-desc">NOAA · USA · Global 25km · 16-day</div></div>
       <div class="src-item"><div class="src-name" style="color:#059669">ECMWF</div><div class="src-desc">European Centre · 9km · Open data since Oct 2025</div></div>
       <div class="src-item"><div class="src-name" style="color:#16a34a">ICON</div><div class="src-desc">DWD · Germany · Global + Europe high-res</div></div>
       <div class="src-item"><div class="src-name" style="color:#7c3aed">GEM</div><div class="src-desc">Environment Canada · Global 10km</div></div>
       <div class="src-item"><div class="src-name" style="color:#dc2626">UKMO</div><div class="src-desc">UK Met Office · Global model</div></div>
       <div class="src-item"><div class="src-name" style="color:#d97706">CMA</div><div class="src-desc">China Met Admin · GRAPES global</div></div>
       <div class="src-item"><div class="src-name" style="color:#6366f1">JMA</div><div class="src-desc">Japan Met Agency · Global 20km</div></div>
+      <div class="src-item"><div class="src-name" style="color:#b45309">BOM</div><div class="src-desc">Bureau of Meteorology · nearest AWS observations · used for "Actual" rows &amp; weighting</div></div>
     </div>
-    <p style="margin-top:10px;font-size:12px">Forecasts via <a href="https://open-meteo.com" target="_blank" style="color:var(--accent)">Open-Meteo</a> (plus Google Weather). Past "actual" data via Open-Meteo's Historical Forecast API. No API key needed. Refreshes automatically every hour.</p>
+    <p style="margin-top:10px;font-size:12px">Forecasts via <a href="https://open-meteo.com" target="_blank" style="color:var(--accent)">Open-Meteo</a>. Past "actual" data via <a href="https://www.bom.gov.au" target="_blank" style="color:var(--accent)">BOM</a> station observations. No API key needed. Refreshes automatically every hour.</p>
 
     <h3>Location</h3>
     <p>WeatherBlend tries browser GPS first. If denied, it falls back to IP-based location which may show your ISP city. Tap 📍 and type your city name for accurate location.</p>
@@ -371,14 +371,14 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 </div>
 <div class="source-note">
   Data: <a href="https://open-meteo.com" target="_blank">Open-Meteo</a> ·
-  GFS (NOAA/USA) · ECMWF IFS 0.25° · ICON (DWD/Germany) · GEM (Canada) · UKMO (Met Office) · CMA (China) · JMA (Japan) · Google Weather ·
+  GFS (NOAA/USA) · ECMWF IFS 0.25° · ICON (DWD/Germany) · GEM (Canada) · UKMO (Met Office) · CMA (China) · JMA (Japan) · BOM observations (actuals) ·
   No API key required. Auto-refreshes hourly.
 </div>
 
 <script>
 // ══════════════════════════════════════════
-// MODELS — KMA and BOM removed (no data);
-// can be re-added when API resolves
+// MODELS — Open-Meteo forecast models.
+// BOM is used separately as the "actual" (observation) source, not a blended model.
 // ══════════════════════════════════════════
 const MODELS = [
   { key:'gfs_seamless',      ep:'/v1/forecast', label:'GFS',   short:'G', color:'#2563eb', desc:'NOAA · USA'      },
@@ -387,8 +387,7 @@ const MODELS = [
   { key:'gem_seamless',      ep:'/v1/forecast', label:'GEM',   short:'C', color:'#7c3aed', desc:'Env. Canada'     },
   { key:'ukmo_seamless',     ep:'/v1/forecast', label:'UKMO',  short:'U', color:'#dc2626', desc:'Met Office · UK' },
   { key:'cma_grapes_global', ep:'/v1/forecast', label:'CMA',   short:'X', color:'#d97706', desc:'CMA · China'     },
-  { key:'jma_seamless',      ep:'/v1/forecast', label:'JMA',   short:'J', color:'#6366f1', desc:'JMA · Japan'     },
-  { key:'google',            ep:'goog',         label:'GOOG',  short:'g', color:'#ea4335', desc:'Google Weather', goog:true }
+  { key:'jma_seamless',      ep:'/v1/forecast', label:'JMA',   short:'J', color:'#6366f1', desc:'JMA · Japan'     }
 ];
 
 const enabled    = new Set(MODELS.map(m=>m.key));
@@ -403,8 +402,7 @@ let cachedHiLo = null;          // {hi, lo} avg from model daily data for today
 let modelWeights = {};             // key -> weight 0-1 (sum=1 across enabled models)
 let useWeightedAvg = true;         // toggled by config panel
 let verticalLayout = false;
-let actualData = null;             // historical (Open-Meteo) actuals for past 7 days
-let locationOffsetSec = null;      // UTC offset (sec) of the forecast location — used to align Google times
+let actualData = null;             // BOM observation actuals for the past days
 
 let state = { lat:null, lon:null, data:{}, status:{}, view:'1h', ss:{} };
 let autoRefreshTimer=null, nextRefreshAt=null;
@@ -680,12 +678,7 @@ async function fetchAllModels(){
   updatePills();renderSkeleton();
   fetchCurrentConditions();
 
-  // 1) Fetch all Open-Meteo models first so we can learn the location's UTC offset.
-  const omModels=MODELS.filter(m=>!m.goog);
-  const googModels=MODELS.filter(m=>m.goog);
-  locationOffsetSec=null;
-
-  await Promise.all(omModels.map(async m=>{
+  await Promise.all(MODELS.map(async m=>{
     try{
       const url=`https://api.open-meteo.com${m.ep}`
         +`?latitude=${state.lat}&longitude=${state.lon}`
@@ -697,7 +690,6 @@ async function fetchAllModels(){
       const json=await res.json();if(json.error)throw new Error(json.reason||'API error');
       if(!json.hourly?.temperature_2m?.some(v=>v!=null))throw new Error('No data');
       state.data[m.key]=json;state.status[m.key]='ok';
-      if(locationOffsetSec==null&&typeof json.utc_offset_seconds==='number')locationOffsetSec=json.utc_offset_seconds;
       if(!state.ss.loaded&&json.daily?.sunrise){
         state.ss.rise=json.daily.sunrise;state.ss.set=json.daily.sunset;
         state.ss.dates=json.daily.time;state.ss.loaded=true;
@@ -705,13 +697,6 @@ async function fetchAllModels(){
     }catch(e){console.warn(m.key,e.message);state.status[m.key]='fail';autoHidden.add(m.key);}
     updatePills();
   }));
-
-  // Fallback offset if every Open-Meteo model failed (use browser offset)
-  if(locationOffsetSec==null)locationOffsetSec=-new Date().getTimezoneOffset()*60;
-
-  // 2) Now fetch Google with the correct location offset so its hours line up.
-  await Promise.all(googModels.map(m=>fetchGoogleWeather(m)));
-  updatePills();
 
   MODELS.forEach(m=>{
     const el=document.getElementById('toggle-'+m.key);if(!el)return;
@@ -915,141 +900,184 @@ function isDay(tsMs,dateStr){
 function isDayStart(iso,prevIso){return prevIso&&iso.slice(0,10)!==prevIso.slice(0,10);}
 
 // ══════════════════════════════════════════
-// GOOGLE WEATHER — forecast source + today's actuals
-// ══════════════════════════════════════════
-const GOOG_KEY='AIzaSyA0Hb0mSYASgli7WiVOOlDEDAOCrhFCCG8';
-const GOOG_BASE='https://weather.googleapis.com/v1';
-
-function googTypeToWMO(type){
-  if(!type)return 1;
-  const t=String(type).toUpperCase();
-  if(t.includes('THUNDERSTORM'))return 95;
-  if(t.includes('SNOW')||t.includes('BLIZZARD')||t.includes('FLURR'))return 73;
-  if(t.includes('HEAVY_RAIN')||t.includes('HEAVY_SHOWER'))return 65;
-  if(t.includes('RAIN_SHOWER')||t.includes('SHOWER'))return 80;
-  if(t.includes('RAIN')||t.includes('DRIZZLE'))return 61;
-  if(t.includes('FOG')||t.includes('MIST')||t.includes('HAZE'))return 45;
-  if(t.includes('MOSTLY_CLEAR')||t.includes('PARTLY'))return 2;
-  if(t.includes('CLEAR')||t.includes('SUNNY'))return 0;
-  if(t.includes('CLOUDY')||t.includes('OVERCAST'))return 3;
-  return 1;
-}
-
-// Convert Google's UTC ISO timestamp to the forecast LOCATION's local wall-clock
-// hour string (YYYY-MM-DDTHH:00), matching Open-Meteo's timezone=auto timestamps.
-function googTimeToLocal(iso){
-  const offsetSec=(typeof locationOffsetSec==='number')?locationOffsetSec:(-new Date().getTimezoneOffset()*60);
-  const d=new Date(new Date(iso).getTime()+offsetSec*1000);
-  const pad=n=>String(n).padStart(2,'0');
-  return d.getUTCFullYear()+'-'+pad(d.getUTCMonth()+1)+'-'+pad(d.getUTCDate())+'T'+pad(d.getUTCHours())+':00';
-}
-
-async function fetchGoogleWeather(m){
-  state.status[m.key]='load';
-  try{
-    const lat=state.lat, lon=state.lon;
-    const hTime=[],hTemp=[],hPrecip=[],hWind=[],hWindDir=[],hCloud=[],hWCode=[];
-    let pageToken=null, pages=0;
-    do{
-      let url=GOOG_BASE+'/forecast/hours:lookup?key='+GOOG_KEY
-        +'&location.latitude='+lat+'&location.longitude='+lon+'&hours=240&pageSize=24';
-      if(pageToken)url+='&pageToken='+pageToken;
-      const r=await fetch(url);
-      if(!r.ok)throw new Error('GOOG fcst HTTP '+r.status);
-      const j=await r.json();
-      for(const h of (j.forecastHours||[])){
-        hTime.push(googTimeToLocal(h.interval?.startTime));
-        hTemp.push(h.temperature?.degrees??null);
-        hPrecip.push(h.precipitation?.qpf?.quantity??0);
-        hWind.push(h.wind?.speed?.value??null);
-        hWindDir.push(h.wind?.direction?.degrees??null);
-        hCloud.push(h.cloudCover??null);
-        hWCode.push(googTypeToWMO(h.weatherCondition?.type));
-      }
-      pageToken=j.nextPageToken; pages++;
-    } while(pageToken && pages<10);
-
-    const dTime=[],dTMax=[],dTMin=[],dPrecip=[],dWind=[],dWCode=[];
-    try{
-      const dr=await fetch(GOOG_BASE+'/forecast/days:lookup?key='+GOOG_KEY
-        +'&location.latitude='+lat+'&location.longitude='+lon+'&days=10');
-      if(dr.ok){
-        const dj=await dr.json();
-        for(const d of (dj.forecastDays||[])){
-          const dd=d.displayDate;
-          if(!dd)continue;
-          const dateStr=dd.year+'-'+String(dd.month).padStart(2,'0')+'-'+String(dd.day).padStart(2,'0');
-          dTime.push(dateStr);
-          dTMax.push(d.maxTemperature?.degrees??null);
-          dTMin.push(d.minTemperature?.degrees??null);
-          dPrecip.push((d.daytimeForecast?.precipitation?.qpf?.quantity??0)+(d.nighttimeForecast?.precipitation?.qpf?.quantity??0));
-          dWind.push(d.daytimeForecast?.wind?.speed?.value??null);
-          dWCode.push(googTypeToWMO(d.daytimeForecast?.weatherCondition?.type));
-        }
-      }
-    }catch(e){console.warn('GOOG daily failed',e.message);}
-
-    state.data[m.key]={
-      hourly:{time:hTime,temperature_2m:hTemp,precipitation:hPrecip,
-              windspeed_10m:hWind,winddirection_10m:hWindDir,
-              cloudcover:hCloud,weathercode:hWCode},
-      daily:{time:dTime,temperature_2m_max:dTMax,temperature_2m_min:dTMin,
-             precipitation_sum:dPrecip,windspeed_10m_max:dWind,weathercode:dWCode},
-      timezone:'auto',utc_offset_seconds:(typeof locationOffsetSec==='number'?locationOffsetSec:0)
-    };
-    state.status[m.key]='ok';
-  }catch(e){
-    console.warn('Google Weather fetch failed:',e.message);
-    state.status[m.key]='fail';
-    autoHidden.add(m.key);
-    enabled.delete(m.key);
-  }
-}
-
-
-// ══════════════════════════════════════════
 // HISTORICAL ACTUALS + MODEL WEIGHT CALC
 // ══════════════════════════════════════════
-// ── Open-Meteo historical actuals (past observations/reanalysis) ──────────
-// Uses Open-Meteo's Historical Forecast API, which provides recent "actual"
-// hourly + daily data up to roughly the last completed hours. No API key.
-async function fetchOpenMeteoActuals(){
+// ── BOM OBSERVATIONS — "actual" (past) data source ───────────────────────
+// Station list (WMO numbers + state) from BOM's stations.txt:
+//   local file "stations.txt" (same folder as this page), online fallback
+//   https://reg.bom.gov.au/climate/data/lists_by_element/stations.txt
+// Observations from the per-station FWO JSON:
+//   https://www.bom.gov.au/fwo/<productId>/<productId>.<wmo>.json
+// productId = "ID" + <state letter> + "60801"  (e.g. Dubbo NSW -> IDN60801.95719.json)
+
+const BOM_STATE_LETTER = { NSW:'N', ACT:'N', VIC:'V', QLD:'Q', SA:'S', WA:'W', TAS:'T', NT:'D' };
+
+function haversineKm(lat1, lon1, lat2, lon2){
+  const R=6371, toRad=d=>d*Math.PI/180;
+  const dLat=toRad(lat2-lat1), dLon=toRad(lon2-lon1);
+  const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+// BOM rain_trace ("0.2", "Trace", "-", null) -> mm number
+function parseBomRain(val){
+  if(val==null||val==='-'||val==='')return 0;
+  if(typeof val==='number')return val;
+  const s=String(val).trim();
+  if(s.toLowerCase()==='trace')return 0.1;
+  const n=parseFloat(s);
+  return isNaN(n)?0:n;
+}
+
+// BOM hosts have no CORS headers, so try the direct URL first, then proxies.
+async function bomFetch(url, asText){
+  const attempts=[
+    url,
+    'https://corsproxy.io/?url='+encodeURIComponent(url),
+    'https://api.allorigins.win/raw?url='+encodeURIComponent(url)
+  ];
+  let lastErr=null;
+  for(const u of attempts){
+    try{
+      const r=await fetch(u, {signal:AbortSignal.timeout(12000)});
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      return asText ? await r.text() : await r.json();
+    }catch(e){ lastErr=e; }
+  }
+  throw lastErr||new Error('all fetch attempts failed');
+}
+
+// Parse BOM stations.txt (fixed-width) -> [{wmo, state, lat, lon, name}]
+let bomStationsCache=null;
+async function loadBomStations(){
+  if(bomStationsCache)return bomStationsCache;
+  let text=null;
+  // 1) local file alongside this page
+  try{
+    const r=await fetch('stations.txt', {signal:AbortSignal.timeout(8000)});
+    if(r.ok)text=await r.text();
+  }catch(e){ /* fall through to online */ }
+  // 2) online fallback (reg.bom.gov.au — needs proxy in browsers)
+  if(!text){
+    try{ text=await bomFetch('https://reg.bom.gov.au/climate/data/lists_by_element/stations.txt', true); }
+    catch(e){ console.warn('BOM stations.txt unavailable:', e.message); return []; }
+  }
+  const lines=text.split(/\r?\n/);
+  // Locate the dashed separator; its dash-runs define the fixed-width columns.
+  let sepIdx=-1;
+  for(let i=0;i<lines.length;i++){
+    if(/-{3,}/.test(lines[i]) && /^[\s-]+$/.test(lines[i])){ sepIdx=i; break; }
+  }
+  if(sepIdx<1){ console.warn('BOM stations.txt: column separator not found'); return []; }
+  const header=lines[sepIdx-1];
+  const cols=[]; let mm; const re=/-+/g;
+  while((mm=re.exec(lines[sepIdx]))!==null){ cols.push([mm.index, mm.index+mm[0].length]); }
+  const slice=(line,idx)=> (idx>=0 && idx<cols.length) ? line.slice(cols[idx][0], cols[idx][1]).trim() : '';
+  const label=idx=> slice(header,idx).toLowerCase();
+  let cLat=-1,cLon=-1,cSta=-1,cWmo=-1,cName=-1;
+  for(let i=0;i<cols.length;i++){
+    const l=label(i);
+    if(l==='lat')cLat=i;
+    else if(l==='lon'||l==='long'||l==='lng')cLon=i;
+    else if(l==='sta'||l==='state')cSta=i;
+    else if(l==='wmo')cWmo=i;
+    else if(l.includes('site name')||l==='name')cName=i;
+  }
+  if(cLat<0||cLon<0||cWmo<0){ console.warn('BOM stations.txt: could not map Lat/Lon/WMO columns'); return []; }
+  const out=[];
+  for(let i=sepIdx+1;i<lines.length;i++){
+    const ln=lines[i]; if(!ln||!ln.trim())continue;
+    const wmoStr=slice(ln,cWmo);
+    if(!/^\d{4,6}$/.test(wmoStr))continue;            // only stations with a WMO id
+    const lat=parseFloat(slice(ln,cLat)), lon=parseFloat(slice(ln,cLon));
+    if(isNaN(lat)||isNaN(lon))continue;
+    out.push({ wmo:wmoStr, state:slice(ln,cSta).toUpperCase(), lat, lon, name:slice(ln,cName) });
+  }
+  console.log(`BOM stations.txt: parsed ${out.length} WMO stations`);
+  bomStationsCache=out;
+  return out;
+}
+
+// Turn a BOM FWO observations JSON into the {hourly,daily} actuals shape.
+function parseBomObs(json, stn){
+  const obs=json?.observations?.data;
+  if(!Array.isArray(obs)||!obs.length)return null;
+  obs.sort((a,b)=>(a.local_date_time_full||'').localeCompare(b.local_date_time_full||''));
+  const byHour={}; // "YYYY-MM-DDTHH:00" -> { temp, traceCum }
+  for(const o of obs){
+    const raw=o.local_date_time_full; // YYYYMMDDHHmmss (local)
+    if(!raw||raw.length<12)continue;
+    const yr=raw.slice(0,4),mo=raw.slice(4,6),dy=raw.slice(6,8),hr=raw.slice(8,10),min=parseInt(raw.slice(10,12),10);
+    const hourKey=`${yr}-${mo}-${dy}T${hr}:00`;
+    const t=parseFloat(o.air_temp);
+    const rec={ temp:(!isNaN(t)&&String(o.air_temp).trim()!=='')?t:null, traceCum:parseBomRain(o.rain_trace) };
+    if(min===0 || !(hourKey in byHour)) byHour[hourKey]=rec; // :00 wins, :30 fills gaps
+  }
+  const keys=Object.keys(byHour).sort();
+  const hourly={time:[],temperature_2m:[],precipitation:[],cloudcover:[]};
+  // rain_trace is cumulative since 9am local; derive per-hour mm (reset when it drops)
+  let prevCum=null;
+  for(const k of keys){
+    const r=byHour[k];
+    let inc;
+    if(prevCum==null) inc=0;
+    else if(r.traceCum<prevCum) inc=r.traceCum;        // 9am reset -> fresh accumulation
+    else inc=r.traceCum-prevCum;
+    prevCum=r.traceCum;
+    hourly.time.push(k);
+    hourly.temperature_2m.push(r.temp);
+    hourly.precipitation.push(Math.max(0,inc));
+    hourly.cloudcover.push(null);
+  }
+  // daily aggregates (calendar date)
+  const byDate={};
+  hourly.time.forEach((k,i)=>{
+    const d=k.slice(0,10);
+    if(!byDate[d])byDate[d]={temps:[],precip:0};
+    if(hourly.temperature_2m[i]!=null)byDate[d].temps.push(hourly.temperature_2m[i]);
+    byDate[d].precip+=hourly.precipitation[i]||0;
+  });
+  const daily={time:[],temperature_2m_max:[],temperature_2m_min:[],precipitation_sum:[]};
+  for(const d of Object.keys(byDate).sort()){
+    daily.time.push(d);
+    const ts=byDate[d].temps;
+    daily.temperature_2m_max.push(ts.length?Math.max(...ts):null);
+    daily.temperature_2m_min.push(ts.length?Math.min(...ts):null);
+    daily.precipitation_sum.push(byDate[d].precip);
+  }
+  return { hourly, daily, source:'BOM', stationName:stn.name||('WMO '+stn.wmo), wmo:stn.wmo };
+}
+
+async function fetchBOMActuals(){
   try{
     const lat=state.lat, lon=state.lon;
     if(lat==null||lon==null)return null;
-    const pad=n=>String(n).padStart(2,'0');
-    const fmtDate=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-    const today=new Date();
-    const start=new Date(today.getTime()-7*86400000);
-    const url=`https://historical-forecast-api.open-meteo.com/v1/forecast`
-      +`?latitude=${lat}&longitude=${lon}`
-      +`&start_date=${fmtDate(start)}&end_date=${fmtDate(today)}`
-      +`&hourly=temperature_2m,precipitation,cloudcover`
-      +`&daily=temperature_2m_max,temperature_2m_min,precipitation_sum`
-      +`&timezone=auto&wind_speed_unit=kmh`;
-    const res=await fetch(url);
-    if(!res.ok)throw new Error(`Open-Meteo actuals HTTP ${res.status}`);
-    const j=await res.json();
-    if(j.error)throw new Error(j.reason||'API error');
-    const h=j.hourly||{};
-    if(!h.time||!h.time.length)throw new Error('no hourly actuals');
-    const hourly={
-      time:h.time,
-      temperature_2m:h.temperature_2m||[],
-      precipitation:h.precipitation||[],
-      cloudcover:h.cloudcover||h.cloud_cover||[]
-    };
-    const d=j.daily||{};
-    const daily={
-      time:d.time||[],
-      temperature_2m_max:d.temperature_2m_max||[],
-      temperature_2m_min:d.temperature_2m_min||[],
-      precipitation_sum:d.precipitation_sum||[]
-    };
-    console.log(`Open-Meteo actuals: ${hourly.time.length} hourly slots, last: ${hourly.time[hourly.time.length-1]}`);
-    return { hourly, daily, source:'Open-Meteo' };
+    const stations=await loadBomStations();
+    if(!stations.length)return null;
+    const ranked=stations
+      .filter(s=>BOM_STATE_LETTER[s.state])                 // must map to a product ID
+      .map(s=>({...s, dist:haversineKm(lat,lon,s.lat,s.lon)}))
+      .sort((a,b)=>a.dist-b.dist);
+    if(!ranked.length)return null;
+    // Not every WMO station publishes a live FWO file — try the nearest few.
+    for(const stn of ranked.slice(0,8)){
+      if(stn.dist>250)break;
+      const productId='ID'+BOM_STATE_LETTER[stn.state]+'60801';
+      const url=`https://www.bom.gov.au/fwo/${productId}/${productId}.${stn.wmo}.json`;
+      try{
+        setStatus('spin', `BOM: ${stn.name||stn.wmo}…`);
+        const j=await bomFetch(url, false);
+        const parsed=parseBomObs(j, stn);
+        if(parsed && parsed.hourly.time.length){
+          console.log(`BOM: ${stn.name} (WMO ${stn.wmo}, ${productId}) — ${stn.dist.toFixed(0)} km, ${parsed.hourly.time.length} hourly slots`);
+          return parsed;
+        }
+      }catch(e){ /* try next-nearest station */ }
+    }
+    console.warn('BOM: no nearby station returned observations');
+    return null;
   }catch(e){
-    console.warn('Open-Meteo actuals fetch failed:', e.message);
+    console.warn('BOM actuals failed:', e.message);
     return null;
   }
 }
@@ -1057,16 +1085,16 @@ async function fetchOpenMeteoActuals(){
 
 async function fetchActualsAndComputeWeights(){
   try{
-    // Past "actual" data from Open-Meteo (Historical Forecast API).
+    // Past "actual" data from BOM observations (nearest WMO station).
     // If unavailable, actualData stays null and actual rows show dashes.
     actualData = null;
     if (state.lat && state.lon) {
-      actualData = await fetchOpenMeteoActuals();
+      actualData = await fetchBOMActuals();
     }
     if (actualData) {
-      console.log(`Open-Meteo actuals loaded: ${actualData.hourly.time.length} obs`);
+      console.log(`BOM actuals loaded: ${actualData.stationName}, ${actualData.hourly.time.length} obs`);
     } else {
-      console.log('Open-Meteo actuals unavailable — actual rows will show dashes');
+      console.log('BOM actuals unavailable — actual rows will show dashes');
     }
 
     const activeMods=activeEnabled();
