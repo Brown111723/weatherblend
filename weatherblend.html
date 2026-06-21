@@ -1137,163 +1137,195 @@ function parseBomRain(val) {
   return isNaN(n) ? 0 : n;
 }
 
+// ── BOM known stations list (major Australian AWS stations) ─────────────
+// Format: [stationId, lat, lon, name, stateProductId]
+// Station IDs are the 6-digit BOM station numbers.
+// This avoids fragile directory scraping — we just pick the nearest known station.
+const BOM_KNOWN_STATIONS = [
+  // NSW
+  ['066062',-33.8688, 151.2093,'Sydney (Observatory Hill)',   'IDN60801'],
+  ['066037',-33.9465, 151.1731,'Sydney Airport AMO',          'IDN60801'],
+  ['063005',-32.2569, 148.6011,'Dubbo Airport AWS',           'IDN60801'],
+  ['061078',-31.6732, 148.8451,'Narromine Airport AWS',       'IDN60801'],
+  ['065070',-32.2167, 148.5667,'Dubbo (Darling St)',          'IDN60801'],
+  ['052088',-29.0339, 148.1174,'Bourke Airport AWS',          'IDN60801'],
+  ['055024',-30.0333, 145.9333,'Walgett Airport AWS',         'IDN60801'],
+  ['067033',-33.7167, 150.3167,'Penrith Lakes AWS',           'IDN60801'],
+  ['068228',-33.4675, 149.5800,'Orange Airport AWS',          'IDN60801'],
+  ['070351',-35.3069, 149.2017,'Canberra Airport',            'IDN60801'],
+  ['072160',-35.1583, 147.4572,'Wagga Wagga Airport AWS',     'IDN60801'],
+  ['074258',-34.2417, 146.0572,'Griffith Airport AWS',        'IDN60801'],
+  ['058012',-31.5000, 145.7833,'Cobar Mo',                   'IDN60801'],
+  ['048027',-32.5333, 143.7833,'Broken Hill Airport AWS',    'IDN60801'],
+  ['061089',-29.4833, 149.8333,'Moree Airport AWS',           'IDN60801'],
+  ['053115',-29.4875, 147.9792,'Lightning Ridge Airport',     'IDN60801'],
+  ['056238',-28.8000, 148.1167,'Collarenebri',               'IDN60801'],
+  ['060026',-30.3167, 149.7833,'Narrabri Airport AWS',        'IDN60801'],
+  ['057043',-30.5500, 148.6333,'Coonabarabran Airport AWS',   'IDN60801'],
+  ['064008',-33.5000, 146.9333,'Parkes Airport AWS',          'IDN60801'],
+  ['073054',-36.0667, 146.9583,'Albury Airport AWS',          'IDN60801'],
+  // VIC
+  ['086282',-37.6655, 144.8321,'Melbourne Airport',           'IDV60801'],
+  ['086071',-37.8255, 144.9816,'Melbourne (Olympic Park)',    'IDV60801'],
+  ['085072',-36.3572, 145.4000,'Shepparton Airport',          'IDV60801'],
+  ['081049',-36.1333, 146.9000,'Wodonga (Sumsion Gardens)',   'IDV60801'],
+  ['080015',-35.9833, 147.5167,'Mount Beauty Airport',        'IDV60801'],
+  ['083084',-37.4167, 143.8000,'Ballarat Airport',            'IDV60801'],
+  ['090182',-38.1167, 144.3500,'Geelong Racecourse AWS',      'IDV60801'],
+  ['090194',-38.1833, 142.4667,'Warrnambool',                 'IDV60801'],
+  ['076031',-34.2833, 142.0833,'Mildura Airport',             'IDV60801'],
+  ['077094',-35.3167, 143.5500,'Swan Hill Airport',           'IDV60801'],
+  ['088053',-36.7500, 145.1000,'Bendigo Airport',             'IDV60801'],
+  // QLD
+  ['040913',-27.3917, 153.1292,'Brisbane Airport',            'IDQ60801'],
+  ['040842',-27.4808, 153.0389,'Brisbane (City)',             'IDQ60801'],
+  ['032040',-23.5333, 148.1167,'Emerald Airport',             'IDQ60801'],
+  ['033119',-23.4333, 144.2500,'Longreach Airport',           'IDQ60801'],
+  ['030124',-20.6667, 139.4833,'Mount Isa Airport',           'IDQ60801'],
+  ['031011',-19.2500, 146.7667,'Townsville Airport',          'IDQ60801'],
+  ['028198',-16.8736, 145.7458,'Cairns Airport',              'IDQ60801'],
+  ['039083',-26.5833, 148.8333,'Roma Airport',                'IDQ60801'],
+  ['041175',-28.7500, 151.1167,'Toowoomba Airport',           'IDQ60801'],
+  ['040764',-27.6667, 151.5000,'Gatton Campus',               'IDQ60801'],
+  ['035264',-26.4072, 146.2542,'Charleville Airport',         'IDQ60801'],
+  // SA
+  ['023034',-34.9524, 138.5196,'Adelaide (Kent Town)',        'IDS60801'],
+  ['023090',-34.9453, 138.5300,'Adelaide Airport',            'IDS60801'],
+  ['026021',-37.7500, 140.7667,'Mount Gambier Airport',       'IDS60801'],
+  ['022843',-33.0167, 137.5833,'Port Augusta Airport AWS',    'IDS60801'],
+  ['017096',-28.6833, 135.4667,'Coober Pedy Airport AWS',     'IDS60801'],
+  ['016098',-26.5333, 133.6833,'Oodnadatta Airport AWS',      'IDS60801'],
+  ['021133',-32.4667, 137.7667,'Whyalla Airport',             'IDS60801'],
+  ['018141',-30.5000, 131.7167,'Nullarbor AWS',               'IDS60801'],
+  // WA
+  ['009021',-31.9275, 115.9764,'Perth Airport',               'IDW60801'],
+  ['009034',-31.9192, 115.8653,'Perth (Subiaco)',             'IDW60801'],
+  ['008297',-33.3833, 115.7167,'Bunbury',                     'IDW60801'],
+  ['010614',-33.8500, 121.8833,'Esperance',                   'IDW60801'],
+  ['013017',-17.9478, 122.2353,'Broome Airport',              'IDW60801'],
+  ['003003',-14.4000, 127.8667,'Troughton Island',            'IDW60801'],
+  ['004032',-22.7833, 113.6667,'Onslow Airport',              'IDW60801'],
+  ['006011',-29.0000, 114.9167,'Geraldton Airport AWS',       'IDW60801'],
+  ['012071',-25.0000, 128.2833,'Warburton',                   'IDW60801'],
+  ['011003',-26.1833, 113.7667,'Carnarvon Airport',           'IDW60801'],
+  // TAS
+  ['094029',-42.8394, 147.5022,'Hobart Airport',              'IDT60801'],
+  ['091311',-41.1628, 145.5253,'Devonport Airport',           'IDT60801'],
+  ['091237',-41.4500, 147.2167,'Launceston Airport',          'IDT60801'],
+  // NT
+  ['014015',-12.4239, 130.8925,'Darwin Airport',              'IDD60801'],
+  ['015590',-23.7961, 133.8880,'Alice Springs Airport',       'IDD60801'],
+  ['014932',-13.7500, 131.5667,'Katherine Aero',              'IDD60801'],
+  ['014825',-16.6667, 136.2667,'Borroloola',                  'IDD60801'],
+];
+
+// Haversine distance in km
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 +
+            Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) *
+            Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+// Parse BOM rain_trace field: "0.2" → 0.2, "Trace" → 0.1, "-" or null → 0
+function parseBomRain(val) {
+  if (val == null || val === '-' || val === '') return 0;
+  if (typeof val === 'number') return val;
+  const s = String(val).trim();
+  if (s.toLowerCase() === 'trace') return 0.1;
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+}
+
 async function fetchBOMActuals() {
   try {
-    // ── 1. Fetch BOM station list via CORS proxy ──────────────────────────
-    // BOM's climate station list (fixed-width text file) has: stn_id, lat, lon, name, state, etc.
-    // We use a smaller JSON alternative from the BOM OBSERVATIONS API station list.
-    // BOM provides station JSON at: /json/<state_code>.json (list of all stations per state)
-    
-    // Determine which state product to use based on lat/lon bounds
     const lat = state.lat, lon = state.lon;
-    let stateCode = null;
-    // Rough bounding boxes for Australian states
-    if (lat >= -29 && lat <= -10 && lon >= 129 && lon <= 141) stateCode = 'NT';
-    else if (lat >= -39 && lat <= -29 && lon >= 141 && lon <= 150) stateCode = 'NSW';
-    else if (lat >= -29 && lat <= -10 && lon >= 141 && lon <= 154) stateCode = 'QLD';
-    else if (lat >= -39 && lat <= -29 && lon >= 140 && lon <= 150.5) stateCode = 'VIC';
-    else if (lat >= -39 && lat <= -26 && lon >= 129 && lon <= 141) stateCode = 'SA';
-    else if (lat >= -39 && lat <= -14 && lon >= 113 && lon <= 129) stateCode = 'WA';
-    else if (lat >= -44 && lat <= -39 && lon >= 144 && lon <= 149) stateCode = 'TAS';
-    else if (lat >= -36 && lat <= -35 && lon >= 148 && lon <= 150) stateCode = 'ACT';
-    // Widen NSW to catch ACT overlap, QLD northern tip, etc.
-    else if (lon >= 141 && lon <= 154) stateCode = lat < -29 ? 'NSW' : 'QLD';
-    else if (lon >= 129 && lon <= 141) stateCode = lat < -26 ? 'SA' : 'NT';
-    else if (lon >= 113 && lon <= 129) stateCode = 'WA';
 
-    if (!stateCode) {
-      console.warn('BOM: location not in Australia, skipping');
-      return null;
-    }
-
-    const productId = BOM_STATE_PRODUCTS[stateCode];
-    if (!productId) return null;
-
-    // ── 2. Fetch the BOM state observation station list ───────────────────
-    // BOM exposes a stations list for each product as part of their fwo system.
-    // We fetch the JSON index which lists all stations with their IDs.
-    const stationListUrl = `https://corsproxy.io/?url=${encodeURIComponent(
-      `http://www.bom.gov.au/fwo/${productId}/`
-    )}`;
-
-    const listRes = await fetch(stationListUrl, { signal: AbortSignal.timeout(8000) });
-    if (!listRes.ok) throw new Error(`BOM station list HTTP ${listRes.status}`);
-    const listHtml = await listRes.text();
-
-    // Parse the directory listing for station JSON files: ProductID.NNNNNNN.json
-    const filePattern = new RegExp(`${productId}\\.(\\d+)\\.json`, 'g');
-    const stationIds = [...new Set([...listHtml.matchAll(filePattern)].map(m => m[1]))];
-
-    if (!stationIds.length) throw new Error('No BOM station files found in directory');
-
-    // ── 3. Fetch each station's metadata to find the nearest one ─────────
-    // BOM JSON observation files have lat/lon in the header.
-    // To avoid fetching all ~200 files, we use a known BOM station-metadata
-    // endpoint that returns lat/lon for each station ID in the product.
-    // Strategy: fetch up to 5 candidate files at once and pick the closest.
-    // We sample every Nth file to find the closest without fetching them all.
-    const SAMPLE_SIZE = 15;
-    const step = Math.max(1, Math.floor(stationIds.length / SAMPLE_SIZE));
-    const sampled = stationIds.filter((_, i) => i % step === 0).slice(0, SAMPLE_SIZE);
-
-    let bestStation = null;
-    let bestDist = Infinity;
-
-    const sampleResults = await Promise.allSettled(sampled.map(async stnId => {
-      const url = `https://corsproxy.io/?url=${encodeURIComponent(
-        `http://www.bom.gov.au/fwo/${productId}/${productId}.${stnId}.json`
-      )}`;
-      const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
-      if (!r.ok) return null;
-      const j = await r.json();
-      const header = j?.observations?.header?.[0];
-      if (!header) return null;
-      const sLat = parseFloat(header.latitude);
-      const sLon = parseFloat(header.longitude);
-      if (isNaN(sLat) || isNaN(sLon)) return null;
+    // ── 1. Find nearest known BOM station ────────────────────────────────
+    let bestStation = null, bestDist = Infinity;
+    for (const stn of BOM_KNOWN_STATIONS) {
+      const [stnId, sLat, sLon, name, productId] = stn;
       const dist = haversineKm(lat, lon, sLat, sLon);
-      return { stnId, header, data: j.observations.data, dist };
-    }));
-
-    for (const r of sampleResults) {
-      if (r.status !== 'fulfilled' || !r.value) continue;
-      if (r.value.dist < bestDist) {
-        bestDist = r.value.dist;
-        bestStation = r.value;
-      }
+      if (dist < bestDist) { bestDist = dist; bestStation = { stnId, sLat, sLon, name, productId }; }
     }
 
-    if (!bestStation) throw new Error('No BOM stations returned valid data');
-    console.log(`BOM: nearest station "${bestStation.header.name}" (${bestDist.toFixed(1)} km)`);
+    if (!bestStation) { console.warn('BOM: no known station found'); return null; }
+    if (bestDist > 150) { console.warn(`BOM: nearest station "${bestStation.name}" is ${bestDist.toFixed(0)} km away — too far`); return null; }
 
-    // If nearest from sample is > 100km, likely wrong state — fall back
-    if (bestDist > 100) {
-      console.warn(`BOM: nearest station ${bestDist.toFixed(0)} km away — too far, falling back`);
-      return null;
-    }
+    console.log(`BOM: using "${bestStation.name}" (${bestDist.toFixed(1)} km)`);
+    setStatus('spin', `BOM: fetching ${bestStation.name}…`);
 
-    // ── 4. Parse observations into actualData format ──────────────────────
-    // BOM obs arrive every 30 min. We snap each to the nearest hour so that
-    // the actMap lookup matches model hourly timestamps (YYYY-MM-DDTHH:00).
-    // When two obs snap to the same hour, the later one (closer to the hour
-    // boundary) wins, giving the most representative reading.
-    const obs = bestStation.data || [];
-    // Sort chronologically (BOM returns newest-first)
+    // ── 2. Fetch the station observation JSON via CORS proxy ──────────────
+    const { stnId, productId } = bestStation;
+    const bomUrl = `http://www.bom.gov.au/fwo/${productId}/${productId}.${stnId}.json`;
+    const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(bomUrl)}`;
+
+    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new Error(`BOM HTTP ${res.status} for ${bomUrl}`);
+
+    const json = await res.json();
+    const obs = json?.observations?.data;
+    if (!Array.isArray(obs) || obs.length === 0) throw new Error('BOM: empty observations array');
+
+    // ── 3. Parse observations ─────────────────────────────────────────────
+    // BOM returns newest-first; sort chronologically
     obs.sort((a, b) => (a.local_date_time_full || '').localeCompare(b.local_date_time_full || ''));
 
-    // Bucket obs by snapped hour key; last obs in bucket wins
-    const byHour = {}; // "YYYY-MM-DDTHH:00" -> obs
+    // BOM obs arrive every 30 min. Snap each to nearest hour so keys match
+    // model hourly timestamps (YYYY-MM-DDTHH:00). When two obs snap to same
+    // hour, the later one (closest to the boundary) wins.
+    const byHour = {}; // snapKey -> obs
     const byDate = {}; // "YYYY-MM-DD" -> { temps:[], precip:0 }
 
     for (const o of obs) {
-      const raw = o.local_date_time_full; // e.g. "20260621090000" or "20260621093000"
+      const raw = o.local_date_time_full; // e.g. "20260621090000"
       if (!raw || raw.length < 12) continue;
 
-      const yr  = raw.slice(0,4), mo = raw.slice(4,6), dy = raw.slice(6,8);
-      const hr  = parseInt(raw.slice(8,10),10);
-      const min = parseInt(raw.slice(10,12),10);
+      const yr  = raw.slice(0, 4);
+      const mo  = raw.slice(4, 6);
+      const dy  = raw.slice(6, 8);
+      const hr  = parseInt(raw.slice(8, 10), 10);
+      const min = parseInt(raw.slice(10, 12), 10);
 
-      // Snap to nearest hour: minutes >= 30 round up
-      let snapHr = min >= 30 ? hr + 1 : hr;
+      // Snap to nearest hour
+      let snapHr = (min >= 30) ? hr + 1 : hr;
       let snapDy = dy, snapMo = mo, snapYr = yr;
       if (snapHr >= 24) {
-        // Roll over to next day
         const dt = new Date(`${yr}-${mo}-${dy}T00:00`);
         dt.setDate(dt.getDate() + 1);
         snapYr = String(dt.getFullYear());
-        snapMo = String(dt.getMonth()+1).padStart(2,'0');
-        snapDy = String(dt.getDate()).padStart(2,'0');
+        snapMo = String(dt.getMonth() + 1).padStart(2, '0');
+        snapDy = String(dt.getDate()).padStart(2, '0');
         snapHr = 0;
       }
-      const snapKey = `${snapYr}-${snapMo}-${snapDy}T${String(snapHr).padStart(2,'0')}:00`;
+      const snapKey = `${snapYr}-${snapMo}-${snapDy}T${String(snapHr).padStart(2, '0')}:00`;
+      byHour[snapKey] = o; // later obs overwrites earlier for same slot
 
-      // Later obs in the same bucket overwrite earlier (closer to the hour)
-      byHour[snapKey] = o;
-
-      // Daily accumulation uses the raw hour (not snapped) to avoid double-counting
+      // Daily accumulation (use raw hour to avoid double-counting)
       const dateKey = `${yr}-${mo}-${dy}`;
       if (!byDate[dateKey]) byDate[dateKey] = { temps: [], precip: 0 };
-      const temp = (o.air_temp != null && String(o.air_temp).trim() !== '') ? parseFloat(o.air_temp) : null;
-      if (temp != null && !isNaN(temp)) byDate[dateKey].temps.push(temp);
+      const t = parseFloat(o.air_temp);
+      if (!isNaN(t) && String(o.air_temp).trim() !== '') byDate[dateKey].temps.push(t);
       byDate[dateKey].precip += parseBomRain(o.rain_trace);
     }
 
-    // Build sorted hourly arrays from snapped buckets
+    // Build sorted hourly arrays
     const hourly = { time: [], temperature_2m: [], precipitation: [], cloudcover: [] };
     for (const key of Object.keys(byHour).sort()) {
       const o = byHour[key];
-      const temp = (o.air_temp != null && String(o.air_temp).trim() !== '') ? parseFloat(o.air_temp) : null;
-      const rain = parseBomRain(o.rain_trace);
+      const t = parseFloat(o.air_temp);
+      const temp = (!isNaN(t) && String(o.air_temp ?? '').trim() !== '') ? t : null;
       hourly.time.push(key);
-      hourly.temperature_2m.push((temp != null && !isNaN(temp)) ? temp : null);
-      hourly.precipitation.push(rain);
-      hourly.cloudcover.push(null); // BOM obs don't include cloud cover
+      hourly.temperature_2m.push(temp);
+      hourly.precipitation.push(parseBomRain(o.rain_trace));
+      hourly.cloudcover.push(null);
     }
 
     // Build daily arrays
-    const daily = {
-      time: [], temperature_2m_max: [], temperature_2m_min: [], precipitation_sum: []
-    };
+    const daily = { time: [], temperature_2m_max: [], temperature_2m_min: [], precipitation_sum: [] };
     for (const d of Object.keys(byDate).sort()) {
       daily.time.push(d);
       const ts = byDate[d].temps;
@@ -1302,14 +1334,16 @@ async function fetchBOMActuals() {
       daily.precipitation_sum.push(byDate[d].precip);
     }
 
-    console.log(`BOM: ${hourly.time.length} hourly slots from "${bestStation.header.name}" (${bestDist.toFixed(1)} km)`);
-    return { hourly, daily, source: 'BOM', stationName: bestStation.header.name };
+    console.log(`BOM: parsed ${hourly.time.length} hourly slots — first: ${hourly.time[0]}, last: ${hourly.time[hourly.time.length-1]}`);
+    console.log(`BOM: sample temps:`, hourly.time.slice(0,5).map((t,i)=>`${t}=${hourly.temperature_2m[i]}`));
+    return { hourly, daily, source: 'BOM', stationName: bestStation.name, stationDist: bestDist };
 
   } catch (e) {
     console.warn('BOM actuals fetch failed:', e.message);
     return null;
   }
 }
+
 
 async function fetchActualsAndComputeWeights(){
   try{
