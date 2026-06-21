@@ -106,9 +106,9 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 
 /* ── Table ── */
 .table-wrap{overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 280px);padding-bottom:40px;position:relative;}
-#now-overlay{position:absolute;top:0;height:100%;width:0;border-left:1px dotted #ef4444;pointer-events:none;z-index:20;display:none;}
-#past-overlay{position:absolute;top:0;left:0;width:0;height:100%;background:rgba(0,0,0,0.35);pointer-events:none;z-index:19;display:none;}
-#past-overlay-h{position:absolute;left:0;top:0;width:100%;height:0;background:rgba(0,0,0,0.35);pointer-events:none;z-index:19;display:none;}
+#now-overlay{position:absolute;top:0;height:100%;width:0;border-left:1px dotted #ef4444;pointer-events:none;z-index:11;display:none;}
+#past-overlay{position:absolute;top:0;left:0;width:0;height:100%;background:rgba(0,0,0,0.35);pointer-events:none;z-index:10;display:none;}
+#past-overlay-h{position:absolute;left:0;top:0;width:100%;height:0;background:rgba(0,0,0,0.35);pointer-events:none;z-index:10;display:none;}
 /* Vertical layout z-index swap: date-header high, row-label low */
 .table-wrap.vertical-mode .row-label{z-index:8;}
 .table-wrap.vertical-mode .hour-header th{z-index:14;}
@@ -158,11 +158,11 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .col-day{font-size:12px;color:var(--text-dim);display:block;margin-bottom:1px;}
 .col-time{display:block;}
 .sec-head-temp td,.sec-head-wind td,.sec-head-rain td{text-align:center;padding:10px 4px 8px;font-size:15px;font-weight:600;color:var(--text-primary);border-bottom:2px solid var(--border2);}
+.sec-head-temp td,.sec-head-wind td,.sec-head-rain td,.sec-head-cloud td{text-align:center;padding:10px 4px 8px;font-size:15px;font-weight:600;color:var(--text-primary);border-bottom:2px solid var(--border2);}
 .sec-head-temp td.row-label{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#86efac;text-align:left!important;padding-left:20px!important;}
 .sec-head-wind td.row-label{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#d9f99d;text-align:left!important;padding-left:20px!important;}
 .sec-head-rain td.row-label{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#90caf9;text-align:left!important;padding-left:20px!important;}
-.sec-head-cloud td,.sec-head-cloud td.row-label{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#c4b5fd;text-align:left!important;padding-left:20px!important;}
-.sec-head-cloud td{text-align:center;padding:10px 4px 8px;font-size:15px;font-weight:600;color:var(--text-primary);border-bottom:2px solid var(--border2);}
+.sec-head-cloud td.row-label{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#c4b5fd;text-align:left!important;padding-left:20px!important;}
 .sec-head-temp .hilocell,.sec-head-rain .hilocell,.sec-head-wind .hilocell{font-size:12px;color:var(--text-muted);display:block;margin-top:1px;font-weight:400;}
 .icon-row td{text-align:center;padding:4px 3px;font-size:17px;}
 .data-row td{text-align:center;padding:6px 4px;font-size:15px;color:var(--text-primary);min-width:54px;}
@@ -435,6 +435,21 @@ function buildSourcesPanel(){
     `<div class="tog-item">`+
     `<div class="tog-btn ${cls}" id="${id}" onclick="${fn}">${icon}</div>`+
     `<span class="tog-label" onclick="${fn}">${lbl}</span></div>`;
+  let sourcesHtml = '';
+  MODELS.forEach(m => {
+    const isEnabled = enabled.has(m.key) && !autoHidden.has(m.key);
+    const isUnavail = autoHidden.has(m.key);
+    let cls = isUnavail ? 'unavail' : (isEnabled ? 'enabled' : 'disabled');
+    let extra = '';
+    if (isUnavail) {
+      extra = `<span class="munavail" style="font-size:9px">unavail</span>`;
+    }
+    sourcesHtml += `<div class="tog-item">`+
+      `<div class="tog-btn ${cls}" id="toggle-${m.key}" onclick="toggleModel('${m.key}')" title="${m.desc}">`+
+      `<span class="mdot" style="background:${m.color}">${m.short}</span></div>`+
+      `<span class="tog-label" onclick="toggleModel('${m.key}')">${m.label}${extra}</span></div>`;
+  });
+
   document.getElementById("model-panel").innerHTML=
     `<div class="config-row">`+
     `<div class="config-row-label">Show</div>`+
@@ -454,12 +469,7 @@ function buildSourcesPanel(){
     `<div class="config-row">`+
     `<div class="config-row-label">Sources</div>`+
     `<div class="config-icons-row">`+
-    MODELS.map(m=>
-      `<div class="tog-item">`+
-      `<div class="tog-btn enabled" id="toggle-${m.key}" onclick="toggleModel('${m.key}')" title="${m.desc}">`+
-      `<span class="mdot" style="background:${m.color}">${m.short}</span></div>`+
-      `<span class="tog-label" onclick="toggleModel('${m.key}')">${m.label}</span></div>`
-    ).join("")+
+    sourcesHtml +
     `</div></div>`;
 }
 
@@ -470,9 +480,20 @@ function toggleSourcesPanel(){
 function toggleModel(key){
   if(autoHidden.has(key))return;
   const el=document.getElementById('toggle-'+key);
-  if(enabled.has(key)){enabled.delete(key);el.className='model-toggle disabled';}
-  else{enabled.add(key);el.className='model-toggle enabled';}
-  savePrefs(); if(Object.keys(state.data).length){renderCurrentBar();renderTable();}
+  if(!el) return;
+  if(enabled.has(key)){
+    enabled.delete(key);
+    el.className = 'tog-btn disabled';
+  } else {
+    enabled.add(key);
+    el.className = 'tog-btn enabled';
+  }
+  savePrefs();
+  if(Object.keys(state.data).length){
+    renderCurrentBar();
+    renderTable();
+    buildSourcesPanel(); // refresh panel icons
+  }
 }
 function toggleDetail(){
   showDetail=!showDetail; updateDetailBtn(); savePrefs();
@@ -810,14 +831,15 @@ function computeCurrentFromHourly(){
   const windDir=wAt('winddirection_10m',nowIdx);
   const wcode=state.data[onlyEnabled[0].key]?.hourly?.weathercode?.[nowIdx]??null;
 
-  // Today's hi/lo = weighted-avg of each model's DAILY max/min for today
+  // Today's hi/lo = same weighted avg as table's top AVG row for current day
+  const todayIdx = 0; // first daily is today in most cases, but find properly
   const hi=weightedAvgOf(onlyEnabled.map(m=>{
-    const d=state.data[m.key]?.daily; if(!d)return{key:m.key,val:null};
+    const d=state.data[m.key]?.daily; if(!d) return {key:m.key,val:null};
     const di=d.time?.findIndex(t=>t===todayStr)??-1;
     return{key:m.key,val:di>=0?(d.temperature_2m_max?.[di]??null):null};
   }));
   const lo=weightedAvgOf(onlyEnabled.map(m=>{
-    const d=state.data[m.key]?.daily; if(!d)return{key:m.key,val:null};
+    const d=state.data[m.key]?.daily; if(!d) return {key:m.key,val:null};
     const di=d.time?.findIndex(t=>t===todayStr)??-1;
     return{key:m.key,val:di>=0?(d.temperature_2m_min?.[di]??null):null};
   }));
@@ -1272,7 +1294,7 @@ function buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled,r
     const cls=cloudCls(v);const nc=ci===nowCi?"now-col":"";
     return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(" ")}">${Math.round(v)}%</td>`,(ndCls[ci]+" "+pastCls[ci]).trim());
   }).join(""):null;
-  return`<tr class="sec-head-cloud"><td class="row-label">☁️ Cloud</td>${avgCells}</tr>${srcRows}`+
+  return`<tr class="sec-head-cloud"><td class="row-label" style="color:#c4b5fd">☁️ Cloud</td>${avgCells}</tr>${srcRows}`+
     (actCells?`<tr class="actual-row"><td class="row-label" style="color:#c4b5fd">✓ Actual</td>${actCells}</tr>`:"");
 }
 function tempCls(v){if(v==null)return'';if(v<5)return'tc';if(v<12)return'tk';if(v<22)return'tm';if(v<30)return'tw';return'th';}
@@ -1374,8 +1396,8 @@ function renderVertical_buildColDef(){
     cols.push({id:'wind',   hdr:'💨', hdrCls:'sec-head-wind'});
   }
   if(secVisible.cloud){
-    cols.push({id:'cloud',  hdr:'☁️', hdrCls:'sec-head-cloud'});
-    if(actualData) cols.push({id:'act_cl', hdr:'✓☁️', hdrCls:'sec-head-cloud'});
+    cols.push({id:'cloud',  hdr:'☁️', hdrCls:''});
+    if(actualData) cols.push({id:'act_cl', hdr:'✓☁️', hdrCls:''});
   }
   return{cols,actMap,nowMs};
 }
