@@ -1100,12 +1100,6 @@ async function fetchGoogleActualsFull(){
 // ══════════════════════════════════════════
 // HISTORICAL ACTUALS + MODEL WEIGHT CALC
 // ══════════════════════════════════════════
-// ── BOM station list (state → product ID prefix mapping) ──────────────────
-// BOM observation JSON URLs follow the pattern:
-// BOM publishes a station list JSON we can use for nearest-station lookup
-const BOM_STATIONS_URL = 'https://corsproxy.io/?url=' +
-  encodeURIComponent('http://www.bom.gov.au/climate/data/lists_by_element/alphaAUS_136.txt');
-
 
 // ══════════════════════════════════════════════════════════════════════════
 // BOM UTILITIES
@@ -1143,7 +1137,7 @@ const BOM_STATE_PROD = {
 // finds the nearest station WITH a valid WMO number, then fetches its 72hr
 // observation JSON for use in the Actual row.
 async function fetchBOMActuals() {
-  const PROXY = 'https://corsproxy.io/?url=';
+  const PROXY = 'https://api.allorigins.win/raw?url=';
   try {
     const lat = state.lat, lon = state.lon;
 
@@ -1284,7 +1278,7 @@ async function fetchBOMActuals() {
 // 2. GET /v1/locations/<6-char-geohash>/forecasts/hourly → parse hourly data
 // Returns data shaped like Open-Meteo hourly so it can slot into state.data
 async function fetchBOMForecast(model) {
-  const PROXY = 'https://corsproxy.io/?url=';
+  const PROXY = 'https://api.allorigins.win/raw?url=';
   const BASE  = 'https://api.weather.bom.gov.au/v1';
   try {
     // ── 1. Location search → geohash ──────────────────────────────────────
