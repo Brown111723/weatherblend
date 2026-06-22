@@ -5,12 +5,15 @@
 // This Worker fetches them server-side and re-serves with Access-Control-* so
 // weatherblend.html can read them.
 //
-// Two endpoints:
+// Endpoints:
 //   1) Observations:  /?station=94691&state=NSW
 //        - tries the known product IDs for that state until BOM returns data
 //        - optional override: /?station=94691&product=IDN60801
 //   2) Station list:  /?stations=1
 //        - proxies BOM's stations.txt (so the app works without a local copy)
+//   3) Forecast:      /?forecast=1&search=Bathurst&lat=-33.42&lon=149.58
+//        - searches api.weather.bom.gov.au for the geohash, then returns the
+//          hourly forecast for the first-6-char geohash (nearest match to lat/lon)
 // ════════════════════════════════════════════════════════════════════════
 
 // Candidate observation product IDs per state, in the order to try them.
@@ -50,6 +53,24 @@ function json(obj, status) {
   });
 }
 
+// Decode a geohash to its centre lat/lon (used to pick the nearest search match).
+function decodeGeohash(gh) {
+  if (!gh) return null;
+  const base32 = "0123456789bcdefghjkmnpqrstuvwxyz";
+  let evenBit = true, latMin = -90, latMax = 90, lonMin = -180, lonMax = 180;
+  for (const ch of gh.toLowerCase()) {
+    const idx = base32.indexOf(ch);
+    if (idx < 0) return null;
+    for (let n = 4; n >= 0; n--) {
+      const bit = (idx >> n) & 1;
+      if (evenBit) { const mid = (lonMin + lonMax) / 2; if (bit) lonMin = mid; else lonMax = mid; }
+      else { const mid = (latMin + latMax) / 2; if (bit) latMin = mid; else latMax = mid; }
+      evenBit = !evenBit;
+    }
+  }
+  return { lat: (latMin + latMax) / 2, lon: (lonMin + lonMax) / 2 };
+}
+
 export default {
   async fetch(request) {
     // CORS preflight
@@ -58,6 +79,55 @@ export default {
     }
 
     const url = new URL(request.url);
+
+    // ── Endpoint 3: BOM forecast (location search -> hourly forecast) ──────
+    // /?forecast=1&search=Bathurst&lat=-33.42&lon=149.58
+    if (url.searchParams.get("forecast")) {
+      const search = url.searchParams.get("search") || "";
+      const lat = parseFloat(url.searchParams.get("lat"));
+      const lon = parseFloat(url.searchParams.get("lon"));
+      if (!search) return json({ error: "Missing 'search' parameter" }, 400);
+      try {
+        // 1) location search -> geohash
+        const sURL = `https://api.weather.bom.gov.au/v1/locations?search=${encodeURIComponent(search)}`;
+        const sResp = await fetch(sURL, { headers: BOM_HEADERS });
+        if (!sResp.ok) return json({ error: "BOM location search failed", status: sResp.status, url: sURL }, 502);
+        const sJson = await sResp.json();
+        const results = (sJson && sJson.data) || [];
+        if (!results.length) return json({ error: "No BOM location match", search }, 404);
+
+        // Pick the result nearest to the supplied coordinates (falls back to first)
+        let chosen = results[0];
+        if (!isNaN(lat) && !isNaN(lon)) {
+          let best = Infinity;
+          for (const r of results) {
+            const p = decodeGeohash(r.geohash);
+            if (!p) continue;
+            const d = (p.lat - lat) ** 2 + (p.lon - lon) ** 2;
+            if (d < best) { best = d; chosen = r; }
+          }
+        }
+        const gh6 = (chosen.geohash || "").slice(0, 6);
+        if (gh6.length < 6) return json({ error: "Bad geohash from search", chosen }, 502);
+
+        // 2) hourly forecast for that geohash
+        const fURL = `https://api.weather.bom.gov.au/v1/locations/${gh6}/forecasts/hourly`;
+        const fResp = await fetch(fURL, {
+          headers: BOM_HEADERS,
+          cf: { cacheTtlByStatus: { "200-299": 600, "400-599": 0 }, cacheEverything: true }
+        });
+        if (!fResp.ok) return json({ error: "BOM forecast fetch failed", status: fResp.status, url: fURL, geohash: gh6 }, 502);
+        const fJson = await fResp.json();
+        return json({
+          source: fURL,
+          geohash: gh6,
+          location: { name: chosen.name, state: chosen.state, geohash: chosen.geohash },
+          data: fJson
+        }, 200);
+      } catch (e) {
+        return json({ error: "BOM forecast error", message: String(e) }, 502);
+      }
+    }
 
     // ── Endpoint 2: stations.txt ──────────────────────────────────────────
     if (url.searchParams.get("stations")) {
