@@ -330,7 +330,7 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
       <div class="swatch"><span class="sw" style="background:#4a1a0a"></span> Storm 55+</div>
     </div>
 
-    <h3>Weather sources (7 models)</h3>
+    <h3>Weather sources (8 models)</h3>
     <div class="src-grid"><div class="src-item"><div class="src-name" style="color:#2563eb">GFS</div><div class="src-desc">NOAA · USA · Global 25km · 16-day</div></div>
       <div class="src-item"><div class="src-name" style="color:#059669">ECMWF</div><div class="src-desc">European Centre · 9km · Open data since Oct 2025</div></div>
       <div class="src-item"><div class="src-name" style="color:#16a34a">ICON</div><div class="src-desc">DWD · Germany · Global + Europe high-res</div></div>
@@ -338,9 +338,9 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
       <div class="src-item"><div class="src-name" style="color:#dc2626">UKMO</div><div class="src-desc">UK Met Office · Global model</div></div>
       <div class="src-item"><div class="src-name" style="color:#d97706">CMA</div><div class="src-desc">China Met Admin · GRAPES global</div></div>
       <div class="src-item"><div class="src-name" style="color:#6366f1">JMA</div><div class="src-desc">Japan Met Agency · Global 20km</div></div>
-      <div class="src-item"><div class="src-name" style="color:#b45309">BOM</div><div class="src-desc">Bureau of Meteorology · nearest AWS observations · used for "Actual" rows &amp; weighting</div></div>
+      <div class="src-item"><div class="src-name" style="color:#b45309">BOM</div><div class="src-desc">Bureau of Meteorology · AUS · hourly forecast (~3 days)</div></div>
     </div>
-    <p style="margin-top:10px;font-size:12px">Forecasts via <a href="https://open-meteo.com" target="_blank" style="color:var(--accent)">Open-Meteo</a>. Past "actual" data via <a href="https://www.bom.gov.au" target="_blank" style="color:var(--accent)">BOM</a> station observations. No API key needed. Refreshes automatically every hour.</p>
+    <p style="margin-top:10px;font-size:12px">Forecasts via <a href="https://open-meteo.com" target="_blank" style="color:var(--accent)">Open-Meteo</a> + <a href="https://www.bom.gov.au" target="_blank" style="color:var(--accent)">BOM</a>. Past "actual" data and model weighting use BOM's nearest-station observations. BOM data is fetched through a Cloudflare Worker. Refreshes automatically every hour.</p>
 
     <h3>Location</h3>
     <p>WeatherBlend tries browser GPS first. If denied, it falls back to IP-based location which may show your ISP city. Tap 📍 and type your city name for accurate location.</p>
@@ -371,7 +371,7 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 </div>
 <div class="source-note">
   Data: <a href="https://open-meteo.com" target="_blank">Open-Meteo</a> ·
-  GFS (NOAA/USA) · ECMWF IFS 0.25° · ICON (DWD/Germany) · GEM (Canada) · UKMO (Met Office) · CMA (China) · JMA (Japan) · BOM observations (actuals) ·
+  GFS (NOAA/USA) · ECMWF IFS 0.25° · ICON (DWD/Germany) · GEM (Canada) · UKMO (Met Office) · CMA (China) · JMA (Japan) · BOM (AUS, forecast + observations) ·
   No API key required. Auto-refreshes hourly.
 </div>
 
@@ -411,8 +411,8 @@ window.addEventListener('DOMContentLoaded', ()=>{ dbg('page loaded — debug log
 dbg('script started');
 
 // ══════════════════════════════════════════
-// MODELS — Open-Meteo forecast models.
-// BOM is used separately as the "actual" (observation) source, not a blended model.
+// MODELS — Open-Meteo forecast models + BOM forecast (via Worker).
+// BOM observations are used separately as the "actual" source.
 // ══════════════════════════════════════════
 const MODELS = [
   { key:'gfs_seamless',      ep:'/v1/forecast', label:'GFS',   short:'G', color:'#2563eb', desc:'NOAA · USA'      },
@@ -421,7 +421,8 @@ const MODELS = [
   { key:'gem_seamless',      ep:'/v1/forecast', label:'GEM',   short:'C', color:'#7c3aed', desc:'Env. Canada'     },
   { key:'ukmo_seamless',     ep:'/v1/forecast', label:'UKMO',  short:'U', color:'#dc2626', desc:'Met Office · UK' },
   { key:'cma_grapes_global', ep:'/v1/forecast', label:'CMA',   short:'X', color:'#d97706', desc:'CMA · China'     },
-  { key:'jma_seamless',      ep:'/v1/forecast', label:'JMA',   short:'J', color:'#6366f1', desc:'JMA · Japan'     }
+  { key:'jma_seamless',      ep:'/v1/forecast', label:'JMA',   short:'J', color:'#6366f1', desc:'JMA · Japan'     },
+  { key:'bom_forecast',      ep:'bomfc',        label:'BOM',   short:'B', color:'#b45309', desc:'BOM · AUS (hourly)', bomFc:true }
 ];
 
 const enabled    = new Set(MODELS.map(m=>m.key));
@@ -438,6 +439,7 @@ let useWeightedAvg = true;         // toggled by config panel
 let verticalLayout = false;
 let actualData = null;             // BOM observation actuals for the past days
 let manualLocationOverride = false; // set when user picks a city by hand this session
+let locationOffsetSec = null;      // UTC offset (sec) of the location — aligns BOM forecast times
 
 let state = { lat:null, lon:null, data:{}, status:{}, view:'1h', ss:{} };
 let autoRefreshTimer=null, nextRefreshAt=null;
@@ -742,7 +744,11 @@ async function fetchAllModels(){
   updatePills();renderSkeleton();
   fetchCurrentConditions();
 
-  await Promise.all(MODELS.map(async m=>{
+  locationOffsetSec=null;
+  const omModels=MODELS.filter(m=>!m.bomFc);
+  const bomFcModels=MODELS.filter(m=>m.bomFc);
+
+  await Promise.all(omModels.map(async m=>{
     try{
       const url=`https://api.open-meteo.com${m.ep}`
         +`?latitude=${state.lat}&longitude=${state.lon}`
@@ -754,6 +760,7 @@ async function fetchAllModels(){
       const json=await res.json();if(json.error)throw new Error(json.reason||'API error');
       if(!json.hourly?.temperature_2m?.some(v=>v!=null))throw new Error('No data');
       state.data[m.key]=json;state.status[m.key]='ok';
+      if(locationOffsetSec==null&&typeof json.utc_offset_seconds==='number')locationOffsetSec=json.utc_offset_seconds;
       if(!state.ss.loaded&&json.daily?.sunrise){
         state.ss.rise=json.daily.sunrise;state.ss.set=json.daily.sunset;
         state.ss.dates=json.daily.time;state.ss.loaded=true;
@@ -761,6 +768,12 @@ async function fetchAllModels(){
     }catch(e){console.warn(m.key,e.message);state.status[m.key]='fail';autoHidden.add(m.key);}
     updatePills();
   }));
+
+  // Fallback offset (browser tz) if no Open-Meteo model succeeded
+  if(locationOffsetSec==null)locationOffsetSec=-new Date().getTimezoneOffset()*60;
+
+  // BOM forecast model — fetched via the Worker, aligned to the location's local time
+  await Promise.all(bomFcModels.map(m=>fetchBomForecast(m)));
 
   MODELS.forEach(m=>{
     const el=document.getElementById('toggle-'+m.key);if(!el)return;
@@ -1031,6 +1044,83 @@ async function bomWorkerStations(){
   return await r.text();
 }
 
+// ── BOM FORECAST (model source) — via Worker: location search -> hourly forecast ──
+const BOM_DIR_DEG = {N:0,NNE:22.5,NE:45,ENE:67.5,E:90,ESE:112.5,SE:135,SSE:157.5,S:180,SSW:202.5,SW:225,WSW:247.5,W:270,WNW:292.5,NW:315,NNW:337.5};
+function bomDirToDeg(d){ if(!d)return null; const v=BOM_DIR_DEG[String(d).toUpperCase()]; return v==null?null:v; }
+
+// Map BOM icon_descriptor -> nearest WMO weathercode (for the icon column)
+function bomIconToWmo(ic){
+  if(!ic)return null;
+  const m={
+    sunny:0, clear:0, mostly_sunny:1, partly_cloudy:2, cloudy:3, overcast:3,
+    hazy:45, fog:45, dusty:45, smoke:45, frost:0, windy:1,
+    light_rain:61, light_shower:80, light_showers:80, shower:80, showers:80,
+    rain:63, heavy_rain:65, heavy_shower:82, heavy_showers:82,
+    storm:95, storms:95, thunderstorm:95, cyclone:95, tropical_cyclone:95,
+    snow:73, light_snow:71, heavy_snow:75
+  };
+  return ic in m ? m[ic] : 3;
+}
+
+// Convert BOM hourly forecast JSON -> the standard model {hourly,daily} shape
+function parseBomForecast(fJson, offsetSec){
+  const arr = fJson && fJson.data;
+  if(!Array.isArray(arr) || !arr.length) return null;
+  const off=(typeof offsetSec==='number')?offsetSec:(-new Date().getTimezoneOffset()*60);
+  const pad=n=>String(n).padStart(2,'0');
+  const toLocalKey=iso=>{ const d=new Date(new Date(iso).getTime()+off*1000);
+    return d.getUTCFullYear()+'-'+pad(d.getUTCMonth()+1)+'-'+pad(d.getUTCDate())+'T'+pad(d.getUTCHours())+':00'; };
+  const hourly={time:[],temperature_2m:[],precipitation:[],windspeed_10m:[],winddirection_10m:[],weathercode:[],cloudcover:[]};
+  for(const h of arr){
+    if(!h || !h.time) continue;
+    hourly.time.push(toLocalKey(h.time));
+    hourly.temperature_2m.push(typeof h.temp==='number'?h.temp:null);
+    let mm=0; const amt=h.rain&&h.rain.amount;
+    if(amt){ const mn=(typeof amt.min==='number'?amt.min:null), mx=(typeof amt.max==='number'?amt.max:null);
+      mm=(mn!=null&&mx!=null)?(mn+mx)/2:(mx!=null?mx:(mn!=null?mn:0)); }
+    hourly.precipitation.push(mm);
+    hourly.windspeed_10m.push(h.wind&&typeof h.wind.speed_kilometre==='number'?h.wind.speed_kilometre:null);
+    hourly.winddirection_10m.push(h.wind?bomDirToDeg(h.wind.direction):null);
+    hourly.weathercode.push(bomIconToWmo(h.icon_descriptor));
+    hourly.cloudcover.push(null);
+  }
+  // daily aggregates derived from the hourly series
+  const byDate={};
+  hourly.time.forEach((k,i)=>{ const d=k.slice(0,10); if(!byDate[d])byDate[d]={t:[],p:0};
+    if(hourly.temperature_2m[i]!=null)byDate[d].t.push(hourly.temperature_2m[i]); byDate[d].p+=hourly.precipitation[i]||0; });
+  const daily={time:[],weathercode:[],temperature_2m_max:[],temperature_2m_min:[],precipitation_sum:[],windspeed_10m_max:[],winddirection_10m_dominant:[]};
+  for(const d of Object.keys(byDate).sort()){ const ts=byDate[d].t;
+    daily.time.push(d); daily.weathercode.push(null);
+    daily.temperature_2m_max.push(ts.length?Math.max(...ts):null);
+    daily.temperature_2m_min.push(ts.length?Math.min(...ts):null);
+    daily.precipitation_sum.push(byDate[d].p);
+    daily.windspeed_10m_max.push(null); daily.winddirection_10m_dominant.push(null); }
+  return {hourly, daily};
+}
+
+async function fetchBomForecast(m){
+  state.status[m.key]='load'; updatePills();
+  try{
+    if(!bomWorkerConfigured())throw new Error('Worker URL not set');
+    if(state.lat==null||state.lon==null)throw new Error('no coordinates');
+    const name=((document.getElementById('loc-name').textContent||'').split(',')[0]||'').trim();
+    if(!name)throw new Error('no location name to search');
+    const u=`${BOM_WORKER_URL}?forecast=1&search=${encodeURIComponent(name)}&lat=${state.lat}&lon=${state.lon}`;
+    dbg(`BOM forecast: searching "${name}" via Worker`);
+    const r=await fetch(u,{signal:AbortSignal.timeout(15000)});
+    if(!r.ok){ let why=''; try{const j=await r.json(); why=j.error?(' ('+j.error+')'):'';}catch{} throw new Error('worker HTTP '+r.status+why); }
+    const j=await r.json();
+    const parsed=parseBomForecast(j.data, locationOffsetSec);
+    if(!parsed||!parsed.hourly.time.length)throw new Error('no forecast data');
+    state.data[m.key]=parsed; state.status[m.key]='ok';
+    dbg(`BOM forecast: ✓ ${j.location?.name||name} (${j.geohash||'?'}) — ${parsed.hourly.time.length} hrs`);
+  }catch(e){
+    dbg('❌ BOM forecast failed: '+(e.message||e.name));
+    state.status[m.key]='fail'; autoHidden.add(m.key);
+  }
+  updatePills();
+}
+
 // Parse BOM stations.txt (fixed-width) -> [{wmo, state, lat, lon, name}]
 let bomStationsCache=null;
 async function loadBomStations(){
@@ -1247,34 +1337,33 @@ async function fetchActualsAndComputeWeights(){
       });
     });
 
-    // Weighted RMSE per model (same as before)
+    // Split into models we can score (have past overlap with actuals) and those
+    // we can't (e.g. BOM forecast only provides future hours). Scorable models get
+    // inverse-RMSE weights; unscorable ones get the average skill (neutral) weight.
+    const scorable=activeMods.filter(m=>errors[m.key].wN>=1);
+    const unscorable=activeMods.filter(m=>errors[m.key].wN<1);
     const rmse={};
-    activeMods.forEach(m=>{
+    const raw={};
+    scorable.forEach(m=>{
       const e=errors[m.key];
-      if(e.wN<1){rmse[m.key]=999;return;}
       const tempRMSE=Math.sqrt(e.wTempSq/e.wN);
       const rainRMSE=Math.sqrt(e.wRainSq/e.wN);
-      rmse[m.key]=tempRMSE*0.7+rainRMSE*0.3;
+      const r=Math.max(0.01, tempRMSE*0.7+rainRMSE*0.3);
+      rmse[m.key]=r;
+      raw[m.key]=1/r;
     });
+    const scorableRaws=scorable.map(m=>raw[m.key]).filter(v=>v>0);
+    const meanRaw=scorableRaws.length?scorableRaws.reduce((a,b)=>a+b,0)/scorableRaws.length:1;
+    unscorable.forEach(m=>{ raw[m.key]=meanRaw; rmse[m.key]=null; }); // neutral: treated as average
 
-    const invSum=activeMods.reduce((s,m)=>s+(rmse[m.key]>0&&rmse[m.key]<999?1/rmse[m.key]:0),0);
+    const sum=activeMods.reduce((s,m)=>s+(raw[m.key]||0),0);
     modelWeights={};
-    if(invSum>0){
-      activeMods.forEach(m=>{
-        modelWeights[m.key]=rmse[m.key]>0&&rmse[m.key]<999?(1/rmse[m.key])/invSum:0;
-      });
-      const zeroKeys=activeMods.filter(m=>modelWeights[m.key]===0);
-      if(zeroKeys.length&&activeMods.length>zeroKeys.length){
-        const share=0.02;
-        const excess=zeroKeys.length*share;
-        activeMods.filter(m=>modelWeights[m.key]>0).forEach(m=>{
-          modelWeights[m.key]*=(1-excess);
-        });
-        zeroKeys.forEach(m=>{ modelWeights[m.key]=share/zeroKeys.length; });
-      }
+    if(sum>0){
+      activeMods.forEach(m=>{ modelWeights[m.key]=(raw[m.key]||0)/sum; });
     } else {
       activeMods.forEach(m=>{ modelWeights[m.key]=1/activeMods.length; });
     }
+    if(unscorable.length)dbg('weights: '+unscorable.map(m=>m.label).join(', ')+' unscored (no past data) → neutral weight');
 
     console.log('Recency-weighted RMSE:', Object.fromEntries(activeMods.map(m=>[m.label,rmse[m.key]?.toFixed(3)])));
     console.log('Model weights:', Object.fromEntries(activeMods.map(m=>[m.label,(modelWeights[m.key]*100).toFixed(1)+'%'])));
