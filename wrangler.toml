@@ -2,7 +2,7 @@
 # If you deploy from the dashboard you may not need this file, but it's required
 # for `wrangler deploy` / Git-connected Workers builds.
 
-name = "weatherblend-bom"
+name = "weatherblend"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 
