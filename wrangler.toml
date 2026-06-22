@@ -1,0 +1,11 @@
+# Cloudflare Worker config for the weatherblend BOM proxy.
+# If you deploy from the dashboard you may not need this file, but it's required
+# for `wrangler deploy` / Git-connected Workers builds.
+
+name = "weatherblend-bom"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# After deploying, your Worker URL will look like:
+#   https://weatherblend-bom.<your-subdomain>.workers.dev
+# Paste that URL into BOM_WORKER_URL near the top of the <script> in weatherblend.html.
