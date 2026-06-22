@@ -35,8 +35,13 @@ const CORS = {
   "Access-Control-Allow-Headers": "*"
 };
 
-// BOM rejects requests without a browser-like User-Agent.
-const UA = "Mozilla/5.0 (compatible; weatherblend/1.0; +https://github.com/)";
+// BOM returns 403 to bot-like requests. Mimic a real browser closely.
+const BOM_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Accept": "application/json, text/plain, */*",
+  "Accept-Language": "en-AU,en;q=0.9",
+  "Referer": "https://www.bom.gov.au/"
+};
 
 function json(obj, status) {
   return new Response(JSON.stringify(obj), {
@@ -58,7 +63,7 @@ export default {
     if (url.searchParams.get("stations")) {
       try {
         const resp = await fetch(STATIONS_URL, {
-          headers: { "User-Agent": UA },
+          headers: BOM_HEADERS,
           cf: { cacheTtl: 86400, cacheEverything: true } // cache 24h on Cloudflare
         });
         if (!resp.ok) {
@@ -100,8 +105,9 @@ export default {
       const bomUrl = `https://www.bom.gov.au/fwo/${productId}/${productId}.${station}.json`;
       try {
         const resp = await fetch(bomUrl, {
-          headers: { "User-Agent": UA },
-          cf: { cacheTtl: 300, cacheEverything: true } // cache 5 min
+          headers: BOM_HEADERS,
+          // Only cache successful responses; never cache a 403/404 (avoids stale blocks)
+          cf: { cacheTtlByStatus: { "200-299": 300, "400-599": 0 }, cacheEverything: true }
         });
         tried.push(`${productId}:${resp.status}`);
         if (resp.ok) {
