@@ -78,7 +78,7 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .mpill.ok{background:#0d2a1a;color:#4ade80;}.mpill.fail{background:#2a0d0d;color:#f87171;}.mpill.load{background:#1a1a0d;color:#fbbf24;}
 
 /* ── Sources panel ── */
-.model-panel{padding:8px 20px 10px;border-bottom:1px solid var(--border);background:var(--surface2);display:none;flex-direction:column;gap:2px;position:sticky;top:57px;z-index:90;}
+.model-panel{position:fixed;top:54px;right:8px;max-width:calc(100vw - 16px);max-height:80vh;overflow:auto;padding:12px 14px;border:1px solid var(--border2);border-radius:12px;background:var(--surface2);display:none;flex-direction:column;gap:8px;z-index:200;box-shadow:0 12px 34px rgba(0,0,0,.55);}
 .model-panel.open{display:flex;}
 .config-row{display:flex;flex-direction:column;align-items:flex-start;gap:4px;width:100%;padding:4px 0;}
 .config-row-label{font-size:10px;color:var(--text-dim);font-weight:700;letter-spacing:1px;text-transform:uppercase;width:100%;margin-bottom:3px;}
@@ -89,7 +89,9 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .tog-item:hover .tog-btn:not(.disabled){border-color:var(--border2);opacity:1;}
 .tog-label{font-size:9px;color:var(--text-dim);text-align:center;white-space:nowrap;}
 .tog-item .tog-btn.enabled ~ .tog-label{color:var(--text-muted);}
-.config-icons-row{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start;}
+.config-icons-row{display:grid;grid-template-columns:repeat(4,54px);gap:10px 6px;align-items:start;justify-content:start;}
+.tog-item{width:54px;}
+.tog-label{overflow:hidden;text-overflow:ellipsis;max-width:54px;}
 .panel-label{font-size:13px;color:var(--text-dim);font-weight:700;letter-spacing:1px;text-transform:uppercase;}
 .model-toggle{display:flex;align-items:center;gap:7px;padding:7px 11px;border-radius:9px;border:1px solid var(--border);cursor:pointer;transition:all .15s;user-select:none;font-size:14px;}
 .model-toggle.enabled{border-color:var(--border2);background:var(--surface);}
@@ -375,7 +377,7 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
   No API key required. Auto-refreshes hourly.
 </div>
 
-<div id="debug-panel" style="position:fixed;left:6px;right:6px;bottom:6px;z-index:99999;background:rgba(8,8,12,0.94);border:1px solid #555;border-radius:8px;font-family:monospace;font-size:11px;line-height:1.5;color:#9fe6a0;display:flex;flex-direction:column;max-height:40vh;backdrop-filter:blur(4px)">
+<div id="debug-panel" style="position:fixed;left:6px;right:6px;bottom:6px;z-index:99999;background:rgba(8,8,12,0.94);border:1px solid #555;border-radius:8px;font-family:monospace;font-size:11px;line-height:1.5;color:#9fe6a0;display:none;flex-direction:column;max-height:40vh;backdrop-filter:blur(4px)">
   <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border-bottom:1px solid #333;flex:0 0 auto">
     <strong style="color:#eee">🐞 Debug log</strong>
     <span style="display:flex;gap:6px">
@@ -437,6 +439,8 @@ let cachedHiLo = null;          // {hi, lo} avg from model daily data for today
 let modelWeights = {};             // key -> weight 0-1 (sum=1 across enabled models)
 let useWeightedAvg = true;         // toggled by config panel
 let verticalLayout = false;
+let showDebug = false;             // debug panel hidden by default
+let showActuals = true;            // show the BOM "Actual" rows/columns
 let actualData = null;             // BOM observation actuals for the past days
 let manualLocationOverride = false; // set when user picks a city by hand this session
 let locationOffsetSec = null;      // UTC offset (sec) of the location — aligns BOM forecast times
@@ -450,11 +454,21 @@ const AUTO_MS = 60*60*1000;
 // ══════════════════════════════════════════
 window.addEventListener('DOMContentLoaded',()=>{
   loadPrefs();
+  applyDebugVisibility();
   // sync active view button to restored view
   document.querySelectorAll('#view-btns .btn').forEach(b=>{const mm=b.getAttribute('onclick')?.match(/'([^']+)'/);if(mm)b.classList.toggle('active',mm[1]===state.view);});
   buildSourcesPanel();
   updateDetailBtn();
   getLocation();
+  // Close the config overlay when clicking/tapping outside it
+  document.addEventListener('click',(ev)=>{
+    const panel=document.getElementById('model-panel');
+    const btn=document.getElementById('sources-hdr-btn');
+    if(!panel||!panel.classList.contains('open'))return;
+    if(panel.contains(ev.target)||btn.contains(ev.target))return;
+    panel.classList.remove('open');
+    btn.classList.remove('active');
+  });
 });
 
 function buildSourcesPanel(){
@@ -478,6 +492,8 @@ function buildSourcesPanel(){
     `<div class="config-icons-row">`+
     ti("tog-weighted",e(useWeightedAvg),"⚖️","toggleWeighting(document.getElementById('tog-weighted'))","Weighted")+
     ti("tog-vert",e(verticalLayout),"⇅","toggleVertical(document.getElementById('tog-vert'))","Vertical")+
+    ti("tog-actual",e(showActuals),"✓","toggleActuals(document.getElementById('tog-actual'))","Actual")+
+    ti("tog-debug",e(showDebug),"🐞","toggleDebug(document.getElementById('tog-debug'))","Debug")+
     `</div></div>`+
     `<div class="config-row">`+
     `<div class="config-row-label">Sources</div>`+
@@ -526,6 +542,22 @@ function toggleWeighting(btn){
   if(btn){btn.classList.toggle('enabled',useWeightedAvg);btn.classList.toggle('disabled',!useWeightedAvg);}
   savePrefs();
   if(Object.keys(state.data).length){renderCurrentBar();renderTable();}
+}
+function toggleActuals(btn){
+  showActuals=!showActuals;
+  if(btn){btn.classList.toggle('enabled',showActuals);btn.classList.toggle('disabled',!showActuals);}
+  savePrefs();
+  if(Object.keys(state.data).length){renderTable();}
+}
+function applyDebugVisibility(){
+  const p=document.getElementById('debug-panel');
+  if(p)p.style.display=showDebug?'flex':'none';
+}
+function toggleDebug(btn){
+  showDebug=!showDebug;
+  if(btn){btn.classList.toggle('enabled',showDebug);btn.classList.toggle('disabled',!showDebug);}
+  applyDebugVisibility();
+  savePrefs();
 }
 
 function toggleSection(sec,btn){
@@ -641,7 +673,7 @@ function loadSavedLocation(){
 function savePrefs(){
   try{
     localStorage.setItem('wb_prefs',JSON.stringify({
-      showDetail,useWeightedAvg,verticalLayout,
+      showDetail,useWeightedAvg,verticalLayout,showDebug,showActuals,
       secVisible:{...secVisible},
       enabled:[...enabled],
       view:state.view
@@ -654,6 +686,8 @@ function loadPrefs(){
     if(p.showDetail!==undefined)showDetail=p.showDetail;
     if(p.useWeightedAvg!==undefined)useWeightedAvg=p.useWeightedAvg;
     if(p.verticalLayout!==undefined)verticalLayout=p.verticalLayout;
+    if(p.showDebug!==undefined)showDebug=p.showDebug;
+    if(p.showActuals!==undefined)showActuals=p.showActuals;
     if(p.secVisible)Object.assign(secVisible,p.secVisible);
     if(p.enabled){enabled.clear();p.enabled.forEach(k=>{if(MODELS.find(m=>m.key===k))enabled.add(k);});}
     if(p.view)state.view=p.view;
@@ -1218,7 +1252,10 @@ function parseBomObs(json, stn){
     const yr=raw.slice(0,4),mo=raw.slice(4,6),dy=raw.slice(6,8),hr=raw.slice(8,10),min=parseInt(raw.slice(10,12),10);
     const hourKey=`${yr}-${mo}-${dy}T${hr}:00`;
     const t=parseFloat(o.air_temp);
-    const rec={ temp:(!isNaN(t)&&String(o.air_temp).trim()!=='')?t:null, traceCum:parseBomRain(o.rain_trace) };
+    // BOM reports cloud as oktas (0-8) when available; many AWS leave it null.
+    const okt=(o.cloud_oktas==null||o.cloud_oktas==='')?null:parseFloat(o.cloud_oktas);
+    const cloudPct=(okt!=null&&!isNaN(okt))?Math.max(0,Math.min(100,okt/8*100)):null;
+    const rec={ temp:(!isNaN(t)&&String(o.air_temp).trim()!=='')?t:null, traceCum:parseBomRain(o.rain_trace), cloud:cloudPct };
     if(min===0 || !(hourKey in byHour)) byHour[hourKey]=rec; // :00 wins, :30 fills gaps
   }
   const keys=Object.keys(byHour).sort();
@@ -1235,7 +1272,7 @@ function parseBomObs(json, stn){
     hourly.time.push(k);
     hourly.temperature_2m.push(r.temp);
     hourly.precipitation.push(Math.max(0,inc));
-    hourly.cloudcover.push(null);
+    hourly.cloudcover.push(r.cloud!=null?r.cloud:null);
   }
   // daily aggregates (calendar date)
   const byDate={};
@@ -1435,7 +1472,7 @@ function buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled,r
   const avgCells=avg.map((v,ci)=>{const cls=cloudCls(v);const nc=ci===nowCi?"now-col":"";const txt=v!=null?Math.round(v)+"%":"—";return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(" ")}">${txt}</td>`,(ndCls[ci]+" "+pastCls[ci]).trim());}).join("");
   const srcRows=allActive.map(m=>{const v=hVals(m.key,"cloudcover",indices);const cells=v.map((x,ci)=>{const cls=cloudCls(x);const nc=ci===nowCi?"now-col":"";return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(" ")}">${x!=null?Math.round(x)+"%":"—"}</td>`,(ndCls[ci]+" "+pastCls[ci]).trim());}).join("");return`<tr class="${srcRowClass(m)}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span></span></td>${cells}</tr>`;}).join("");
   const nowMs=Date.now();
-  const actCells=actualData?indices.map((hourIdx,ci)=>{
+  const actCells=(actualData&&showActuals)?indices.map((hourIdx,ci)=>{
     if(new Date(ref.time[hourIdx]).getTime()>=nowMs)return'<td class="empty">–</td>';
     const ai=actMap[ref.time[hourIdx]];
     if(ai===undefined)return'<td class="empty">–</td>';
@@ -1536,18 +1573,18 @@ function renderVertical_buildColDef(){
   const cols=[];
   if(secVisible.temp){
     cols.push({id:'temp',   hdr:'🌡', hdrCls:'sec-head-temp'});
-    if(actualData) cols.push({id:'act_t', hdr:'✓🌡', hdrCls:'sec-head-temp'});
+    if(actualData&&showActuals) cols.push({id:'act_t', hdr:'✓🌡', hdrCls:'sec-head-temp'});
   }
   if(secVisible.rain){
     cols.push({id:'rain',   hdr:'🌧', hdrCls:'sec-head-rain'});
-    if(actualData) cols.push({id:'act_r', hdr:'✓🌧', hdrCls:'sec-head-rain'});
+    if(actualData&&showActuals) cols.push({id:'act_r', hdr:'✓🌧', hdrCls:'sec-head-rain'});
   }
   if(secVisible.wind){
     cols.push({id:'wind',   hdr:'💨', hdrCls:'sec-head-wind'});
   }
   if(secVisible.cloud){
     cols.push({id:'cloud',  hdr:'☁️', hdrCls:''});
-    if(actualData) cols.push({id:'act_cl', hdr:'✓☁️', hdrCls:''});
+    if(actualData&&showActuals) cols.push({id:'act_cl', hdr:'✓☁️', hdrCls:''});
   }
   return{cols,actMap,nowMs};
 }
@@ -1925,18 +1962,19 @@ function renderHourly(){
     ${secGroup('temp',`
       <tr class="sec-head-temp"><td class="row-label">🌡 Temp</td>${avgTempCells}</tr>
       ${tempModelRows}
-      ${actualData?`<tr class="actual-row"><td class="row-label" style="color:#86efac">✓ Actual</td>${actualTempCells}</tr>`:''}
+      ${actualData&&showActuals?`<tr class="actual-row"><td class="row-label" style="color:#86efac">✓ Actual</td>${actualTempCells}</tr>`:''}
       <tr class="spacer"><td colspan="${C}"></td></tr>
     `)}
     ${secGroup('rain',`
       <tr class="sec-head-rain"><td class="row-label">🌧 Rain</td>${avgRainCells}</tr>
       ${rainModelRows}
-      ${actualData?`<tr class="actual-row"><td class="row-label" style="color:#90caf9">✓ Actual</td>${actualRainCells}</tr>`:''}
+      ${actualData&&showActuals?`<tr class="actual-row"><td class="row-label" style="color:#90caf9">✓ Actual</td>${actualRainCells}</tr>`:''}
       <tr class="spacer"><td colspan="${C}"></td></tr>
     `)}
     ${secGroup('wind',`
       <tr class="sec-head-wind"><td class="row-label">💨 Wind</td>${avgWindCells}</tr>
       <tr class="data-row src-row"><td class="row-label" style="font-size:13px;color:var(--text-dim)">Direction</td>${avgDirCells}</tr>
+      <tr class="spacer"><td colspan="${C}"></td></tr>
     `)}
     ${secGroup("cloud",buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled,ref,actMap))}`;
   scrollToNow();
@@ -2039,7 +2077,7 @@ function renderDaily(){
     ${secGroup('temp',`
       <tr class="sec-head-temp"><td class="row-label">🌡 Temp</td>${avgTempCells}</tr>
       ${tempModelRows}
-      ${actualData?`<tr class="actual-row"><td class="row-label" style="color:#86efac">✓ Actual</td>${actualTempCells}</tr>`:''}
+      ${actualData&&showActuals?`<tr class="actual-row"><td class="row-label" style="color:#86efac">✓ Actual</td>${actualTempCells}</tr>`:''}
       <tr class="spacer"><td colspan="${C}"></td></tr>
     `)}
     ${secGroup('wind',`
@@ -2049,7 +2087,7 @@ function renderDaily(){
     ${secGroup('rain',`
       <tr class="sec-head-rain"><td class="row-label">🌧 Rain</td>${avgRainCells}</tr>
       ${rainModelRows}
-      ${actualData?`<tr class="actual-row"><td class="row-label" style="color:#90caf9">✓ Actual</td>${actualRainCells}</tr>`:''}
+      ${actualData&&showActuals?`<tr class="actual-row"><td class="row-label" style="color:#90caf9">✓ Actual</td>${actualRainCells}</tr>`:''}
     `)}`;
 
   // Scroll to today column
