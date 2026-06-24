@@ -175,6 +175,8 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .avg-row td.row-label{font-family:'Inter',sans-serif;font-size:11px;font-weight:600;color:var(--text-primary);}
 .hilocell{font-size:12px;color:var(--text-muted);display:block;margin-top:1px;font-weight:400;}
 .src-row.src-hidden{display:none;}
+.sec-toggle{cursor:pointer;user-select:none;}
+.sec-caret{display:inline-block;width:0.9em;font-size:11px;color:var(--text-muted);}
 .section-group.sec-off{display:none;}
 .spacer td{height:18px;}
 .empty{color:var(--text-dim)!important;font-size:13px;}
@@ -433,8 +435,9 @@ const MODELS = [
 
 const enabled    = new Set(MODELS.map(m=>m.key));
 const autoHidden = new Set();
-let showDetail = false;
-const secVisible = { temp:true, wind:false, rain:true, cloud:false };
+let showDetail = false;const secVisible = { temp:true, wind:false, rain:true, cloud:false };
+// Per-section source-row visibility (toggled by clicking a section header)
+const secDetail = { temp:false, rain:false, wind:false, cloud:false };
 
 // Cached current fetch data for instant re-calc on view change
 let cachedCurrent = null; // { c, precipHourly }
@@ -523,10 +526,14 @@ function toggleModel(key){
   savePrefs(); if(Object.keys(state.data).length){renderCurrentBar();renderTable();}
 }
 function toggleDetail(){
-  showDetail=!showDetail; updateDetailBtn(); savePrefs();
+  showDetail=!showDetail; updateDetailBtn();
+  ['temp','rain','wind','cloud'].forEach(s=>secDetail[s]=showDetail);
+  savePrefs();
   document.querySelectorAll('.src-row').forEach(r=>{
     if(!r.classList.contains('perm-hidden'))r.classList.toggle('src-hidden',!showDetail);
   });
+  document.querySelectorAll('.sec-caret').forEach(c=>c.textContent=showDetail?'▾':'▸');
+  positionNowOverlay();
 }
 function updateDetailBtn(){
   const panelBtn=document.getElementById('detail-in-panel');
@@ -679,6 +686,7 @@ function savePrefs(){
     localStorage.setItem('wb_prefs',JSON.stringify({
       showDetail,useWeightedAvg,verticalLayout,showDebug,showActuals,
       secVisible:{...secVisible},
+      secDetail:{...secDetail},
       enabled:[...enabled],
       view:state.view
     }));
@@ -693,6 +701,7 @@ function loadPrefs(){
     if(p.showDebug!==undefined)showDebug=p.showDebug;
     if(p.showActuals!==undefined)showActuals=p.showActuals;
     if(p.secVisible)Object.assign(secVisible,p.secVisible);
+    if(p.secDetail)Object.assign(secDetail,p.secDetail);
     if(p.enabled){enabled.clear();p.enabled.forEach(k=>{if(MODELS.find(m=>m.key===k))enabled.add(k);});}
     if(p.view)state.view=p.view;
   }catch(e){}
@@ -1475,7 +1484,7 @@ function cloudCls(v){if(v==null)return"";if(v<=12)return"cl0";if(v<=25)return"cl
 function buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled,ref,actMap){
   const avg=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:hVals(m.key,"cloudcover",indices)[ci]}))));
   const avgCells=avg.map((v,ci)=>{const cls=cloudCls(v);const nc=ci===nowCi?"now-col":"";const txt=v!=null?Math.round(v)+"%":"—";return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(" ")}">${txt}</td>`,(ndCls[ci]+" "+pastCls[ci]).trim());}).join("");
-  const srcRows=allActive.map(m=>{const v=hVals(m.key,"cloudcover",indices);const cells=v.map((x,ci)=>{const cls=cloudCls(x);const nc=ci===nowCi?"now-col":"";return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(" ")}">${x!=null?Math.round(x)+"%":"—"}</td>`,(ndCls[ci]+" "+pastCls[ci]).trim());}).join("");return`<tr class="${srcRowClass(m)}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span></span></td>${cells}</tr>`;}).join("");
+  const srcRows=allActive.map(m=>{const v=hVals(m.key,"cloudcover",indices);const cells=v.map((x,ci)=>{const cls=cloudCls(x);const nc=ci===nowCi?"now-col":"";return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(" ")}">${x!=null?Math.round(x)+"%":"—"}</td>`,(ndCls[ci]+" "+pastCls[ci]).trim());}).join("");return`<tr class="${srcRowClass(m,'cloud')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span></span></td>${cells}</tr>`;}).join("");
   const nowMs=Date.now();
   const actCells=(actualData&&showActuals)?indices.map((hourIdx,ci)=>{
     if(new Date(ref.time[hourIdx]).getTime()>=nowMs)return'<td class="empty">–</td>';
@@ -1486,7 +1495,7 @@ function buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled,r
     const cls=cloudCls(v);const nc=ci===nowCi?"now-col":"";
     return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(" ")}">${Math.round(v)}%</td>`,(ndCls[ci]+" "+pastCls[ci]).trim());
   }).join(""):null;
-  return`<tr class="sec-head-temp"><td class="row-label" style="color:#c4b5fd">☁️ Cloud</td>${avgCells}</tr>${srcRows}`+
+  return`<tr class="sec-head-temp">${secHeadLabel('cloud','<span style="color:#c4b5fd">☁️ Cloud</span>')}${avgCells}</tr>${srcRows}`+
     (actCells?`<tr class="actual-row"><td class="row-label" style="color:#c4b5fd">✓ Actual</td>${actCells}</tr>`:"");
 }
 function tempCls(v){if(v==null)return'';if(v<5)return'tc';if(v<12)return'tk';if(v<22)return'tm';if(v<30)return'tw';return'th';}
@@ -1548,9 +1557,24 @@ function dailyHiLo(key,isoTime){
 }
 function activeEnabled(){return MODELS.filter(m=>state.data[m.key]&&enabled.has(m.key)&&!autoHidden.has(m.key));}
 function activeAll(){return MODELS.filter(m=>state.data[m.key]);}
-function srcRowClass(m){
+function srcRowClass(m,sec){
   const isOn=enabled.has(m.key)&&!autoHidden.has(m.key);
-  return`data-row src-row${(!isOn||!showDetail)?' src-hidden':''}${!isOn?' perm-hidden':''}`;
+  const open=sec?secDetail[sec]:showDetail;
+  return`data-row src-row${sec?' src-'+sec:''}${(!isOn||!open)?' src-hidden':''}${!isOn?' perm-hidden':''}`;
+}
+// Clickable section header label that toggles that section's source rows
+function secHeadLabel(sec,content){
+  const open=secDetail[sec];
+  return`<td class="row-label sec-toggle" onclick="toggleSecDetail('${sec}')"><span class="sec-caret" data-sec="${sec}">${open?'▾':'▸'}</span> ${content}</td>`;
+}
+function toggleSecDetail(sec){
+  secDetail[sec]=!secDetail[sec];
+  document.querySelectorAll('.src-'+sec).forEach(r=>{
+    if(!r.classList.contains('perm-hidden'))r.classList.toggle('src-hidden',!secDetail[sec]);
+  });
+  document.querySelectorAll('.sec-caret[data-sec="'+sec+'"]').forEach(c=>c.textContent=secDetail[sec]?'▾':'▸');
+  savePrefs();
+  positionNowOverlay();
 }
 
 // am/pm time formatter
@@ -1817,20 +1841,20 @@ function positionNowOverlay(){
 
     if(!verticalLayout){
       // ── HORIZONTAL VIEW ──
+      const fullH=wrap.scrollHeight; // span the entire table, not just the viewport
       const nowTh=wrap.querySelector('.hour-header th.now-col');
       if(nowTh&&ovV){
         const leftEdge=nowTh.offsetLeft;
-        // Overlays span full scroll height; sticky header sits on top via z-index
         ovV.style.left=leftEdge+'px';
         ovV.style.top='0';
-        ovV.style.height='100%';
+        ovV.style.height=fullH+'px';
         ovV.style.display='block';
         // Past overlay: from label col edge to now col left edge
         const labelW=98;
         pastV.style.left=labelW+'px';
         pastV.style.top='0';
         pastV.style.width=Math.max(0,leftEdge-labelW)+'px';
-        pastV.style.height='100%';
+        pastV.style.height=fullH+'px';
         pastV.style.display='block';
       } else {
         if(ovV)ovV.style.display='none';
@@ -1905,6 +1929,8 @@ function renderHourly(){
   // Find index 7 days ago (or start of data)
   const sevenDaysAgo=new Date(now.getTime()-10*24*3600*1000);
   let si=ref.time.findIndex(t=>new Date(t)>=sevenDaysAgo);if(si<0)si=0;
+  // For 3h/8h, snap the start so buckets align to midnight (clean 12pm/3pm boundaries)
+  if(step>1){ while(si>0 && new Date(ref.time[si]).getHours()%step!==0) si--; }
   // Find "now" index for highlighting
   const // nowIdx: find current hour slot (last hour whose time <= now)
   nowIdx=(()=>{let idx=0;for(let k=0;k<ref.time.length;k++){if(new Date(ref.time[k])<=now)idx=k;else break;}return idx;})();
@@ -1914,17 +1940,20 @@ function renderHourly(){
 
   const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const ndCls=indices.map((i,ci)=>colDayCls(ref.time[i],ci>0?ref.time[indices[ci-1]]:null));
-  const pastCls=indices.map(i=>(nowIdx>=0&&i<nowIdx)?'past-col':'');
   // Build actMap here so buildCloudSection can access it
   const actMap={};
   if(actualData){actualData.hourly.time.forEach((t,ai)=>{actMap[t]=ai;});}
-  const nowCi=indices.indexOf(nowIdx); // column position of 'now' within our slice
+  // Column position of 'now', rounded DOWN to the bucket that contains it
+  // (e.g. on 3h view at 1pm → the 12pm bucket). Works for 1h/3h/8h alike.
+  let nowCi=-1;
+  for(let ci=0;ci<indices.length;ci++){ if(indices[ci]<=nowIdx) nowCi=ci; else break; }
+  const pastCls=indices.map((i,ci)=>(nowCi>=0&&ci<nowCi)?'past-col':'');
 
   const hdrCells=indices.map((i,ci)=>{
     const d=new Date(ref.time[i]);
     const timeStr=fmtAmPm(d);  // am/pm
-    const isNow=nowIdx>=0&&i===nowIdx;
-    const isPastCol=nowIdx>=0&&i<nowIdx;
+    const isNow=ci===nowCi;
+    const isPastCol=nowCi>=0&&ci<nowCi;
     const cls=[isNow?'now-col':'',ndCls[ci],isPastCol?'past-col':''].filter(Boolean).join(' ');
     const dayLabel=DAYS[d.getDay()]+' '+d.getDate();    return`<th class="${cls}"><span class="col-day">${dayLabel}</span><span class="col-time">${timeStr}</span></th>`;
   }).join('');
@@ -1937,7 +1966,7 @@ function renderHourly(){
   const tempModelRows=allActive.map(m=>{
     const v=hVals(m.key,'temperature_2m',indices);
     const cells=v.map((x,ci)=>{const nc=ci===nowCi?'now-col':'';return injectColCls(`<td class="${[x!=null?tempCls(x):'',nc].filter(Boolean).join(' ')}">${x!=null?tempDisp(x)+'°':'—'}</td>`,ndCls[ci]);}).join('');
-    return`<tr class="${srcRowClass(m)}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span><span style="font-size:10px;color:var(--text-muted)">${(()=>{const w=modelWeights[m.key];if(!w)return '';const pct=Math.round(w*100);const cls=pct>=20?'high':pct>=10?'mid':'low';return '<span class="weight-badge '+cls+'">'+pct+'%</span>';})()}</span></span></td>${cells}</tr>`;
+    return`<tr class="${srcRowClass(m,'temp')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span><span style="font-size:10px;color:var(--text-muted)">${(()=>{const w=modelWeights[m.key];if(!w)return '';const pct=Math.round(w*100);const cls=pct>=20?'high':pct>=10?'mid':'low';return '<span class="weight-badge '+cls+'">'+pct+'%</span>';})()}</span></span></td>${cells}</tr>`;
   }).join('');
   const avgTemp=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:hVals(m.key,'temperature_2m',indices)[ci]}))));
   const avgTempCells=avgTemp.map((v,ci)=>{
@@ -1950,12 +1979,17 @@ function renderHourly(){
   const avgWindCells=avgWind.map((v,ci)=>{const nc=ci===nowCi?'now-col':'';return injectColCls(`<td class="${[v!=null?windCls(v):'',pastCls[ci]||'',nc].filter(Boolean).join(' ')}">${fmt(v,0)}</td>`,ndCls[ci]);}).join('');
   const avgDir=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:hVals(m.key,'winddirection_10m',indices)[ci]}))));
   const avgDirCells=avgDir.map((v,ci)=>{const nc=ci===nowCi?'now-col':'';return injectColCls(`<td class="${['dir-cell',pastCls[ci]||'',nc].filter(Boolean).join(' ')}">${v!=null?dirArrow(v):'—'}</td>`,ndCls[ci]);}).join('');
+  const windModelRows=allActive.map(m=>{
+    const v=hVals(m.key,'windspeed_10m',indices);
+    const cells=v.map((x,ci)=>{const nc=ci===nowCi?'now-col':'';return injectColCls(`<td class="${[x!=null?windCls(x):'',nc].filter(Boolean).join(' ')}">${fmt(x,0)}</td>`,ndCls[ci]);}).join('');
+    return`<tr class="${srcRowClass(m,'wind')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span></span></td>${cells}</tr>`;
+  }).join('');
 
   // ── RAIN ──
   const rainModelRows=allActive.map(m=>{
     const v=hVals(m.key,'precipitation',indices);
     const cells=v.map((x,ci)=>{const cls=rainCls(x);const txt=x==null?'—':x<0.05?'<span class="empty">0</span>':x.toFixed(1);return injectColCls(`<td class="${cls}">${txt}</td>`,ndCls[ci]);}).join('');
-    return`<tr class="${srcRowClass(m)}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span><span style="font-size:10px;color:var(--text-muted)">${(()=>{const w=modelWeights[m.key];if(!w)return '';const pct=Math.round(w*100);const cls=pct>=20?'high':pct>=10?'mid':'low';return '<span class="weight-badge '+cls+'">'+pct+'%</span>';})()}</span></span></td>${cells}</tr>`;
+    return`<tr class="${srcRowClass(m,'rain')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span><span style="font-size:10px;color:var(--text-muted)">${(()=>{const w=modelWeights[m.key];if(!w)return '';const pct=Math.round(w*100);const cls=pct>=20?'high':pct>=10?'mid':'low';return '<span class="weight-badge '+cls+'">'+pct+'%</span>';})()}</span></span></td>${cells}</tr>`;
   }).join('');
   const avgRain=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:hVals(m.key,'precipitation',indices)[ci]}))));
   const avgRainCells=avgRain.map((v,ci)=>{const cls=rainCls(v);const txt=v==null?'—':v<0.05?'<span class="empty">0</span>':v.toFixed(1);
@@ -1995,20 +2029,21 @@ function renderHourly(){
       <tr class="spacer"><td colspan="${C}"></td></tr>
     </tbody>
     ${secGroup('temp',`
-      <tr class="sec-head-temp"><td class="row-label">🌡 Temp</td>${avgTempCells}</tr>
+      <tr class="sec-head-temp">${secHeadLabel('temp','🌡 Temp')}${avgTempCells}</tr>
       ${tempModelRows}
       ${actualData&&showActuals?`<tr class="actual-row"><td class="row-label" style="color:#86efac">✓ Actual</td>${actualTempCells}</tr>`:''}
       <tr class="spacer"><td colspan="${C}"></td></tr>
     `)}
     ${secGroup('rain',`
-      <tr class="sec-head-rain"><td class="row-label">🌧 Rain</td>${avgRainCells}</tr>
+      <tr class="sec-head-rain">${secHeadLabel('rain','🌧 Rain')}${avgRainCells}</tr>
       ${rainModelRows}
       ${actualData&&showActuals?`<tr class="actual-row"><td class="row-label" style="color:#90caf9">✓ Actual</td>${actualRainCells}</tr>`:''}
       <tr class="spacer"><td colspan="${C}"></td></tr>
     `)}
     ${secGroup('wind',`
-      <tr class="sec-head-wind"><td class="row-label">💨 Wind</td>${avgWindCells}</tr>
-      <tr class="data-row src-row"><td class="row-label" style="font-size:13px;color:var(--text-dim)">Direction</td>${avgDirCells}</tr>
+      <tr class="sec-head-wind">${secHeadLabel('wind','💨 Wind')}${avgWindCells}</tr>
+      <tr class="data-row src-row src-wind${secDetail.wind?'':' src-hidden'}"><td class="row-label" style="font-size:13px;color:var(--text-dim)">Direction</td>${avgDirCells}</tr>
+      ${windModelRows}
       <tr class="spacer"><td colspan="${C}"></td></tr>
     `)}
     ${secGroup("cloud",buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled,ref,actMap))}`;
@@ -2055,7 +2090,7 @@ function renderDaily(){
       const lo=mn[ci],cls=hi!=null?tempCls(hi):'',loCls=lo!=null?tempCls(lo):'';
       return (hi==null&&lo==null)?`<td class="${cls}"><span class="empty">—</span></td>`:`<td class="${cls}">↑${hi!=null?tempDisp(hi)+'°':'—'} <span class="${loCls}" style="font-size:13px">↓${lo!=null?tempDisp(lo)+'°':'—'}</span></td>`;
     }).join('');
-    return`<tr class="${srcRowClass(m)}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span><span style="font-size:10px;color:var(--text-muted)">${(()=>{const w=modelWeights[m.key];if(!w)return '';const pct=Math.round(w*100);const cls=pct>=20?'high':pct>=10?'mid':'low';return '<span class="weight-badge '+cls+'">'+pct+'%</span>';})()}</span></span></td>${cells}</tr>`;
+    return`<tr class="${srcRowClass(m,'temp')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span><span style="font-size:10px;color:var(--text-muted)">${(()=>{const w=modelWeights[m.key];if(!w)return '';const pct=Math.round(w*100);const cls=pct>=20?'high':pct>=10?'mid':'low';return '<span class="weight-badge '+cls+'">'+pct+'%</span>';})()}</span></span></td>${cells}</tr>`;
   }).join('');
   const avgMax=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:dVals(m.key,'temperature_2m_max')[ci]}))));
   const avgMin=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:dVals(m.key,'temperature_2m_min')[ci]}))));
@@ -2081,15 +2116,34 @@ function renderDaily(){
   // ── WIND ──
   const avgWind=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:dVals(m.key,'windspeed_10m_max')[ci]}))));
   const avgWindCells=avgWind.map(v=>`<td class="${v!=null?windCls(v):''}">${fmt(v,0)}</td>`).join('');
+  const windModelRows=allActive.map(m=>{
+    const v=dVals(m.key,'windspeed_10m_max');
+    const cells=v.map(x=>`<td class="${x!=null?windCls(x):''}">${fmt(x,0)}</td>`).join('');
+    return`<tr class="${srcRowClass(m,'wind')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span></span></td>${cells}</tr>`;
+  }).join('');
 
   // ── RAIN ──
   const rainModelRows=allActive.map(m=>{
     const v=dVals(m.key,'precipitation_sum');
     const cells=v.map(x=>{const cls=rainCls(x),txt=x==null?'—':x<0.1?'<span class="empty">0</span>':x.toFixed(1);return`<td class="${cls}">${txt}</td>`;}).join('');
-    return`<tr class="${srcRowClass(m)}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span><span style="font-size:10px;color:var(--text-muted)">${(()=>{const w=modelWeights[m.key];if(!w)return '';const pct=Math.round(w*100);const cls=pct>=20?'high':pct>=10?'mid':'low';return '<span class="weight-badge '+cls+'">'+pct+'%</span>';})()}</span></span></td>${cells}</tr>`;
+    return`<tr class="${srcRowClass(m,'rain')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span><span style="font-size:10px;color:var(--text-muted)">${(()=>{const w=modelWeights[m.key];if(!w)return '';const pct=Math.round(w*100);const cls=pct>=20?'high':pct>=10?'mid':'low';return '<span class="weight-badge '+cls+'">'+pct+'%</span>';})()}</span></span></td>${cells}</tr>`;
   }).join('');
   const avgRain=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:dVals(m.key,'precipitation_sum')[ci]}))));
   const avgRainCells=avgRain.map(v=>{const cls=rainCls(v),txt=v==null?'—':v<0.1?'<span class="empty">0</span>':v.toFixed(1);return`<td class="${cls}">${txt}</td>`;}).join('');
+
+  // ── CLOUD (daily mean derived from each model's hourly cloudcover) ──
+  function dCloud(key,ci){
+    const h=state.data[key]?.hourly;if(!h?.time)return null;
+    const dateStr=ref.time[indices[ci]];let s=0,n=0;
+    for(let k=0;k<h.time.length;k++){if(h.time[k].slice(0,10)===dateStr){const v=h.cloudcover?.[k];if(v!=null&&!isNaN(v)){s+=v;n++;}}}
+    return n?s/n:null;
+  }
+  const avgCloud=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:dCloud(m.key,ci)}))));
+  const avgCloudCells=avgCloud.map(v=>{const cls=cloudCls(v);return`<td class="${cls}">${v!=null?Math.round(v)+'%':'—'}</td>`;}).join('');
+  const cloudModelRows=allActive.map(m=>{
+    const cells=indices.map((_,ci)=>{const x=dCloud(m.key,ci);const cls=cloudCls(x);return`<td class="${cls}">${x!=null?Math.round(x)+'%':'—'}</td>`;}).join('');
+    return`<tr class="${srcRowClass(m,'cloud')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span></span></td>${cells}</tr>`;
+  }).join('');
 
   const actualRainCells=indices.map(i=>{
     const dateStr=ref.time[i];
@@ -2110,19 +2164,25 @@ function renderDaily(){
       <tr class="spacer"><td colspan="${C}"></td></tr>
     </tbody>
     ${secGroup('temp',`
-      <tr class="sec-head-temp"><td class="row-label">🌡 Temp</td>${avgTempCells}</tr>
+      <tr class="sec-head-temp">${secHeadLabel('temp','🌡 Temp')}${avgTempCells}</tr>
       ${tempModelRows}
       ${actualData&&showActuals?`<tr class="actual-row"><td class="row-label" style="color:#86efac">✓ Actual</td>${actualTempCells}</tr>`:''}
       <tr class="spacer"><td colspan="${C}"></td></tr>
     `)}
-    ${secGroup('wind',`
-      <tr class="sec-head-wind"><td class="row-label">💨 Wind</td>${avgWindCells}</tr>
-      <tr class="spacer"><td colspan="${C}"></td></tr>
-    `)}
     ${secGroup('rain',`
-      <tr class="sec-head-rain"><td class="row-label">🌧 Rain</td>${avgRainCells}</tr>
+      <tr class="sec-head-rain">${secHeadLabel('rain','🌧 Rain')}${avgRainCells}</tr>
       ${rainModelRows}
       ${actualData&&showActuals?`<tr class="actual-row"><td class="row-label" style="color:#90caf9">✓ Actual</td>${actualRainCells}</tr>`:''}
+      <tr class="spacer"><td colspan="${C}"></td></tr>
+    `)}
+    ${secGroup('wind',`
+      <tr class="sec-head-wind">${secHeadLabel('wind','💨 Wind')}${avgWindCells}</tr>
+      ${windModelRows}
+      <tr class="spacer"><td colspan="${C}"></td></tr>
+    `)}
+    ${secGroup('cloud',`
+      <tr class="sec-head-temp">${secHeadLabel('cloud','<span style="color:#c4b5fd">☁️ Cloud</span>')}${avgCloudCells}</tr>
+      ${cloudModelRows}
     `)}`;
 
   // Scroll to today column
