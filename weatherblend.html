@@ -32,18 +32,24 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .hdr-right{display:flex;align-items:center;gap:8px;}
 
 /* ── Current conditions bar ── */
-#curr-bar{padding:16px 20px;border-bottom:1px solid var(--border);background:radial-gradient(120% 140% at 0% 0%,#1d2636 0%,#141a26 55%,#11151f 100%);display:none;align-items:stretch;gap:16px;flex-wrap:wrap;}
-#curr-bar.loaded{display:flex;}
-.cc-box{display:flex;flex-direction:column;gap:2px;min-width:104px;}
+#curr-bar{padding:14px 16px;border-bottom:1px solid var(--border);background:radial-gradient(130% 150% at 0% 0%,#1d2636 0%,#141a26 55%,#11151f 100%);display:none;}
+#curr-bar.loaded{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.cc-box{background:rgba(255,255,255,0.022);border:1px solid var(--border);border-radius:12px;padding:11px 13px;display:flex;flex-direction:column;gap:2px;min-width:0;}
+.cc-box.cc-cond{grid-column:1 / -1;flex-direction:row;align-items:center;gap:16px;}
+.cc-box.cc-cond .cc-ctext{display:flex;flex-direction:column;gap:3px;}
 .cc-title{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px;}
-.cc-icon{line-height:1;margin:1px 0 3px;}
+.cc-icon{line-height:1;}
 .cc-icon .wxi{width:46px;height:46px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.5));}
 .cc-main{font-size:26px;font-weight:700;letter-spacing:-.5px;color:var(--text-primary);line-height:1.05;}
 .cc-box.cc-temp .cc-main{font-size:26px;letter-spacing:-.5px;}
 .cc-sub{font-size:13px;color:var(--text-muted);line-height:1.45;}
-.cc-syn{font-size:12px;color:var(--text-dim);font-style:italic;margin-top:3px;max-width:170px;line-height:1.35;}
-.curr-divider{width:1px;align-self:stretch;background:linear-gradient(180deg,transparent,var(--border2) 20%,var(--border2) 80%,transparent);flex-shrink:0;}
-.cur-date{font-size:15px;font-weight:600;color:var(--text-primary);margin-right:14px;white-space:nowrap;}
+.cc-syn{font-size:12px;color:var(--text-dim);font-style:italic;margin-top:3px;line-height:1.35;}
+.cc-box.cc-cond .cc-syn{margin-top:0;}
+@media(min-width:740px){
+  #curr-bar.loaded{grid-template-columns:repeat(5,1fr);align-items:stretch;}
+  .cc-box.cc-cond{grid-column:auto;flex-direction:column;align-items:flex-start;gap:2px;}
+}
+.cur-date{font-size:15px;font-weight:600;color:var(--text-primary);white-space:nowrap;}
 .view-select{width:100%;background:var(--surface2);color:var(--text-primary);border:1px solid var(--border2);border-radius:8px;padding:6px 8px;font-size:13px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;-webkit-appearance:none;appearance:none;text-align:center;}
 .view-select:hover{border-color:#3a4861;}
 .hour-header th.row-label.corner-cell{padding:8px 10px!important;}
@@ -51,6 +57,7 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 /* ── Toolbar ── */
 .toolbar{padding:10px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:5px;flex-wrap:wrap;background:var(--surface);}
 .toolbar .btn-group{margin-left:auto;}
+.toolbar .loc-btn{margin-left:auto;}
 .date-info{font-size:15px;color:var(--text-muted);flex:1;min-width:150px;}
 .date-info strong{color:var(--text-primary);}
 .btn-group{display:flex;gap:6px;}
@@ -244,7 +251,6 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 <header>
   <div class="logo">Weather<span>Blend</span></div>
   <div class="hdr-right">
-    <button class="loc-btn" onclick="promptLocation()">📍 <span class="loc-name" id="loc-name">Detecting…</span></button>
     <button class="hdr-btn" id="sources-hdr-btn" onclick="toggleSourcesPanel()" title="Config">⚙</button>
     <button class="hdr-btn" onclick="showHelp()" title="Help">?</button>
   </div>
@@ -254,6 +260,7 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 
 <div class="toolbar">
   <div class="cur-date" id="curr-date">–</div>
+  <button class="loc-btn" onclick="promptLocation()">📍 <span class="loc-name" id="loc-name">Detecting…</span></button>
 </div>
 
 <!-- Current conditions bar (built by renderCurrentBar) -->
@@ -989,9 +996,8 @@ function renderCurrentBar(){
 
   const box=(cls,title,color,body,syn)=>
     `<div class="cc-box ${cls}"><div class="cc-title" style="color:${color}">${title}</div>${body}<div class="cc-syn">${syn}</div></div>`;
-  const div=`<div class="curr-divider"></div>`;
 
-  const condBox = `<div class="cc-box"><div class="cc-title" style="color:var(--text-muted)">Conditions</div><div class="cc-icon">${wxIcon(wcode,currNight)}</div><div class="cc-syn">${condSyn}</div></div>`;
+  const condBox = `<div class="cc-box cc-cond"><div class="cc-icon">${wxIcon(wcode,currNight)}</div><div class="cc-ctext"><div class="cc-title" style="color:var(--text-muted)">Conditions</div><div class="cc-syn">${condSyn}</div></div></div>`;
 
   const tempBox = box('cc-temp','Temp','#86efac',
     `<div class="cc-main">${T(temp)}</div>`+
@@ -1013,7 +1019,7 @@ function renderCurrentBar(){
     `<div class="cc-sub">↑ ${cloudHi!=null?Math.round(cloudHi):'—'}%　↓ ${cloudLo!=null?Math.round(cloudLo):'—'}%</div>`, cloudSyn);
 
   const bar=document.getElementById('curr-bar');
-  bar.innerHTML=condBox+div+tempBox+div+rainBox+div+windBox+div+cloudBox;
+  bar.innerHTML=condBox+tempBox+rainBox+windBox+cloudBox;
   bar.classList.add('loaded');
 
   const dateEl=document.getElementById('curr-date');
