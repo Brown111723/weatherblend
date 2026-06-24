@@ -7,21 +7,22 @@
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 :root{
-  --bg:#0e1117;--surface:#161b24;--surface2:#1a2030;
-  --border:#1f2733;--border2:#263040;
-  --text-primary:#f4f7fd;--text-muted:#9aafc8;--text-dim:#607080;
-  --accent:#3b82f6;
-  /* Night shading: DAY columns are slightly lighter, NIGHT columns are the base dark bg */
-  --day-bg:color-mix(in srgb,var(--bg) 78%,#1a2a10 22%);
-  --day-line:rgba(255,200,50,0.28);
+  --bg:#0c0f15;--surface:#141922;--surface2:#1a2130;
+  --border:#1f2733;--border2:#2b3647;
+  --text-primary:#f4f7fd;--text-muted:#93a6c0;--text-dim:#5f6f82;
+  --accent:#4d8df0;
+  /* Daylight columns get a barely-there cool lift; night stays the base dark. */
+  --day-bg:color-mix(in srgb,var(--bg) 91%,#3a5a86 9%);
+  --day-line:rgba(255,200,50,0.20);
+  --now:#f87171;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:var(--bg);color:var(--text-primary);font-family:'Inter',sans-serif;font-size:18px;min-height:100vh;}
 
 /* ── Header ── */
-header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--surface);position:sticky;top:0;z-index:100;}
-.logo{font-size:22px;font-weight:700;letter-spacing:-.3px;}
-.logo span{color:var(--accent);}
+header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:linear-gradient(180deg,#161d29,#121722);position:sticky;top:0;z-index:100;}
+.logo{font-size:22px;font-weight:700;letter-spacing:-.4px;}
+.logo span{background:linear-gradient(90deg,#4d8df0,#7dd3fc);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
 .loc-btn{display:flex;align-items:center;gap:6px;padding:6px 14px;background:var(--border);border-radius:16px;font-size:15px;color:var(--text-muted);cursor:pointer;border:none;transition:background .15s;}
 .loc-btn:hover{background:var(--border2);}
 .loc-name{color:var(--text-primary);font-weight:500;}
@@ -31,20 +32,20 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .hdr-right{display:flex;align-items:center;gap:8px;}
 
 /* ── Current conditions bar ── */
-#curr-bar{padding:10px 20px;border-bottom:1px solid var(--border);background:var(--surface2);display:none;align-items:center;gap:14px;flex-wrap:wrap;}
+#curr-bar{padding:16px 20px;border-bottom:1px solid var(--border);background:radial-gradient(120% 140% at 0% 0%,#1d2636 0%,#141a26 55%,#11151f 100%);display:none;align-items:center;gap:18px;flex-wrap:wrap;}
 #curr-bar.loaded{display:flex;}
-.curr-icon{font-size:40px;line-height:1;}
+.curr-icon{font-size:40px;line-height:1;filter:drop-shadow(0 2px 6px rgba(0,0,0,.5));}
 .curr-temp-block{display:flex;flex-direction:column;gap:1px;}
-.curr-temp{font-size:36px;font-weight:700;letter-spacing:-1px;color:var(--text-primary);}
-.curr-hilo{font-size:13px;color:var(--text-muted);margin-top:1px;}
+.curr-temp{font-size:46px;font-weight:700;letter-spacing:-1.5px;color:var(--text-primary);line-height:1;}
+.curr-hilo{font-size:13px;color:var(--text-muted);margin-top:3px;letter-spacing:.2px;}
 .curr-meta{display:flex;flex-direction:column;gap:2px;}
 .curr-line{font-size:14px;color:var(--text-muted);}
 .curr-line strong{color:var(--text-primary);}
 .curr-synopsis{font-size:14px;color:var(--text-muted);font-style:italic;max-width:240px;line-height:1.4;}
-.curr-divider{width:1px;height:38px;background:var(--border);flex-shrink:0;}
-.curr-block{display:flex;flex-direction:column;gap:2px;}
-.curr-lbl{font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.8px;}
-.curr-val{font-size:16px;font-weight:600;color:var(--text-primary);}
+.curr-divider{width:1px;height:42px;background:linear-gradient(180deg,transparent,var(--border2),transparent);flex-shrink:0;}
+.curr-block{display:flex;flex-direction:column;gap:3px;}
+.curr-lbl{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;}
+.curr-val{font-size:17px;font-weight:600;color:var(--text-primary);}
 .curr-sub{font-size:13px;color:var(--text-muted);}
 
 /* ── Toolbar ── */
@@ -108,26 +109,30 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 
 /* ── Table ── */
 .table-wrap{overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 280px);padding-bottom:40px;position:relative;}
-#now-overlay{position:absolute;top:0;height:100%;width:0;border-left:1px dotted #ef4444;pointer-events:none;z-index:11;display:none;}
+.table-wrap::-webkit-scrollbar{height:10px;width:10px;}
+.table-wrap::-webkit-scrollbar-track{background:var(--bg);}
+.table-wrap::-webkit-scrollbar-thumb{background:#2b3647;border-radius:6px;border:2px solid var(--bg);}
+.table-wrap::-webkit-scrollbar-thumb:hover{background:#3a4861;}
+#now-overlay{position:absolute;top:0;height:100%;width:0;border-left:2px solid var(--now);box-shadow:0 0 10px rgba(248,113,113,.55);pointer-events:none;z-index:11;display:none;}
 #past-overlay{position:absolute;top:0;left:0;width:0;height:100%;background:rgba(0,0,0,0.35);pointer-events:none;z-index:10;display:none;}
 #past-overlay-h{position:absolute;left:0;top:0;width:100%;height:0;background:rgba(0,0,0,0.35);pointer-events:none;z-index:10;display:none;}
 /* Vertical layout z-index swap: date-header high, row-label low */
 .table-wrap.vertical-mode .row-label{z-index:8;}
 .table-wrap.vertical-mode .hour-header th{z-index:14;}
 .table-wrap.vertical-mode .hour-header th.row-label{z-index:16;}
-#now-overlay-h{position:absolute;left:0;width:100%;height:0;border-top:1px dotted #ef4444;pointer-events:none;z-index:11;display:none;}
+#now-overlay-h{position:absolute;left:0;width:100%;height:0;border-top:2px solid var(--now);box-shadow:0 0 10px rgba(248,113,113,.5);pointer-events:none;z-index:11;display:none;}
 .ftable{width:100%;border-collapse:separate;border-spacing:0;font-family:'JetBrains Mono',monospace;}
 .ftable th,.ftable td{white-space:nowrap;}
 .row-label{position:sticky;left:0;z-index:14;background:var(--bg);min-width:98px;max-width:98px;text-align:left!important;padding-left:20px!important;border-right:1px solid var(--border);}
 .hour-header th.row-label{background:var(--bg);z-index:16;}
 .hour-header th{padding:12px 6px 8px;font-size:14px;font-weight:500;color:var(--text-muted);text-align:center;background:var(--bg);position:sticky;top:0;z-index:8;min-width:64px;border-bottom:2px solid var(--border);}
-.hour-header th.now-col{color:#ef4444;}
-.hour-header th.now-col .col-day,.hour-header th.now-col .col-time{color:#ef4444!important;}
+.hour-header th.now-col{color:var(--now);background:linear-gradient(180deg,rgba(248,113,113,0.14),transparent);}
+.hour-header th.now-col .col-day,.hour-header th.now-col .col-time{color:var(--now)!important;font-weight:700;}
 
 /* Day/night: DAY columns stand OUT with a slight warm tint; night stays dark base */
 .day-col{background:var(--day-bg)!important;}
 .day-start{}
-.day-sep{position:absolute;top:0;width:0;border-left:1px solid #6b7280;pointer-events:none;z-index:9;}
+.day-sep{position:absolute;top:0;width:0;border-left:1px solid #1F2733;pointer-events:none;z-index:9;}
 /* ── Consistent metric color scheme ── */
 /* Temperature: cool blue → warm red, bg tint + text */
 .tc{background:rgba(56,135,255,0.16)!important;color:#7eb3ff!important;}
@@ -164,10 +169,10 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .sec-head-wind td.row-label{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#d9f99d;text-align:left!important;padding-left:20px!important;}
 .sec-head-rain td.row-label{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#90caf9;text-align:left!important;padding-left:20px!important;}
 .sec-head-temp .hilocell,.sec-head-rain .hilocell,.sec-head-wind .hilocell{font-size:12px;color:var(--text-muted);display:block;margin-top:1px;font-weight:400;}
-.icon-row td{text-align:center;padding:4px 3px;font-size:17px;}
-.wx{display:inline-block;vertical-align:-0.18em;width:1.3em;height:1.3em;}
-.icon-row .wx{width:24px;height:24px;}
-.curr-icon .wx{width:46px;height:46px;}
+.icon-row td{text-align:center;padding:6px 3px;font-size:17px;background:transparent!important;border:none!important;}
+.wxi{display:inline-block;vertical-align:-0.18em;width:1.3em;height:1.3em;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45));}
+.icon-row .wxi{width:26px;height:26px;}
+.curr-icon .wxi{width:48px;height:48px;}
 .wx-dash{opacity:.4;}
 .data-row td{text-align:center;padding:6px 4px;font-size:15px;color:var(--text-primary);min-width:54px;}
 .data-row td.row-label{font-family:'Inter',sans-serif;font-size:14px;}
@@ -1525,7 +1530,7 @@ function wxIcon(c,night){
   else if(c===85||c===86)   inner=(n?'':_sunSm)+_cloud(GRAY)+_snow;
   else if(c>=95)            inner=_cloud(DARK)+_bolt;
   else                      inner=_cloud(GRAY);
-  return `<svg class="wx" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
+  return `<svg class="wxi" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
 }
 // Is a given ISO hour night-time at this location?
 function isNightAt(iso){ return !isDay(new Date(iso).getTime(), iso.slice(0,10)); }
