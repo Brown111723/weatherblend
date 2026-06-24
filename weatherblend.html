@@ -39,11 +39,14 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .cc-icon{line-height:1;margin:1px 0 3px;}
 .cc-icon .wxi{width:46px;height:46px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.5));}
 .cc-main{font-size:26px;font-weight:700;letter-spacing:-.5px;color:var(--text-primary);line-height:1.05;}
-.cc-box.cc-temp .cc-main{font-size:42px;letter-spacing:-1.5px;}
+.cc-box.cc-temp .cc-main{font-size:26px;letter-spacing:-.5px;}
 .cc-sub{font-size:13px;color:var(--text-muted);line-height:1.45;}
 .cc-syn{font-size:12px;color:var(--text-dim);font-style:italic;margin-top:3px;max-width:170px;line-height:1.35;}
 .curr-divider{width:1px;align-self:stretch;background:linear-gradient(180deg,transparent,var(--border2) 20%,var(--border2) 80%,transparent);flex-shrink:0;}
 .cur-date{font-size:15px;font-weight:600;color:var(--text-primary);margin-right:14px;white-space:nowrap;}
+.view-select{width:100%;background:var(--surface2);color:var(--text-primary);border:1px solid var(--border2);border-radius:8px;padding:6px 8px;font-size:13px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;-webkit-appearance:none;appearance:none;text-align:center;}
+.view-select:hover{border-color:#3a4861;}
+.hour-header th.row-label.corner-cell{padding:8px 10px!important;}
 
 /* ── Toolbar ── */
 .toolbar{padding:10px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:5px;flex-wrap:wrap;background:var(--surface);}
@@ -251,13 +254,6 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 
 <div class="toolbar">
   <div class="cur-date" id="curr-date">–</div>
-  <!-- Timeframe (floats right) -->
-  <div class="btn-group" id="view-btns">
-    <button class="btn active" onclick="setView('1h',this)">1hr</button>
-    <button class="btn" onclick="setView('3h',this)">3hr</button>
-    <button class="btn" onclick="setView('8h',this)">8hr</button>
-    <button class="btn" onclick="setView('daily',this)">Daily</button>
-  </div>
 </div>
 
 <!-- Current conditions bar (built by renderCurrentBar) -->
@@ -1684,10 +1680,16 @@ function secGroup(sec,html){
 // ══════════════════════════════════════════
 function setView(v,el){
   state.view=v;
-  document.querySelectorAll('#view-btns .btn').forEach(b=>b.classList.remove('active'));
-  el.classList.add('active');
+  document.querySelectorAll('#view-btns .btn').forEach(b=>b.classList.toggle('active',(b.getAttribute('onclick')||'').includes("'"+v+"'")));
   renderCurrentBar();  // instant update of rain labels/values
   if(Object.keys(state.data).length)renderTable(); // instant table re-render
+}
+// Compact timeframe dropdown that lives in the table's top-left corner cell
+function viewDropdown(){
+  const opts=[['1h','1 hr'],['3h','3 hr'],['8h','8 hr'],['daily','Daily']];
+  return `<select class="view-select" onchange="setView(this.value)">`+
+    opts.map(([v,l])=>`<option value="${v}"${state.view===v?' selected':''}>${l}</option>`).join('')+
+    `</select>`;
 }
 
 // ══════════════════════════════════════════
@@ -2126,7 +2128,7 @@ function renderHourly(){
 
   document.querySelector('.ftable').innerHTML=`
     <tbody>
-      <tr class="hour-header"><th class="row-label"></th>${hdrCells}</tr>
+      <tr class="hour-header"><th class="row-label corner-cell">${viewDropdown()}</th>${hdrCells}</tr>
       <tr class="spacer"><td colspan="${C}"></td></tr>
       <tr class="icon-row"><td class="row-label" style="font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px">Cond.</td>${iconCells}</tr>
       <tr class="spacer"><td colspan="${C}"></td></tr>
@@ -2266,7 +2268,7 @@ function renderDaily(){
 
   document.querySelector('.ftable').innerHTML=`
     <tbody>
-      <tr class="hour-header"><th class="row-label"></th>${dayHdrs}</tr>
+      <tr class="hour-header"><th class="row-label corner-cell">${viewDropdown()}</th>${dayHdrs}</tr>
       <tr class="spacer"><td colspan="${C}"></td></tr>
       <tr class="icon-row"><td class="row-label" style="font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px">Cond.</td>${iconCells}</tr>
       <tr class="spacer"><td colspan="${C}"></td></tr>
