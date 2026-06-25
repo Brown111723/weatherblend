@@ -31,9 +31,12 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .hdr-btn.active{background:var(--accent);border-color:var(--accent);color:#fff;}
 .hdr-right{display:flex;align-items:center;gap:8px;}
 
-/* ── Current conditions bar ── */
-#curr-bar{padding:14px 16px;border-bottom:1px solid var(--border);background:radial-gradient(130% 150% at 0% 0%,#1d2636 0%,#141a26 55%,#11151f 100%);display:none;}
-#curr-bar.loaded{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+/* ── Current conditions: swipeable day carousel ── */
+#curr-bar{border-bottom:1px solid var(--border);background:radial-gradient(130% 150% at 0% 0%,#1d2636 0%,#141a26 55%,#11151f 100%);display:none;}
+#curr-bar.loaded{display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+#curr-bar.loaded::-webkit-scrollbar{display:none;}
+.cc-page{flex:0 0 100%;scroll-snap-align:start;padding:14px 16px;box-sizing:border-box;}
+.cc-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .cc-box{background:rgba(255,255,255,0.022);border:1px solid var(--border);border-radius:12px;padding:11px 13px;display:flex;flex-direction:column;gap:2px;min-width:0;}
 .cc-box.cc-cond{grid-column:1 / -1;flex-direction:row;align-items:center;gap:16px;}
 .cc-box.cc-cond .cc-ctext{display:flex;flex-direction:column;gap:3px;}
@@ -46,10 +49,13 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .cc-syn{font-size:12px;color:var(--text-dim);font-style:italic;margin-top:3px;line-height:1.35;}
 .cc-box.cc-cond .cc-syn{margin-top:0;}
 @media(min-width:740px){
-  #curr-bar.loaded{grid-template-columns:repeat(5,1fr);align-items:stretch;}
+  .cc-grid{grid-template-columns:repeat(5,1fr);align-items:stretch;}
   .cc-box.cc-cond{grid-column:auto;flex-direction:column;align-items:flex-start;gap:2px;}
 }
 .cur-date{font-size:15px;font-weight:600;color:var(--text-primary);white-space:nowrap;}
+.today-btn{font-size:12px;font-weight:600;padding:4px 11px;border-radius:999px;border:1px solid var(--border2);background:var(--surface2);color:var(--text-primary);cursor:pointer;transition:opacity .15s;white-space:nowrap;}
+.today-btn.dim{opacity:.35;}
+.today-btn:not(.dim){box-shadow:0 0 0 1px var(--accent) inset;border-color:var(--accent);}
 .view-select{width:100%;background:var(--surface2);color:var(--text-primary);border:1px solid var(--border2);border-radius:8px;padding:6px 8px;font-size:13px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;-webkit-appearance:none;appearance:none;text-align:center;}
 .view-select:hover{border-color:#3a4861;}
 .hour-header th.row-label.corner-cell{padding:8px 10px!important;}
@@ -260,6 +266,7 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 
 <div class="toolbar">
   <div class="cur-date" id="curr-date">–</div>
+  <button class="today-btn dim" id="today-btn" onclick="goToToday()">Today</button>
   <button class="loc-btn" onclick="promptLocation()">📍 <span class="loc-name" id="loc-name">Detecting…</span></button>
 </div>
 
@@ -445,6 +452,7 @@ const AUTO_MS = 60*60*1000;
 window.addEventListener('DOMContentLoaded',()=>{
   loadPrefs();
   applyDebugVisibility();
+  initCarouselScroll();
   // sync active view button to restored view
   document.querySelectorAll('#view-btns .btn').forEach(b=>{const mm=b.getAttribute('onclick')?.match(/'([^']+)'/);if(mm)b.classList.toggle('active',mm[1]===state.view);});
   buildSourcesPanel();
@@ -965,65 +973,159 @@ function computeCurrentFromHourly(){
   return {temp,wind,windDir,wcode,hi,lo,rainToday,cloud,windHi,windLo,cloudHi,cloudLo,actualRainToday};
 }
 
-function renderCurrentBar(){
+// Selected day in the carousel (date string); null → today
+let selDate=null;
+function localTodayStr(){const n=new Date();const p=x=>String(x).padStart(2,'0');return `${n.getFullYear()}-${p(n.getMonth()+1)}-${p(n.getDate())}`;}
+
+// All dates available in the carousel (past 7 + future 10), from the ref grid
+function carouselDates(){
+  const onlyEnabled=activeEnabled();if(!onlyEnabled.length)return [];
+  const ref=state.data[onlyEnabled[0].key]?.hourly;if(!ref?.time)return [];
+  return [...new Set(ref.time.map(t=>t.slice(0,10)))].sort();
+}
+
+// Per-day blended summary for any date (used by non-today carousel pages)
+function computeDaySummary(dateStr){
+  const onlyEnabled=activeEnabled();if(!onlyEnabled.length)return null;
+  const ref=state.data[onlyEnabled[0].key]?.hourly;if(!ref?.time)return null;
+  const today=localTodayStr();
+  const isToday=dateStr===today, isFuture=dateStr>today, isPast=dateStr<today;
+  const now=new Date();
+  const wAt=(f,i)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.hourly?.[f]?.[i]??null})));
+  const dHL=(field)=>weightedAvgOf(onlyEnabled.map(m=>{const d=state.data[m.key]?.daily;const i=d?.time?.findIndex(t=>t===dateStr)??-1;return{key:m.key,val:i>=0?(d[field]?.[i]??null):null};}));
+  const hi=dHL('temperature_2m_max'), lo=dHL('temperature_2m_min');
+
+  let rain=0,windHi=null,windLo=null,cloudHi=null,cloudLo=null,cloudSum=0,cloudN=0,noonIdx=-1,noonDiff=99;
+  ref.time.forEach((t,i)=>{
+    if(t.slice(0,10)!==dateStr)return;
+    const pr=wAt('precipitation',i);if(pr!=null)rain+=pr;
+    const wv=wAt('windspeed_10m',i);if(wv!=null){windHi=windHi==null?wv:Math.max(windHi,wv);windLo=windLo==null?wv:Math.min(windLo,wv);}
+    const cv=wAt('cloudcover',i);if(cv!=null){cloudHi=cloudHi==null?cv:Math.max(cloudHi,cv);cloudLo=cloudLo==null?cv:Math.min(cloudLo,cv);cloudSum+=cv;cloudN++;}
+    const dd=Math.abs(new Date(t).getHours()-12);if(dd<noonDiff){noonDiff=dd;noonIdx=i;}
+  });
+  const cloudMean=cloudN?cloudSum/cloudN:null;
+  const noonCode=noonIdx>=0?(state.data[onlyEnabled[0].key]?.hourly?.weathercode?.[noonIdx]??null):null;
+  const dayCode=deriveDailyCode(rain,cloudMean,noonCode);
+  const windDir=noonIdx>=0?wAt('winddirection_10m',noonIdx):null;
+  const windNoon=noonIdx>=0?wAt('windspeed_10m',noonIdx):null;
+
+  let actualRain=null;
+  if(!isFuture && actualData?.hourly?.time){
+    actualRain=0;
+    actualData.hourly.time.forEach((t,i)=>{
+      if(t.slice(0,10)!==dateStr)return;
+      if(isToday && new Date(t)>now)return;
+      const v=actualData.hourly.precipitation?.[i];if(v!=null)actualRain+=v;
+    });
+  }
+  return {dateStr,isToday,isFuture,isPast,hi,lo,rain,windHi,windLo,windNoon,windDir,cloudHi,cloudLo,cloudMean,dayCode,actualRain};
+}
+
+const _ccBox=(cls,title,color,body,syn)=>
+  `<div class="cc-box ${cls}"><div class="cc-title" style="color:${color}">${title}</div>${body}<div class="cc-syn">${syn}</div></div>`;
+const _T=(v,suf='°')=>v!=null?tempDisp(v)+suf:'—';
+
+// Today page — live "current" values
+function buildTodayBoxes(){
   const comp=computeCurrentFromHourly();
   const c=cachedCurrent?.c;
-  if(!comp&&!c)return;
-
-  const temp   = comp?.temp ?? c?.temperature_2m;
-  const feels  = c?.apparent_temperature;
-  const wind   = comp?.wind ?? c?.windspeed_10m;
-  const windDir= comp?.windDir ?? c?.winddirection_10m;
-  const wcode  = comp?.wcode ?? c?.weathercode;
-  const hi     = comp?.hi ?? cachedHiLo?.hi;
-  const lo     = comp?.lo ?? cachedHiLo?.lo;
-  const rainToday = comp?.rainToday ?? 0;
-  const actualRain = comp?.actualRainToday;
-  const cloud  = comp?.cloud;
-  const windHi = comp?.windHi, windLo = comp?.windLo;
-  const cloudHi= comp?.cloudHi, cloudLo= comp?.cloudLo;
-  const currNight = c ? (c.is_day===0) : isNightAt(new Date().toISOString());
-
-  const T=(v,suf='°')=>v!=null?tempDisp(v)+suf:'—';
+  const temp=comp?.temp??c?.temperature_2m, feels=c?.apparent_temperature;
+  const wind=comp?.wind??c?.windspeed_10m, windDir=comp?.windDir??c?.winddirection_10m;
+  const wcode=comp?.wcode??c?.weathercode;
+  const hi=comp?.hi??cachedHiLo?.hi, lo=comp?.lo??cachedHiLo?.lo;
+  const rainToday=comp?.rainToday??0, actualRain=comp?.actualRainToday;
+  const cloud=comp?.cloud, windHi=comp?.windHi, windLo=comp?.windLo, cloudHi=comp?.cloudHi, cloudLo=comp?.cloudLo;
+  const night=c?(c.is_day===0):isNightAt(new Date().toISOString());
   const arrow=dirArrow16(windDir??0), dir=dirFull(windDir??0);
 
-  // ── Synopses ──
-  const condSyn = `${tempWord(temp)} · ${wxDesc(wcode, !currNight)}`;
-  const tempSyn = tempTrendSyn(temp,hi,lo);
-  const rainSyn = rainSynopsis(rainToday, actualRain);
-  const windSyn = `${windWord(wind??0)}${wind!=null&&wind>=10?' from the '+dir:''}`;
-  const cloudSyn= cloudSynopsis(cloud);
+  const cond=`<div class="cc-box cc-cond"><div class="cc-icon">${wxIcon(wcode,night)}</div><div class="cc-ctext"><div class="cc-title" style="color:var(--text-muted)">Conditions</div><div class="cc-syn">${tempWord(temp)} · ${wxDesc(wcode,!night)}</div></div></div>`;
+  const t=_ccBox('cc-temp','Temp','#86efac',`<div class="cc-main">${_T(temp)}</div><div class="cc-sub">Feels ${_T(feels)}</div><div class="cc-sub">↑ ${_T(hi)}　↓ ${_T(lo)}</div>`,tempTrendSyn(temp,hi,lo));
+  const r=_ccBox('','Rain','#90caf9',`<div class="cc-main">${rainToday.toFixed(1)} mm</div><div class="cc-sub">Actual ${actualRain!=null?actualRain.toFixed(1)+' mm':'—'}</div><div class="cc-sub">Expected ${rainToday.toFixed(1)} mm</div>`,rainSynopsis(rainToday,actualRain));
+  const w=_ccBox('','Wind','#d9f99d',`<div class="cc-main">${wind!=null?Math.round(wind)+' km/h':'—'}</div><div class="cc-sub">${arrow} ${dir}</div><div class="cc-sub">↑ ${windHi!=null?Math.round(windHi):'—'}　↓ ${windLo!=null?Math.round(windLo):'—'} km/h</div>`,`${windWord(wind??0)}${wind!=null&&wind>=10?' from the '+dir:''}`);
+  const cl=_ccBox('','Cloud','#c4b5fd',`<div class="cc-main">${cloud!=null?Math.round(cloud)+'%':'—'}</div><div class="cc-sub">↑ ${cloudHi!=null?Math.round(cloudHi):'—'}%　↓ ${cloudLo!=null?Math.round(cloudLo):'—'}%</div>`,cloudSynopsis(cloud));
+  return cond+t+r+w+cl;
+}
 
-  const box=(cls,title,color,body,syn)=>
-    `<div class="cc-box ${cls}"><div class="cc-title" style="color:${color}">${title}</div>${body}<div class="cc-syn">${syn}</div></div>`;
+// Past/future page — day summary (hides actual rain on future days)
+function buildDayBoxes(dateStr){
+  const s=computeDaySummary(dateStr);
+  if(!s)return '';
+  const arrow=s.windDir!=null?dirArrow16(s.windDir):'', dir=s.windDir!=null?dirFull(s.windDir):'';
+  const cond=`<div class="cc-box cc-cond"><div class="cc-icon">${wxIcon(s.dayCode,false)}</div><div class="cc-ctext"><div class="cc-title" style="color:var(--text-muted)">Conditions</div><div class="cc-syn">${wxDesc(s.dayCode,true)} · ${tempWord(s.hi)} day</div></div></div>`;
+  const t=_ccBox('cc-temp','Temp','#86efac',`<div class="cc-main">${_T(s.hi)}</div><div class="cc-sub">Low ${_T(s.lo)}</div><div class="cc-sub">Daytime high</div>`,`High ${_T(s.hi)} · low ${_T(s.lo)}`);
+  const rainSub = s.isFuture
+    ? `<div class="cc-sub">Expected ${s.rain.toFixed(1)} mm</div>`
+    : `<div class="cc-sub">Actual ${s.actualRain!=null?s.actualRain.toFixed(1)+' mm':'—'}</div><div class="cc-sub">Expected ${s.rain.toFixed(1)} mm</div>`;
+  const r=_ccBox('','Rain','#90caf9',`<div class="cc-main">${s.rain.toFixed(1)} mm</div>${rainSub}`,rainSynopsis(s.rain,s.actualRain));
+  const w=_ccBox('','Wind','#d9f99d',`<div class="cc-main">${s.windNoon!=null?Math.round(s.windNoon)+' km/h':'—'}</div><div class="cc-sub">${arrow} ${dir}</div><div class="cc-sub">↑ ${s.windHi!=null?Math.round(s.windHi):'—'}　↓ ${s.windLo!=null?Math.round(s.windLo):'—'} km/h</div>`,`${windWord(s.windNoon??0)}${s.windNoon!=null&&s.windNoon>=10&&dir?' from the '+dir:''}`);
+  const cl=_ccBox('','Cloud','#c4b5fd',`<div class="cc-main">${s.cloudMean!=null?Math.round(s.cloudMean)+'%':'—'}</div><div class="cc-sub">↑ ${s.cloudHi!=null?Math.round(s.cloudHi):'—'}%　↓ ${s.cloudLo!=null?Math.round(s.cloudLo):'—'}%</div>`,cloudSynopsis(s.cloudMean));
+  return cond+t+r+w+cl;
+}
 
-  const condBox = `<div class="cc-box cc-cond"><div class="cc-icon">${wxIcon(wcode,currNight)}</div><div class="cc-ctext"><div class="cc-title" style="color:var(--text-muted)">Conditions</div><div class="cc-syn">${condSyn}</div></div></div>`;
+function fmtCarouselDate(dateStr,today){
+  const d=new Date(dateStr+'T12:00:00');
+  const diff=Math.round((new Date(dateStr+'T12:00:00')-new Date(today+'T12:00:00'))/86400000);
+  const rel=diff===0?'Today · ':diff===1?'Tomorrow · ':diff===-1?'Yesterday · ':'';
+  return rel+d.toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'long'});
+}
 
-  const tempBox = box('cc-temp','Temp','#86efac',
-    `<div class="cc-main">${T(temp)}</div>`+
-    `<div class="cc-sub">Feels ${T(feels)}</div>`+
-    `<div class="cc-sub">↑ ${T(hi)}　↓ ${T(lo)}</div>`, tempSyn);
-
-  const rainBox = box('','Rain','#90caf9',
-    `<div class="cc-main">${rainToday.toFixed(1)} mm</div>`+
-    `<div class="cc-sub">Actual ${actualRain!=null?actualRain.toFixed(1)+' mm':'—'}</div>`+
-    `<div class="cc-sub">Expected ${rainToday.toFixed(1)} mm</div>`, rainSyn);
-
-  const windBox = box('','Wind','#d9f99d',
-    `<div class="cc-main">${wind!=null?Math.round(wind)+' km/h':'—'}</div>`+
-    `<div class="cc-sub">${arrow} ${dir}</div>`+
-    `<div class="cc-sub">↑ ${windHi!=null?Math.round(windHi):'—'}　↓ ${windLo!=null?Math.round(windLo):'—'} km/h</div>`, windSyn);
-
-  const cloudBox = box('','Cloud','#c4b5fd',
-    `<div class="cc-main">${cloud!=null?Math.round(cloud)+'%':'—'}</div>`+
-    `<div class="cc-sub">↑ ${cloudHi!=null?Math.round(cloudHi):'—'}%　↓ ${cloudLo!=null?Math.round(cloudLo):'—'}%</div>`, cloudSyn);
-
-  const bar=document.getElementById('curr-bar');
-  bar.innerHTML=condBox+tempBox+rainBox+windBox+cloudBox;
-  bar.classList.add('loaded');
-
+function updateDateUI(){
+  const today=localTodayStr();
   const dateEl=document.getElementById('curr-date');
-  if(dateEl)dateEl.textContent=new Date().toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'long'});
+  if(dateEl&&selDate)dateEl.textContent=fmtCarouselDate(selDate,today);
+  const tb=document.getElementById('today-btn');
+  if(tb)tb.classList.toggle('dim',selDate===today);
+}
+
+function renderCurrentBar(){
+  const bar=document.getElementById('curr-bar');
+  if(!bar)return;
+  const dates=carouselDates();
+  if(!dates.length)return;
+  const today=localTodayStr();
+  if(!selDate||!dates.includes(selDate))selDate=dates.includes(today)?today:dates[0];
+  bar._dates=dates;
+
+  bar.innerHTML=dates.map(d=>`<div class="cc-page" data-date="${d}"><div class="cc-grid">${d===today?buildTodayBoxes():buildDayBoxes(d)}</div></div>`).join('');
+  bar.classList.add('loaded');
+  requestAnimationFrame(()=>{ bar.scrollLeft=dates.indexOf(selDate)*bar.clientWidth; });
+  updateDateUI();
+}
+
+// Scroll the data table so the selected day is the first visible column
+function scrollTableToSelected(behavior='auto'){
+  const wrap=document.querySelector('.table-wrap');if(!wrap)return;
+  const today=localTodayStr();
+  let th=null;
+  if(selDate===today)th=wrap.querySelector('.hour-header th.now-col');
+  if(!th)th=wrap.querySelector('.hour-header th[data-date="'+selDate+'"]');
+  if(!th)return;
+  wrap.scrollTo({left:Math.max(0,th.offsetLeft-98),behavior});
+}
+
+function goToToday(){
+  const bar=document.getElementById('curr-bar');const today=localTodayStr();
+  const dates=bar?._dates||[];const idx=dates.indexOf(today);if(idx<0)return;
+  selDate=today;
+  bar.scrollTo({left:idx*bar.clientWidth,behavior:'smooth'});
+  updateDateUI();
+  scrollTableToSelected('smooth');
+}
+
+// Carousel swipe → update selected day + sync table (attached once at boot)
+function initCarouselScroll(){
+  const bar=document.getElementById('curr-bar');if(!bar||bar._scrollInit)return;
+  bar._scrollInit=true;
+  let tmr;
+  bar.addEventListener('scroll',()=>{
+    clearTimeout(tmr);
+    tmr=setTimeout(()=>{
+      const dates=bar._dates||[];if(!dates.length||!bar.clientWidth)return;
+      const idx=Math.max(0,Math.min(dates.length-1,Math.round(bar.scrollLeft/bar.clientWidth)));
+      const d=dates[idx];
+      if(d&&d!==selDate){selDate=d;updateDateUI();scrollTableToSelected('smooth');}
+    },100);
+  },{passive:true});
 }
 
 function tempWord(t){if(t==null)return'';return t<0?'Freezing':t<8?'Cold':t<16?'Cool':t<24?'Mild':t<30?'Warm':'Hot';}
@@ -2054,7 +2156,7 @@ function renderHourly(){
     const isNow=ci===nowCi;
     const isPastCol=nowCi>=0&&ci<nowCi;
     const cls=[isNow?'now-col':'',ndCls[ci],isPastCol?'past-col':''].filter(Boolean).join(' ');
-    const dayLabel=DAYS[d.getDay()]+' '+d.getDate();    return`<th class="${cls}"><span class="col-day">${dayLabel}</span><span class="col-time">${timeStr}</span></th>`;
+    const dayLabel=DAYS[d.getDay()]+' '+d.getDate();    return`<th class="${cls}" data-date="${ref.time[i].slice(0,10)}"><span class="col-day">${dayLabel}</span><span class="col-time">${timeStr}</span></th>`;
   }).join('');
 
   const allActive=activeAll();const onlyEnabled=activeEnabled();
@@ -2158,7 +2260,7 @@ function renderHourly(){
       <tr class="spacer"><td colspan="${C}"></td></tr>
     `)}
     ${secGroup("cloud",buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled,ref,actMap))}`;
-  scrollToNow();
+  requestAnimationFrame(()=>scrollTableToSelected());
   positionNowOverlay();
 }
 
@@ -2185,7 +2287,7 @@ function renderDaily(){
     const d=new Date(ref.time[i]+'T12:00:00');
     const isToday=ref.time[i]===todayStr;
     const isPast=ref.time[i]<todayStr;
-    return`<th class="${isToday?'now-col':''}${isPast?' past-col':''}" style="min-width:72px"><span class="col-day">${DAYS[d.getDay()]} ${d.getDate()}</span><span class="col-time">${d.toLocaleDateString('en-AU',{month:'short'})}</span></th>`;
+    return`<th class="${isToday?'now-col':''}${isPast?' past-col':''}" data-date="${ref.time[i]}" style="min-width:72px"><span class="col-day">${DAYS[d.getDay()]} ${d.getDate()}</span><span class="col-time">${d.toLocaleDateString('en-AU',{month:'short'})}</span></th>`;
   }).join('');
 
   function dVals(key,field){const d=state.data[key]?.daily;if(!d)return indices.map(()=>null);return indices.map(i=>d[field]?.[i]??null);}
@@ -2301,15 +2403,8 @@ function renderDaily(){
       ${cloudModelRows}
     `)}`;
 
-  // Scroll to today column
-  requestAnimationFrame(()=>{
-    const wrap=document.querySelector('.table-wrap');
-    const nowTh=document.querySelector('.hour-header th.now-col');
-    if(!wrap||!nowTh)return;
-    const labelW=98;
-    const colW=nowTh.offsetWidth||72;
-    wrap.scrollLeft=Math.max(0,nowTh.offsetLeft-labelW);
-  });
+  // Scroll to the selected day column
+  requestAnimationFrame(()=>scrollTableToSelected());
   positionNowOverlay();
 }
 
