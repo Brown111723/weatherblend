@@ -234,6 +234,29 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .city-btn-gps{background:var(--border2);color:var(--text-primary);}
 .city-btn-gps:hover{background:var(--border);}
 .help-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;}
+.acc-modal{max-width:560px;}
+.acc-status{font-size:12px;padding:8px 12px;border-radius:8px;margin:4px 0 14px;line-height:1.4;}
+.acc-status.live{background:rgba(251,191,36,.12);color:#fcd34d;border:1px solid rgba(251,191,36,.3);}
+.acc-status.learned{background:rgba(134,239,172,.12);color:#86efac;border:1px solid rgba(134,239,172,.3);}
+.acc-status.none{background:var(--surface2);color:var(--text-dim);border:1px solid var(--border2);}
+.acc-table{width:100%;border-collapse:collapse;font-size:12px;}
+.acc-table th{text-align:right;padding:7px 6px;color:var(--text-dim);font-weight:600;border-bottom:1px solid var(--border2);font-size:11px;text-transform:uppercase;letter-spacing:.4px;}
+.acc-table th:first-child,.acc-table td:first-child{text-align:left;}
+.acc-table td{padding:7px 6px;border-bottom:1px solid var(--border);}
+.acc-table tr:last-child td{border-bottom:none;}
+.acc-mdot{display:inline-block;width:18px;height:18px;border-radius:5px;color:#0b0e14;font-weight:700;font-size:10px;text-align:center;line-height:18px;margin-right:7px;vertical-align:middle;}
+.acc-err{font-weight:600;color:var(--text-primary);}
+.acc-w{font-size:10px;color:var(--text-muted);}
+.acc-best{color:#86efac;}
+.acc-na{color:var(--text-dim);}
+.acc-close{font-size:13px;font-weight:600;padding:7px 16px;border-radius:8px;border:1px solid var(--border2);background:var(--surface2);color:var(--text-primary);cursor:pointer;}
+.acc-note{font-size:11px;color:var(--text-dim);margin-top:12px;line-height:1.5;}
+.acc-h-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:20px 0 8px;font-size:13px;font-weight:700;color:var(--text-primary);flex-wrap:wrap;}
+.acc-h-tabs{display:inline-flex;gap:4px;}
+.acc-h-tab{font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;border:1px solid var(--border2);background:var(--surface2);color:var(--text-muted);cursor:pointer;}
+.acc-h-tab.active{background:rgba(96,165,250,.16);border-color:var(--accent);color:#bfdbfe;}
+.acc-h-table th,.acc-h-table td{text-align:center;}
+.acc-h-table th:first-child,.acc-h-table td:first-child{text-align:left;width:42px;}
 .help-overlay.hidden{display:none;}
 .help-modal{background:var(--surface);border:1px solid var(--border2);border-radius:16px;max-width:540px;width:100%;max-height:85vh;overflow-y:auto;padding:28px;}
 .help-modal h2{font-size:20px;font-weight:700;color:var(--text-primary);margin-bottom:4px;}
@@ -268,6 +291,7 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 <header>
   <div class="logo">Weather<span>Blend</span></div>
   <div class="hdr-right">
+    <button class="hdr-btn" id="accuracy-hdr-btn" onclick="showAccuracy()" title="Forecast accuracy">📊</button>
     <button class="hdr-btn" id="sources-hdr-btn" onclick="toggleSourcesPanel()" title="Config">⚙</button>
     <button class="hdr-btn" onclick="showHelp()" title="Help">?</button>
   </div>
@@ -302,6 +326,15 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 </div>
 
 <!-- Help modal -->
+<div class="help-overlay hidden" id="acc-overlay" onclick="hideAccuracy(event)">
+  <div class="help-modal acc-modal">
+    <h2>Forecast accuracy</h2>
+    <div class="help-sub" id="acc-sub">Tracking how each model performs against BOM observations.</div>
+    <div id="acc-body"></div>
+    <div style="margin-top:14px;text-align:right"><button class="acc-close" onclick="hideAccuracy()">Close</button></div>
+  </div>
+</div>
+
 <div class="help-overlay hidden" id="help-overlay" onclick="hideHelp(event)">
   <div class="help-modal">
     <h2>WeatherBlend</h2>
@@ -872,6 +905,8 @@ async function fetchAllModels(){
     dbg('actuals/weights done'+(actualData?(' — '+actualData.source+' '+(actualData.stationName||'')):' — no actuals'));
     try{ renderCurrentBar(); buildSourcesPanel(); renderTable(); dbg('✓ table re-rendered with weights'); }
     catch(e){ dbg('❌ re-render error: '+e.message); }
+    // Then: record today's forecasts + BOM actuals and pull learned weights
+    syncAndLoadAccuracy().catch(e=>dbg('accuracy sync error: '+e.message));
   }).catch(e=>{ dbg('❌ actuals/weights error: '+e.message); });
 }
 
@@ -1646,7 +1681,7 @@ function parseBomObs(json, stn){
     daily.temperature_2m_min.push(ts.length?Math.min(...ts):null);
     daily.precipitation_sum.push(byDate[d].precip);
   }
-  return { hourly, daily, source:'BOM', stationName:stn.name||('WMO '+stn.wmo), wmo:stn.wmo };
+  return { hourly, daily, source:'BOM', stationName:stn.name||('WMO '+stn.wmo), wmo:stn.wmo, state:stn.state, lat:stn.lat, lon:stn.lon };
 }
 
 async function fetchBOMActuals(){
@@ -1712,6 +1747,93 @@ async function fetchActualsAndComputeWeights(){
     modelWeights={};
     am.forEach(m=>{['temp','rain','wind','cloud'].forEach(s=>metricWeights[s][m.key]=1/am.length);modelWeights[m.key]=1/am.length;});
   }
+}
+
+// ══════════════════════════════════════════
+// ACCURACY TRACKER (client side)
+// Records each load's forecasts + BOM actuals to the Worker/D1 store, then
+// pulls back per-model weights learned from real forecast-vs-observed error.
+// ══════════════════════════════════════════
+let historicalWeights=null, accuracyStats=null, accuracyMeta=null, _trackStation=null;
+let _horizonCache={}, _horizonMetric='temp';
+
+// Per-model daily aggregate for one date, derived from that model's hourly grid
+// (same basis as the actuals aggregation → apples-to-apples).
+function modelDay(modelKey,dateStr){
+  const h=state.data[modelKey]?.hourly; if(!h?.time)return null;
+  let tmax=null,tmin=null,rain=0,wind=null,cs=0,cn=0,hasR=false,hasT=false;
+  h.time.forEach((t,i)=>{
+    if(t.slice(0,10)!==dateStr)return;
+    const tv=h.temperature_2m?.[i]; if(tv!=null){tmax=tmax==null?tv:Math.max(tmax,tv);tmin=tmin==null?tv:Math.min(tmin,tv);hasT=true;}
+    const pv=h.precipitation?.[i]; if(pv!=null){rain+=pv;hasR=true;}
+    const wv=h.windspeed_10m?.[i]; if(wv!=null)wind=wind==null?wv:Math.max(wind,wv);
+    const cv=h.cloudcover?.[i]; if(cv!=null){cs+=cv;cn++;}
+  });
+  if(!hasT&&!hasR)return null;
+  return {tmax,tmin,rain:hasR?rain:null,wind,cloud:cn?cs/cn:null};
+}
+
+// BOM-only completed-day actuals (never Open-Meteo — would be circular)
+function bomDailyActuals(){
+  const bom=actualData?._bom; if(!bom?.hourly?.time)return [];
+  const today=localTodayStr();
+  const byDay={};
+  bom.hourly.time.forEach((t,i)=>{
+    const d=t.slice(0,10); if(d>=today)return;          // completed days only
+    const o=byDay[d]||(byDay[d]={tmax:null,tmin:null,rain:0,wind:null,cs:0,cn:0,hasR:false,hasT:false});
+    const tv=bom.hourly.temperature_2m?.[i]; if(tv!=null){o.tmax=o.tmax==null?tv:Math.max(o.tmax,tv);o.tmin=o.tmin==null?tv:Math.min(o.tmin,tv);o.hasT=true;}
+    const pv=bom.hourly.precipitation?.[i]; if(pv!=null){o.rain+=pv;o.hasR=true;}
+    const wv=bom.hourly.windspeed_10m?.[i]; if(wv!=null)o.wind=o.wind==null?wv:Math.max(o.wind,wv);
+    const cv=bom.hourly.cloudcover?.[i]; if(cv!=null){o.cs+=cv;o.cn++;}
+  });
+  return Object.keys(byDay).map(d=>{const o=byDay[d];return{target:d,tmax:o.hasT?o.tmax:null,tmin:o.hasT?o.tmin:null,rain:o.hasR?o.rain:null,wind:o.wind,cloud:o.cn?o.cs/o.cn:null,source:'bom'};}).filter(a=>a.tmax!=null||a.rain!=null);
+}
+
+async function syncAndLoadAccuracy(){
+  if(!bomWorkerConfigured())return;
+  const station=actualData?._bom?.wmo;
+  if(!station){ dbg('accuracy: no BOM station yet — skipping (needs observations)'); renderAccuracyPanel(); return; }
+  _trackStation=station;
+  const today=localTodayStr();
+  const dates=carouselDates().filter(d=>d>=today).slice(0,8);   // today + next 7
+  const forecasts=[];
+  activeEnabled().forEach(m=>{ dates.forEach(d=>{const a=modelDay(m.key,d); if(a)forecasts.push({target:d,model:m.key,...a});}); });
+  const actuals=bomDailyActuals();
+  const b=actualData?._bom||{};
+  const meta={lat:b.lat??state.lat, lon:b.lon??state.lon, state:b.state||'', name:b.stationName||''};
+
+  try{
+    await fetch(`${BOM_WORKER_URL}/track/sync`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({station,issued:today,forecasts,actuals,meta})});
+    dbg(`accuracy: synced ${forecasts.length} forecasts, ${actuals.length} actuals`);
+  }catch(e){ dbg('accuracy sync POST failed: '+e.message); }
+
+  try{
+    const r=await fetch(`${BOM_WORKER_URL}/track/weights?station=${encodeURIComponent(station)}&days=60`,{signal:AbortSignal.timeout(15000)});
+    const j=await r.json();
+    accuracyMeta=j; accuracyStats=j&&j.stats||null; _horizonCache={};
+    if(j&&j.weights&&j.mature){
+      historicalWeights=j.weights; applyHistoricalWeights();
+      dbg(`accuracy: USING learned weights — ${j.days} days, ${j.pairs} pairs`);
+      if(Object.keys(state.data).length){ renderCurrentBar(); buildSourcesPanel(); renderTable(); }
+    }else{
+      historicalWeights=null;
+      dbg(`accuracy: learning ${j&&j.days||0}/${j&&j.matureAt||14} days — live weighting for now`);
+    }
+  }catch(e){ dbg('accuracy weights GET failed: '+e.message); }
+  renderAccuracyPanel();
+}
+
+// Replace the live BOM-scored weights with the learned historical ones
+function applyHistoricalWeights(){
+  if(!historicalWeights)return;
+  const am=activeEnabled();
+  ['temp','rain','wind','cloud'].forEach(s=>{
+    const src=historicalWeights[s]||{}; const w={}; let any=false;
+    am.forEach(m=>{ if(src[m.key]!=null){w[m.key]=src[m.key];any=true;} });
+    if(any){ const sum=am.reduce((a,m)=>a+(w[m.key]||0),0)||1; metricWeights[s]={}; am.forEach(m=>metricWeights[s][m.key]=(w[m.key]||0)/sum); }
+  });
+  modelWeights={}; am.forEach(m=>modelWeights[m.key]=((metricWeights.temp[m.key]||0)+(metricWeights.rain[m.key]||0)+(metricWeights.wind[m.key]||0)+(metricWeights.cloud[m.key]||0))/4);
 }
 
 // Reference hourly grid (first enabled model)
@@ -2703,6 +2825,101 @@ function tryGPS(){
 }
 function showHelp(){document.getElementById('help-overlay').classList.remove('hidden');}
 function hideHelp(e){if(!e||e.target===document.getElementById('help-overlay'))document.getElementById('help-overlay').classList.add('hidden');}
+
+function showAccuracy(){ renderAccuracyPanel(); document.getElementById('acc-overlay').classList.remove('hidden'); }
+function hideAccuracy(e){ if(!e||e.target===document.getElementById('acc-overlay'))document.getElementById('acc-overlay').classList.add('hidden'); }
+
+const _MET_LABEL={temp:'Temp °',rain:'Rain mm',wind:'Wind',cloud:'Cloud %'};
+function renderAccuracyPanel(){
+  const sub=document.getElementById('acc-sub'), body=document.getElementById('acc-body');
+  if(!body)return;
+  const j=accuracyMeta;
+  if(!bomWorkerConfigured()){
+    sub.textContent='';
+    body.innerHTML='<div class="acc-status none">The accuracy tracker needs the BOM Worker configured (set BOM_WORKER_URL). Once forecasts and BOM observations are recorded, learned per-model accuracy appears here.</div>';
+    return;
+  }
+  if(!j||j.error||(!j.stats||!j.stats.length)){
+    sub.textContent='';
+    const d=j&&j.days||0, need=j&&j.matureAt||14;
+    body.innerHTML=`<div class="acc-status none">No verified forecasts yet for this station${_trackStation?` (WMO ${_trackStation})`:''}. The tracker records today's forecasts now and verifies them against BOM observations once those days pass — check back after a few days. ${d?`(${d}/${need} days collected)`:''}</div>`;
+    return;
+  }
+  // status line
+  const mature=!!j.mature;
+  sub.textContent=`Station WMO ${j.station} · ${j.pairs} forecast–observation pairs over the last ${j.window} days`;
+  const statusCls=mature?'learned':'live';
+  const statusTxt=mature
+    ? `✓ Blend is using learned weights from ${j.days} days of verified forecasts.`
+    : `Learning — ${j.days}/${j.matureAt} verified days collected. Using live weighting until mature.`;
+  // build rows: per model, RMSE per metric (lower is better); mark best per metric
+  const METS=['temp','rain','wind','cloud'];
+  const best={}; METS.forEach(m=>{ let bv=Infinity,bk=null; j.stats.forEach(s=>{ if(s[m]!=null&&s[m]<bv){bv=s[m];bk=s.model;} }); best[m]=bk; });
+  const wmap=(j&&j.weights)||{};
+  const colorOf=k=>(MODELS.find(m=>m.key===k)||{}).color||'#64748b';
+  const shortOf=k=>(MODELS.find(m=>m.key===k)||{}).short||'?';
+  const labelOf=k=>(MODELS.find(m=>m.key===k)||{}).label||k;
+  const fmt=(v,m)=>v==null?'<span class="acc-na">–</span>':(m==='cloud'||m==='wind'?Math.round(v):v.toFixed(1));
+  const rows=j.stats.slice().sort((a,b)=>(a.temp??99)-(b.temp??99)).map(s=>{
+    const cells=METS.map(m=>{
+      const w=(wmap[m]||{})[s.model];
+      const wTxt=w!=null?`<div class="acc-w">${Math.round(w*100)}%</div>`:'';
+      const cls='acc-err'+(best[m]===s.model?' acc-best':'');
+      return `<td><span class="${cls}">${fmt(s[m],m)}</span>${wTxt}</td>`;
+    }).join('');
+    return `<tr><td><span class="acc-mdot" style="background:${colorOf(s.model)}">${shortOf(s.model)}</span>${labelOf(s.model)}</td>${cells}</tr>`;
+  }).join('');
+  body.innerHTML=`
+    <div class="acc-status ${statusCls}">${statusTxt}</div>
+    <table class="acc-table">
+      <thead><tr><th>Model</th>${METS.map(m=>`<th>${_MET_LABEL[m]}</th>`).join('')}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="acc-note">Figures are average error (RMSE) vs BOM observations — lower is better; the greenest value leads each column. The % under each is that model's blend weight. Only BOM-observed days are scored (Open-Meteo estimates are never used as truth).</div>
+    <div class="acc-h-head"><span>Error by lead time</span>
+      <span class="acc-h-tabs">
+        ${METS.map(m=>`<button class="acc-h-tab${m===_horizonMetric?' active':''}" data-m="${m}" onclick="loadHorizon('${m}')">${m[0].toUpperCase()+m.slice(1)}</button>`).join('')}
+      </span>
+    </div>
+    <div id="acc-horizon"><div class="acc-na" style="padding:8px 2px">Loading…</div></div>`;
+  loadHorizon(_horizonMetric);
+}
+
+const _HBUCKETS=[[1,1,'1d'],[2,2,'2d'],[3,3,'3d'],[4,5,'4–5d'],[6,7,'6–7d']];
+async function loadHorizon(metric){
+  _horizonMetric=metric;
+  document.querySelectorAll('.acc-h-tab').forEach(b=>b.classList.toggle('active',b.dataset.m===metric));
+  const host=document.getElementById('acc-horizon'); if(!host)return;
+  if(!_trackStation){host.innerHTML='<div class="acc-na" style="padding:8px 2px">No station yet.</div>';return;}
+  let j=_horizonCache[metric];
+  if(!j){
+    host.innerHTML='<div class="acc-na" style="padding:8px 2px">Loading…</div>';
+    try{ const r=await fetch(`${BOM_WORKER_URL}/track/horizon?station=${encodeURIComponent(_trackStation)}&days=60&metric=${metric}`,{signal:AbortSignal.timeout(15000)}); j=await r.json(); _horizonCache[metric]=j; }
+    catch(e){ host.innerHTML='<div class="acc-na" style="padding:8px 2px">Could not load lead-time data.</div>'; return; }
+  }
+  host.innerHTML=horizonMatrixHTML(j,metric);
+}
+
+function horizonMatrixHTML(j,metric){
+  const rows=(j&&j.rows)||[];
+  if(!rows.length) return '<div class="acc-na" style="padding:8px 2px">Not enough verified forecasts yet to break this down by lead time.</div>';
+  const byModel={};
+  rows.forEach(r=>{ (byModel[r.model]||(byModel[r.model]={}))[r.h]={rmse:r.rmse,n:r.n}; });
+  const fmt=v=>v==null?'–':((metric==='cloud'||metric==='wind')?Math.round(v):v.toFixed(1));
+  const colorOf=k=>(MODELS.find(m=>m.key===k)||{}).color||'#64748b';
+  const shortOf=k=>(MODELS.find(m=>m.key===k)||{}).short||'?';
+  const models=Object.keys(byModel).sort((a,b)=>MODELS.findIndex(m=>m.key===a)-MODELS.findIndex(m=>m.key===b));
+  const cell={};
+  models.forEach(mk=>{ cell[mk]=_HBUCKETS.map(([lo,hi])=>{
+    let sw=0,sn=0; for(let h=lo;h<=hi;h++){const c=byModel[mk][h]; if(c&&c.rmse!=null&&c.n){sw+=c.rmse*c.rmse*c.n; sn+=c.n;}}
+    return sn?Math.sqrt(sw/sn):null;
+  });});
+  const best=_HBUCKETS.map((_,bi)=>{ let bv=Infinity,bk=null; models.forEach(mk=>{const v=cell[mk][bi]; if(v!=null&&v<bv){bv=v;bk=mk;}}); return bk; });
+  const head=`<tr><th>Model</th>${_HBUCKETS.map(b=>`<th>${b[2]}</th>`).join('')}</tr>`;
+  const tb=models.map(mk=>`<tr><td><span class="acc-mdot" style="background:${colorOf(mk)}">${shortOf(mk)}</span></td>${cell[mk].map((v,bi)=>`<td><span class="acc-err${best[bi]===mk?' acc-best':''}">${fmt(v)}</span></td>`).join('')}</tr>`).join('');
+  return `<table class="acc-table acc-h-table"><thead>${head}</thead><tbody>${tb}</tbody></table>
+          <div class="acc-note">Same RMSE-vs-BOM measure, split by how many days ahead the forecast was made. Watch the error grow with lead time — and see which model holds up best at long range.</div>`;
+}
 </script>
 </body>
 </html>
