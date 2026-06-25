@@ -46,9 +46,9 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .cc-icon{line-height:1;}
 .cc-icon .wxi{width:46px;height:46px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.5));}
 .cc-main{font-size:26px;font-weight:700;letter-spacing:-.5px;color:var(--text-primary);line-height:1.05;}
-.cc-main.cc-hl{font-size:19px;letter-spacing:0;}
+.cc-main.cc-hl{font-size:18px;letter-spacing:0;white-space:nowrap;}
 .cc-box.cc-temp .cc-main{font-size:26px;letter-spacing:-.5px;}
-.cc-box.cc-temp .cc-main.cc-hl{font-size:19px;letter-spacing:0;}
+.cc-box.cc-temp .cc-main.cc-hl{font-size:18px;letter-spacing:0;}
 .cc-sub{font-size:13px;color:var(--text-muted);line-height:1.45;}
 .cc-syn{font-size:12px;color:var(--text-dim);font-style:italic;margin-top:3px;line-height:1.4;}
 @media(min-width:740px){
@@ -1086,7 +1086,7 @@ function buildDayBoxes(dateStr){
   if(!s)return '';
   const past=s.isPast;
   const arrow=s.windDir!=null?dirArrow16(s.windDir):'', dir=s.windDir!=null?dirFull(s.windDir):'';
-  const HL=(hi,lo,u)=>`↑ ${hi!=null?Math.round(hi)+u:'—'}　↓ ${lo!=null?Math.round(lo)+u:'—'}`;
+  const HL=(hi,lo,u)=>`↑ ${hi!=null?Math.round(hi)+u:'—'}<span style="display:inline-block;width:12px"></span>↓ ${lo!=null?Math.round(lo)+u:'—'}`;
   const cond=_condTile(wxIcon(s.dayCode,false),dayNarrative(s,dir));
 
   // TEMP
@@ -1095,7 +1095,7 @@ function buildDayBoxes(dateStr){
   const tSubs = tActual
     ? `<div class="cc-sub">Recorded high / low</div><div class="cc-sub">Forecast ${HL(s.hi,s.lo,'°')}</div>`
     : `<div class="cc-sub">Forecast high / low</div>`;
-  const t=_ccBox('cc-temp','Temp','#86efac',`<div class="cc-main cc-hl">${tMain}</div>${tSubs}`,`${tActual?'Recorded':'Forecast'} high ${_T(tActual?s.aTHi:s.hi)} · low ${_T(tActual?s.aTLo:s.lo)}`);
+  const t=_ccBox('cc-temp','Temp','#86efac',`<div class="cc-main cc-hl">${tMain}</div>${tSubs}`,tempDaySynopsis(tActual?s.aTHi:s.hi,tActual?s.aTLo:s.lo));
 
   // RAIN
   const rActual = past && s.actualRain!=null;
@@ -1103,7 +1103,7 @@ function buildDayBoxes(dateStr){
   const rSubs = rActual
     ? `<div class="cc-sub">Recorded total</div><div class="cc-sub">Forecast ${s.rain.toFixed(1)} mm</div>`
     : `<div class="cc-sub">Forecast total</div>`;
-  const r=_ccBox('','Rain','#90caf9',`<div class="cc-main">${rMain} mm</div>${rSubs}`,rainSynopsis(s.rain,s.actualRain));
+  const r=_ccBox('','Rain','#90caf9',`<div class="cc-main cc-hl">${rMain} mm</div>${rSubs}`,rainSynopsis(s.rain,s.actualRain));
 
   // WIND
   const wActual = past && s.aHasW;
@@ -1188,8 +1188,17 @@ function renderCurrentBar(){
 
   bar.innerHTML=dates.map(d=>`<div class="cc-page" data-date="${d}"><div class="cc-grid">${pageGridHTML(d)}</div></div>`).join('');
   bar.classList.add('loaded');
-  requestAnimationFrame(()=>{ bar.scrollLeft=dates.indexOf(selDate)*bar.clientWidth; });
+  requestAnimationFrame(()=>centerCarousel('auto'));
+  if(!bar._resizeBound){ bar._resizeBound=true; window.addEventListener('resize',()=>centerCarousel('auto')); }
   updateDateUI();
+}
+
+// Snap the carousel exactly to the selected day's page (robust to sub-pixel drift)
+function centerCarousel(behavior='auto'){
+  const bar=document.getElementById('curr-bar');if(!bar)return;
+  const pg=bar.querySelector('.cc-page[data-date="'+selDate+'"]');if(!pg)return;
+  _suppressCarousel=Date.now()+500;
+  bar.scrollTo({left:pg.offsetLeft,behavior});
 }
 
 // Scroll the data table so the selected day is the first visible column
@@ -1215,10 +1224,10 @@ function scrollTableToSelected(behavior='auto'){
 
 // Move the carousel to a given date (suppressing its echo back to the table)
 function carouselToDate(date,behavior='smooth'){
-  const bar=document.getElementById('curr-bar');const dates=bar?._dates||[];
-  const idx=dates.indexOf(date);if(idx<0)return;
+  const bar=document.getElementById('curr-bar');if(!bar)return;
+  const pg=bar.querySelector('.cc-page[data-date="'+date+'"]');if(!pg)return;
   _suppressCarousel=Date.now()+700;
-  bar.scrollTo({left:idx*bar.clientWidth,behavior});
+  bar.scrollTo({left:pg.offsetLeft,behavior});
 }
 
 function goToToday(){
@@ -1285,6 +1294,13 @@ function initCarouselScroll(){
 }
 
 function tempWord(t){if(t==null)return'';return t<0?'Freezing':t<8?'Cold':t<16?'Cool':t<24?'Mild':t<30?'Warm':'Hot';}
+function tempDaySynopsis(hi,lo){
+  if(hi==null)return '';
+  const day=tempWord(hi);
+  let s=`${day} day`;
+  if(lo!=null){const night=tempWord(lo).toLowerCase();if(night!==day.toLowerCase())s+=`, ${night} overnight`;}
+  return s;
+}
 function _cap(s){return s?s.charAt(0).toUpperCase()+s.slice(1):s;}
 function _rainPhrase(mm){return mm<0.2?'staying dry':mm<2?`~${mm.toFixed(1)}mm light rain`:mm<10?`~${mm.toFixed(1)}mm rain`:`~${mm.toFixed(0)}mm heavy rain`;}
 function todayNarrative(temp,wcode,night,wind,dir,rainToday,hi,lo){
@@ -1729,7 +1745,20 @@ function buildActualData(bom){
     H.cloudcover.push(pick('cloudcover','cloudcover'));
     H.windspeed_10m.push(pick('windspeed_10m','windspeed_10m'));
   });
-  return { stationName: bom?.stationName || 'Open-Meteo (est.)', hourly:H, _bom: bom };
+  // Aggregate the hourly actuals into per-day actuals (for the daily table)
+  const byDay={};
+  H.time.forEach((t,i)=>{
+    const d=t.slice(0,10);
+    const o=byDay[d]||(byDay[d]={tmax:null,tmin:null,psum:0,cmax:null,cmin:null,wmax:null,hasP:false});
+    const tv=H.temperature_2m[i];if(tv!=null){o.tmax=o.tmax==null?tv:Math.max(o.tmax,tv);o.tmin=o.tmin==null?tv:Math.min(o.tmin,tv);}
+    const pv=H.precipitation[i];if(pv!=null){o.psum+=pv;o.hasP=true;}
+    const cv=H.cloudcover[i];if(cv!=null){o.cmax=o.cmax==null?cv:Math.max(o.cmax,cv);o.cmin=o.cmin==null?cv:Math.min(o.cmin,cv);}
+    const wv=H.windspeed_10m[i];if(wv!=null){o.wmax=o.wmax==null?wv:Math.max(o.wmax,wv);}
+  });
+  const D={time:[],temperature_2m_max:[],temperature_2m_min:[],precipitation_sum:[],cloudcover_max:[],cloudcover_min:[],windspeed_10m_max:[]};
+  Object.keys(byDay).sort().forEach(d=>{const o=byDay[d];D.time.push(d);D.temperature_2m_max.push(o.tmax);D.temperature_2m_min.push(o.tmin);D.precipitation_sum.push(o.hasP?o.psum:null);D.cloudcover_max.push(o.cmax);D.cloudcover_min.push(o.cmin);D.windspeed_10m_max.push(o.wmax);});
+
+  return { stationName: bom?.stationName || 'Open-Meteo (est.)', hourly:H, daily:D, _bom: bom };
 }
 
 // Per-metric recency-weighted inverse-RMSE weights, scored vs real BOM only.
