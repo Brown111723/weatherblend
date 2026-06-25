@@ -46,7 +46,9 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .cc-icon{line-height:1;}
 .cc-icon .wxi{width:46px;height:46px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.5));}
 .cc-main{font-size:26px;font-weight:700;letter-spacing:-.5px;color:var(--text-primary);line-height:1.05;}
+.cc-main.cc-hl{font-size:19px;letter-spacing:0;}
 .cc-box.cc-temp .cc-main{font-size:26px;letter-spacing:-.5px;}
+.cc-box.cc-temp .cc-main.cc-hl{font-size:19px;letter-spacing:0;}
 .cc-sub{font-size:13px;color:var(--text-muted);line-height:1.45;}
 .cc-syn{font-size:12px;color:var(--text-dim);font-style:italic;margin-top:3px;line-height:1.4;}
 @media(min-width:740px){
@@ -1032,16 +1034,20 @@ function computeDaySummary(dateStr){
   const windDir=noonIdx>=0?wAt('winddirection_10m',noonIdx):null;
   const windNoon=noonIdx>=0?wAt('windspeed_10m',noonIdx):null;
 
-  let actualRain=null;
+  let actualRain=null, aTHi=null,aTLo=null,aWHi=null,aWLo=null,aCHi=null,aCLo=null, aHasT=false,aHasW=false,aHasC=false;
   if(!isFuture && actualData?.hourly?.time){
     actualRain=0;
     actualData.hourly.time.forEach((t,i)=>{
       if(t.slice(0,10)!==dateStr)return;
       if(isToday && new Date(t)>now)return;
-      const v=actualData.hourly.precipitation?.[i];if(v!=null)actualRain+=v;
+      const pr=actualData.hourly.precipitation?.[i];if(pr!=null)actualRain+=pr;
+      const tv=actualData.hourly.temperature_2m?.[i];if(tv!=null){aTHi=aTHi==null?tv:Math.max(aTHi,tv);aTLo=aTLo==null?tv:Math.min(aTLo,tv);aHasT=true;}
+      const wv=actualData.hourly.windspeed_10m?.[i];if(wv!=null){aWHi=aWHi==null?wv:Math.max(aWHi,wv);aWLo=aWLo==null?wv:Math.min(aWLo,wv);aHasW=true;}
+      const cv=actualData.hourly.cloudcover?.[i];if(cv!=null){aCHi=aCHi==null?cv:Math.max(aCHi,cv);aCLo=aCLo==null?cv:Math.min(aCLo,cv);aHasC=true;}
     });
   }
-  return {dateStr,isToday,isFuture,isPast,hi,lo,rain,windHi,windLo,windNoon,windDir,cloudHi,cloudLo,cloudMean,dayCode,actualRain};
+  return {dateStr,isToday,isFuture,isPast,hi,lo,rain,windHi,windLo,windNoon,windDir,cloudHi,cloudLo,cloudMean,dayCode,actualRain,
+          aTHi,aTLo,aWHi,aWLo,aCHi,aCLo,aHasT,aHasW,aHasC};
 }
 
 const _ccBox=(cls,title,color,body,syn)=>
@@ -1073,19 +1079,48 @@ function buildTodayBoxes(){
   return cond+t+r+w+cl;
 }
 
-// Past/future page — day summary (hides actual rain on future days)
+// Past/future day overview. Past → recorded actuals as the headline with the
+// blended forecast (row 1 of each table) underneath. Future → forecast only.
 function buildDayBoxes(dateStr){
   const s=computeDaySummary(dateStr);
   if(!s)return '';
+  const past=s.isPast;
   const arrow=s.windDir!=null?dirArrow16(s.windDir):'', dir=s.windDir!=null?dirFull(s.windDir):'';
+  const HL=(hi,lo,u)=>`↑ ${hi!=null?Math.round(hi)+u:'—'}　↓ ${lo!=null?Math.round(lo)+u:'—'}`;
   const cond=_condTile(wxIcon(s.dayCode,false),dayNarrative(s,dir));
-  const t=_ccBox('cc-temp','Temp','#86efac',`<div class="cc-main">${_T(s.hi)}</div><div class="cc-sub">Low ${_T(s.lo)}</div><div class="cc-sub">Daytime high</div>`,`High ${_T(s.hi)} · low ${_T(s.lo)}`);
-  const rainSub = s.isFuture
-    ? `<div class="cc-sub">Expected ${s.rain.toFixed(1)} mm</div>`
-    : `<div class="cc-sub">Actual ${s.actualRain!=null?s.actualRain.toFixed(1)+' mm':'—'}</div><div class="cc-sub">Expected ${s.rain.toFixed(1)} mm</div>`;
-  const r=_ccBox('','Rain','#90caf9',`<div class="cc-main">${s.rain.toFixed(1)} mm</div>${rainSub}`,rainSynopsis(s.rain,s.actualRain));
-  const w=_ccBox('','Wind','#d9f99d',`<div class="cc-main">${s.windNoon!=null?Math.round(s.windNoon)+' km/h':'—'}</div><div class="cc-sub">${arrow} ${dir}</div><div class="cc-sub">↑ ${s.windHi!=null?Math.round(s.windHi):'—'}　↓ ${s.windLo!=null?Math.round(s.windLo):'—'} km/h</div>`,`${windWord(s.windNoon??0)}${s.windNoon!=null&&s.windNoon>=10&&dir?' from the '+dir:''}`);
-  const cl=_ccBox('','Cloud','#c4b5fd',`<div class="cc-main">${s.cloudMean!=null?Math.round(s.cloudMean)+'%':'—'}</div><div class="cc-sub">↑ ${s.cloudHi!=null?Math.round(s.cloudHi):'—'}%　↓ ${s.cloudLo!=null?Math.round(s.cloudLo):'—'}%</div>`,cloudSynopsis(s.cloudMean));
+
+  // TEMP
+  const tActual = past && s.aHasT;
+  const tMain = tActual ? HL(s.aTHi,s.aTLo,'°') : HL(s.hi,s.lo,'°');
+  const tSubs = tActual
+    ? `<div class="cc-sub">Recorded high / low</div><div class="cc-sub">Forecast ${HL(s.hi,s.lo,'°')}</div>`
+    : `<div class="cc-sub">Forecast high / low</div>`;
+  const t=_ccBox('cc-temp','Temp','#86efac',`<div class="cc-main cc-hl">${tMain}</div>${tSubs}`,`${tActual?'Recorded':'Forecast'} high ${_T(tActual?s.aTHi:s.hi)} · low ${_T(tActual?s.aTLo:s.lo)}`);
+
+  // RAIN
+  const rActual = past && s.actualRain!=null;
+  const rMain = rActual ? s.actualRain.toFixed(1) : s.rain.toFixed(1);
+  const rSubs = rActual
+    ? `<div class="cc-sub">Recorded total</div><div class="cc-sub">Forecast ${s.rain.toFixed(1)} mm</div>`
+    : `<div class="cc-sub">Forecast total</div>`;
+  const r=_ccBox('','Rain','#90caf9',`<div class="cc-main">${rMain} mm</div>${rSubs}`,rainSynopsis(s.rain,s.actualRain));
+
+  // WIND
+  const wActual = past && s.aHasW;
+  const wMain = wActual ? HL(s.aWHi,s.aWLo,'') : HL(s.windHi,s.windLo,'');
+  const wSubs = wActual
+    ? `<div class="cc-sub">Recorded high / low km/h</div><div class="cc-sub">Forecast ${HL(s.windHi,s.windLo,'')} km/h</div>`
+    : `<div class="cc-sub">Forecast high / low km/h</div>`;
+  const w=_ccBox('','Wind','#d9f99d',`<div class="cc-main cc-hl">${wMain}</div>${wSubs}`,`${windWord(s.windNoon??0)}${s.windNoon!=null&&s.windNoon>=10&&dir?' from the '+dir:''}`);
+
+  // CLOUD
+  const cActual = past && s.aHasC;
+  const cMain = cActual ? HL(s.aCHi,s.aCLo,'%') : HL(s.cloudHi,s.cloudLo,'%');
+  const cSubs = cActual
+    ? `<div class="cc-sub">Recorded high / low</div><div class="cc-sub">Forecast ${HL(s.cloudHi,s.cloudLo,'%')}</div>`
+    : `<div class="cc-sub">Forecast high / low</div>`;
+  const cl=_ccBox('','Cloud','#c4b5fd',`<div class="cc-main cc-hl">${cMain}</div>${cSubs}`,cloudSynopsis(s.cloudMean));
+
   return cond+t+r+w+cl;
 }
 
@@ -1213,7 +1248,11 @@ function onTableScroll(){
       wrap.querySelectorAll('.hour-header th[data-date]').forEach(th=>{ if(th.offsetLeft<=edge && th.offsetLeft>best){best=th.offsetLeft;date=th.getAttribute('data-date');iso=th.getAttribute('data-iso');} });
     }
     if(!date)return;
-    const newFocus=(state.view!=='daily'&&iso)?iso:null;
+    let newFocus=null;
+    if(state.view!=='daily' && iso){
+      const hr=new Date(iso).getHours();
+      newFocus = hr===0 ? null : iso;   // snapped to 12am → full-day overview; else that hour
+    }
     if(date===selDate && newFocus===focusIso)return;     // nothing changed
     selDate=date; focusIso=newFocus;
     updateDateUI();
@@ -1728,14 +1767,27 @@ function computeMetricWeights(bom){
     });
   });
 
-  // per metric: inverse-RMSE for scorable; neutral mean for unscorable
+  // Pass 1: provisional per-metric weights from scorable models only
+  const rawW={}, scorableMap={};
   METS.forEach(([s])=>{
-    const raw={}, scorable=[], unscorable=[];
-    am.forEach(m=>{ if(err[m.key][s].wn>=1){const rmse=Math.max(0.01,Math.sqrt(err[m.key][s].se/err[m.key][s].wn));raw[m.key]=1/rmse;scorable.push(m);} else unscorable.push(m); });
-    const mean=scorable.length?scorable.reduce((a,m)=>a+raw[m.key],0)/scorable.length:1;
-    unscorable.forEach(m=>raw[m.key]=mean);              // neutral = average skill
-    const sum=am.reduce((a,m)=>a+(raw[m.key]||0),0);
-    am.forEach(m=>metricWeights[s][m.key]= sum>0 ? (raw[m.key]||0)/sum : 1/am.length);
+    const raw={}, sc=[];
+    am.forEach(m=>{ if(err[m.key][s].wn>=1){ raw[m.key]=1/Math.max(0.01,Math.sqrt(err[m.key][s].se/err[m.key][s].wn)); sc.push(m.key); } });
+    const sum=sc.reduce((a,k)=>a+raw[k],0)||1;
+    rawW[s]={}; sc.forEach(k=>rawW[s][k]=raw[k]/sum);
+    scorableMap[s]=new Set(sc);
+  });
+  // Each model's overall skill = avg of its provisional weights across scorable metrics
+  const overall={};
+  am.forEach(m=>{
+    const vals=METS.map(([s])=>scorableMap[s].has(m.key)?rawW[s][m.key]:null).filter(v=>v!=null);
+    overall[m.key]= vals.length ? vals.reduce((a,v)=>a+v,0)/vals.length : 1/am.length;
+  });
+  // Final: scorable models keep their metric weight; unscorable inherit overall skill; renormalize
+  METS.forEach(([s])=>{
+    const w={};
+    am.forEach(m=>{ w[m.key]= scorableMap[s].has(m.key) ? rawW[s][m.key] : overall[m.key]; });
+    const sum=am.reduce((a,m)=>a+w[m.key],0)||1;
+    am.forEach(m=>metricWeights[s][m.key]=w[m.key]/sum);
   });
 
   // overall weight = mean of the four metric weights (for badges / default blend)
@@ -1755,6 +1807,14 @@ function fieldSec(field){
   if(/wind/.test(field))return'wind';
   if(/cloud/.test(field))return'cloud';
   return null;
+}
+// Per-section weight badge for a model's source row
+function wBadge(sec,key){
+  const w=(metricWeights[sec]||{})[key];
+  if(w==null||!isFinite(w))return '';
+  const pct=Math.round(w*100);
+  const cls=pct>=20?'high':pct>=10?'mid':'low';
+  return '<span style="font-size:10px;color:var(--text-muted)"><span class="weight-badge '+cls+'">'+pct+'%</span></span>';
 }
 function weightedAvgOf(modelValPairs,sec){
   const valid=modelValPairs.filter(p=>p.val!=null&&!isNaN(p.val));
@@ -1782,7 +1842,7 @@ function cloudCls(v){if(v==null)return"";if(v<=12)return"cl0";if(v<=25)return"cl
 function buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled,ref,actMap){
   const avg=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:hVals(m.key,"cloudcover",indices)[ci]})),'cloud'));
   const avgCells=avg.map((v,ci)=>{const cls=cloudCls(v);const nc=ci===nowCi?"now-col":"";const txt=v!=null?Math.round(v)+"%":"—";return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(" ")}">${txt}</td>`,(ndCls[ci]+" "+pastCls[ci]).trim());}).join("");
-  const srcRows=allActive.map(m=>{const v=hVals(m.key,"cloudcover",indices);const cells=v.map((x,ci)=>{const cls=cloudCls(x);const nc=ci===nowCi?"now-col":"";return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(" ")}">${x!=null?Math.round(x)+"%":"—"}</td>`,(ndCls[ci]+" "+pastCls[ci]).trim());}).join("");return`<tr class="${srcRowClass(m,'cloud')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span></span></td>${cells}</tr>`;}).join("");
+  const srcRows=allActive.map(m=>{const v=hVals(m.key,"cloudcover",indices);const cells=v.map((x,ci)=>{const cls=cloudCls(x);const nc=ci===nowCi?"now-col":"";return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(" ")}">${x!=null?Math.round(x)+"%":"—"}</td>`,(ndCls[ci]+" "+pastCls[ci]).trim());}).join("");return`<tr class="${srcRowClass(m,'cloud')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span>${wBadge('cloud',m.key)}</span></td>${cells}</tr>`;}).join("");
   const nowMs=Date.now();
   const actCells=(actualData&&showActuals)?indices.map((hourIdx,ci)=>{
     if(new Date(ref.time[hourIdx]).getTime()>=nowMs)return'<td class="empty">–</td>';
@@ -2344,7 +2404,7 @@ function renderHourly(){
   const windModelRows=allActive.map(m=>{
     const v=hVals(m.key,'windspeed_10m',indices);
     const cells=v.map((x,ci)=>{const nc=ci===nowCi?'now-col':'';return injectColCls(`<td class="${[x!=null?windCls(x):'',nc].filter(Boolean).join(' ')}">${fmt(x,0)}</td>`,ndCls[ci]);}).join('');
-    return`<tr class="${srcRowClass(m,'wind')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span></span></td>${cells}</tr>`;
+    return`<tr class="${srcRowClass(m,'wind')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span>${wBadge('wind',m.key)}</span></td>${cells}</tr>`;
   }).join('');
 
   // ── RAIN ──
@@ -2499,7 +2559,7 @@ function renderDaily(){
   const windModelRows=allActive.map(m=>{
     const v=dVals(m.key,'windspeed_10m_max');
     const cells=v.map(x=>`<td class="${x!=null?windCls(x):''}">${fmt(x,0)}</td>`).join('');
-    return`<tr class="${srcRowClass(m,'wind')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span></span></td>${cells}</tr>`;
+    return`<tr class="${srcRowClass(m,'wind')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span>${wBadge('wind',m.key)}</span></td>${cells}</tr>`;
   }).join('');
 
   // ── RAIN ──
@@ -2522,7 +2582,7 @@ function renderDaily(){
   const avgCloudCells=avgCloud.map(v=>{const cls=cloudCls(v);return`<td class="${cls}">${v!=null?Math.round(v)+'%':'—'}</td>`;}).join('');
   const cloudModelRows=allActive.map(m=>{
     const cells=indices.map((_,ci)=>{const x=dCloud(m.key,ci);const cls=cloudCls(x);return`<td class="${cls}">${x!=null?Math.round(x)+'%':'—'}</td>`;}).join('');
-    return`<tr class="${srcRowClass(m,'cloud')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span></span></td>${cells}</tr>`;
+    return`<tr class="${srcRowClass(m,'cloud')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span>${wBadge('cloud',m.key)}</span></td>${cells}</tr>`;
   }).join('');
 
   const actualRainCells=indices.map(i=>{
