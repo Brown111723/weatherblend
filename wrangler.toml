@@ -17,7 +17,7 @@ compatibility_date = "2025-01-01"
 [[d1_databases]]
 binding = "DB"                          # the Worker reads env.DB
 database_name = "weatherblend-accuracy"
-database_id = "PASTE_DATABASE_ID_HERE"  # from `wrangler d1 create`
+database_id = "fb923ca0-8c48-40b8-a2f8-ee40c1962b7b"  # from `wrangler d1 create`
 
 # ── Daily capture cron ─────────────────────────────────────────────────────
 # Runs once a day (20:10 UTC ≈ early morning AEST) to snapshot forecasts and
