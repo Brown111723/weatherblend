@@ -39,6 +39,9 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .cc-box{background:rgba(255,255,255,0.022);border:1px solid var(--border);border-radius:12px;padding:11px 13px;display:flex;flex-direction:column;gap:2px;min-width:0;}
 .cc-box.cc-cond{grid-column:1 / -1;}
 .cc-box.cc-cond .cc-icon{margin:4px 0 2px;}
+.cc-cond-row{display:flex;align-items:center;gap:12px;}
+.cc-cond-row .cc-icon{margin:0;flex-shrink:0;}
+.cc-cond-row .cc-syn{margin-top:0;}
 .cc-title{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px;}
 .cc-icon{line-height:1;}
 .cc-icon .wxi{width:46px;height:46px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.5));}
@@ -50,10 +53,16 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
   .cc-grid{grid-template-columns:repeat(5,1fr);align-items:stretch;}
   .cc-box.cc-cond{grid-column:auto;}
 }
-.cur-date{font-size:15px;font-weight:600;color:var(--text-primary);white-space:nowrap;}
-.today-btn{font-size:12px;font-weight:600;padding:4px 11px;border-radius:999px;border:1px solid var(--border2);background:var(--surface2);color:var(--text-primary);cursor:pointer;transition:opacity .15s;white-space:nowrap;}
-.today-btn.dim{opacity:.35;}
-.today-btn:not(.dim){box-shadow:0 0 0 1px var(--accent) inset;border-color:var(--accent);}
+.toolbar .loc-wrap{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px;}
+.cur-date{display:flex;flex-direction:column;gap:0;line-height:1.15;}
+.cur-date-main{font-size:15px;font-weight:600;color:var(--text-primary);white-space:nowrap;}
+.cur-date-rel{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--text-dim);}
+.cur-date.not-today .cur-date-main{color:#fbbf24;}
+.cur-date.not-today .cur-date-rel{color:#fbbf24;}
+.today-btn{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;border:1px solid var(--border2);background:var(--surface2);color:var(--text-muted);cursor:pointer;transition:opacity .15s,color .15s;}
+.today-btn:hover{color:var(--text-primary);}
+.today-btn.dim{opacity:.4;}
+.loc-detail{font-size:11px;color:var(--text-dim);white-space:nowrap;padding-right:4px;}
 .view-select{width:100%;background:var(--surface2);color:var(--text-primary);border:1px solid var(--border2);border-radius:8px;padding:6px 8px;font-size:13px;font-weight:600;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;cursor:pointer;-webkit-appearance:none;appearance:none;text-align:center;}
 .view-select:hover{border-color:#3a4861;}
 .hour-header th.row-label.corner-cell{padding:8px 10px!important;}
@@ -61,7 +70,6 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 /* ── Toolbar ── */
 .toolbar{padding:10px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:5px;flex-wrap:wrap;background:var(--surface);}
 .toolbar .btn-group{margin-left:auto;}
-.toolbar .loc-btn{margin-left:auto;}
 .date-info{font-size:15px;color:var(--text-muted);flex:1;min-width:150px;}
 .date-info strong{color:var(--text-primary);}
 .btn-group{display:flex;gap:6px;}
@@ -267,8 +275,13 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 
 <div class="toolbar">
   <div class="cur-date" id="curr-date">–</div>
-  <button class="today-btn dim" id="today-btn" onclick="goToToday()">Today</button>
-  <button class="loc-btn" onclick="promptLocation()">📍 <span class="loc-name" id="loc-name">Detecting…</span></button>
+  <button class="today-btn dim" id="today-btn" onclick="goToToday()" title="Jump to today" aria-label="Jump to today">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16.5" rx="2"/><line x1="3" y1="9.5" x2="21" y2="9.5"/><line x1="8" y1="2.5" x2="8" y2="6"/><line x1="16" y1="2.5" x2="16" y2="6"/><circle cx="12" cy="15.5" r="2.1" fill="currentColor" stroke="none"/></svg>
+  </button>
+  <div class="loc-wrap">
+    <button class="loc-btn" onclick="promptLocation()">📍 <span class="loc-name" id="loc-name">Detecting…</span></button>
+    <div class="loc-detail" id="loc-detail"></div>
+  </div>
 </div>
 
 <!-- Current conditions bar (built by renderCurrentBar) -->
@@ -639,7 +652,7 @@ function fallbackLocation(){
   const saved = loadSavedLocation();
   if(saved){
     state.lat=saved.lat; state.lon=saved.lon;
-    document.getElementById('loc-name').textContent=saved.name;
+    setLocName(saved.name);
     dbg('using saved location: '+saved.name);
     fetchAllModels();
   } else {
@@ -701,6 +714,14 @@ function loadPrefs(){
 function saveLocation(lat,lon,name){
   try{localStorage.setItem('wb_location',JSON.stringify({lat,lon,name}));}catch{}
 }
+// Show just the town/city in the box; region/country abbrev underneath
+function setLocName(full){
+  const parts=(full||'').split(',').map(s=>s.trim()).filter(Boolean);
+  const city=parts[0]||(full||'');
+  const detail=parts.slice(1).join(', ');
+  const el=document.getElementById('loc-name'); if(el)el.textContent=city;
+  const de=document.getElementById('loc-detail'); if(de)de.textContent=detail;
+}
 
 function clearSavedLocation(){
   try{localStorage.removeItem('wb_location');}catch{}
@@ -716,7 +737,7 @@ function useDefault(){
   // Last resort fallback
   state.lat=-32.2569;state.lon=148.6011;
   const name='Dubbo, NSW, AU';
-  document.getElementById('loc-name').textContent=name;
+  setLocName(name);
   saveLocation(state.lat,state.lon,name);
   fetchAllModels();
 }
@@ -728,12 +749,12 @@ async function reverseGeocode(lat,lon){
     const city=d.address?.city||d.address?.town||d.address?.village||d.address?.suburb||'Your Location';
     const cc=d.address?.country_code?.toUpperCase()||'';
     const name=cc?`${city}, ${cc}`:city;
-    document.getElementById('loc-name').textContent=name;
+    setLocName(name);
     saveLocation(lat,lon,name);
   }catch{
     // Nominatim blocked (e.g. iframe) — show coords, still works fine
     const name=`${lat.toFixed(2)}°, ${lon.toFixed(2)}°`;
-    document.getElementById('loc-name').textContent=name;
+    setLocName(name);
     saveLocation(lat,lon,name);
   }
 }
@@ -755,7 +776,7 @@ async function geocodeCity(name){
     if(result.admin1)parts.push(result.admin1);
     if(result.country_code)parts.push(result.country_code);
     const locName=parts.join(', ');
-    document.getElementById('loc-name').textContent=locName;
+    setLocName(locName);
     saveLocation(state.lat,state.lon,locName);
     manualLocationOverride=true; // keep this city for the session, even on hourly refresh
     dbg('manual city selected: '+locName);
@@ -1044,7 +1065,7 @@ function buildTodayBoxes(){
   const arrow=dirArrow16(windDir??0), dir=dirFull(windDir??0);
   const narrative=todayNarrative(temp,wcode,night,wind,dir,rainToday,hi,lo);
 
-  const cond=`<div class="cc-box cc-cond"><div class="cc-title" style="color:var(--text-muted)">Conditions</div><div class="cc-icon">${wxIcon(wcode,night,phase)}</div><div class="cc-syn">${narrative}</div></div>`;
+  const cond=_condTile(wxIcon(wcode,night,phase),narrative);
   const t=_ccBox('cc-temp','Temp','#86efac',`<div class="cc-main">${_T(temp)}</div><div class="cc-sub">Feels ${_T(feels)}</div><div class="cc-sub">↑ ${_T(hi)}　↓ ${_T(lo)}</div>`,tempTrendSyn(temp,hi,lo));
   const r=_ccBox('','Rain','#90caf9',`<div class="cc-main">${rainToday.toFixed(1)} mm</div><div class="cc-sub">Actual ${actualRain!=null?actualRain.toFixed(1)+' mm':'—'}</div><div class="cc-sub">Expected ${rainToday.toFixed(1)} mm</div>`,rainSynopsis(rainToday,actualRain));
   const w=_ccBox('','Wind','#d9f99d',`<div class="cc-main">${wind!=null?Math.round(wind)+' km/h':'—'}</div><div class="cc-sub">${arrow} ${dir}</div><div class="cc-sub">↑ ${windHi!=null?Math.round(windHi):'—'}　↓ ${windLo!=null?Math.round(windLo):'—'} km/h</div>`,`${windWord(wind??0)}${wind!=null&&wind>=10?' from the '+dir:''}`);
@@ -1057,7 +1078,7 @@ function buildDayBoxes(dateStr){
   const s=computeDaySummary(dateStr);
   if(!s)return '';
   const arrow=s.windDir!=null?dirArrow16(s.windDir):'', dir=s.windDir!=null?dirFull(s.windDir):'';
-  const cond=`<div class="cc-box cc-cond"><div class="cc-title" style="color:var(--text-muted)">Conditions</div><div class="cc-icon">${wxIcon(s.dayCode,false)}</div><div class="cc-syn">${dayNarrative(s,dir)}</div></div>`;
+  const cond=_condTile(wxIcon(s.dayCode,false),dayNarrative(s,dir));
   const t=_ccBox('cc-temp','Temp','#86efac',`<div class="cc-main">${_T(s.hi)}</div><div class="cc-sub">Low ${_T(s.lo)}</div><div class="cc-sub">Daytime high</div>`,`High ${_T(s.hi)} · low ${_T(s.lo)}`);
   const rainSub = s.isFuture
     ? `<div class="cc-sub">Expected ${s.rain.toFixed(1)} mm</div>`
@@ -1068,17 +1089,55 @@ function buildDayBoxes(dateStr){
   return cond+t+r+w+cl;
 }
 
-function fmtCarouselDate(dateStr,today){
-  const d=new Date(dateStr+'T12:00:00');
-  const diff=Math.round((new Date(dateStr+'T12:00:00')-new Date(today+'T12:00:00'))/86400000);
-  const rel=diff===0?'Today · ':diff===1?'Tomorrow · ':diff===-1?'Yesterday · ':'';
-  return rel+d.toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'long'});
+// Conditions tile: title on top, icon + synopsis side by side
+function _condTile(iconHtml,syn){
+  return `<div class="cc-box cc-cond"><div class="cc-title" style="color:var(--text-muted)">Conditions</div><div class="cc-cond-row"><div class="cc-icon">${iconHtml}</div><div class="cc-syn">${syn}</div></div></div>`;
 }
+
+// Snapshot of one specific hour (used when the table is scrolled to that column)
+function computeHourSnapshot(iso){
+  const onlyEnabled=activeEnabled();if(!onlyEnabled.length)return null;
+  const ref=refHourly();if(!ref?.time)return null;
+  const idx=ref.time.indexOf(iso);if(idx<0)return null;
+  const wAt=(f)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.hourly?.[f]?.[idx]??null})),fieldSec(f));
+  const temp=wAt('temperature_2m'),wind=wAt('windspeed_10m'),windDir=wAt('winddirection_10m'),cloud=wAt('cloudcover'),precip=wAt('precipitation');
+  const rawCode=state.data[onlyEnabled[0].key]?.hourly?.weathercode?.[idx]??null;
+  const code=deriveCondCode(precip,cloud,rawCode);
+  const phase=sunPhaseAt(iso);
+  return {iso,idx,temp,wind,windDir,cloud,precip,code,phase,night:phase==='night'};
+}
+
+// Carousel page content for one specific hour
+function buildHourBoxes(iso){
+  const h=computeHourSnapshot(iso);if(!h)return null;
+  const s=computeDaySummary(iso.slice(0,10));
+  const tl=fmtAmPm(new Date(iso));
+  const arrow=h.windDir!=null?dirArrow16(h.windDir):'', dir=h.windDir!=null?dirFull(h.windDir):'';
+  const cond=_condTile(wxIcon(h.code,h.night,h.phase),`${tl} · ${wxDesc(h.code,!h.night)}${h.temp!=null?', '+tempDisp(h.temp)+'°':''}`);
+  const t=_ccBox('cc-temp','Temp','#86efac',`<div class="cc-main">${_T(h.temp)}</div><div class="cc-sub">at ${tl}</div><div class="cc-sub">↑ ${_T(s?.hi)}　↓ ${_T(s?.lo)}</div>`,`${tempWord(h.temp)} at ${tl}`);
+  const r=_ccBox('','Rain','#90caf9',`<div class="cc-main">${(h.precip||0).toFixed(1)} mm</div><div class="cc-sub">this hour</div><div class="cc-sub">Day ${(s?.rain||0).toFixed(1)} mm</div>`,rainSynopsis(s?.rain||0,s?.actualRain));
+  const w=_ccBox('','Wind','#d9f99d',`<div class="cc-main">${h.wind!=null?Math.round(h.wind)+' km/h':'—'}</div><div class="cc-sub">${arrow} ${dir}</div><div class="cc-sub">at ${tl}</div>`,`${windWord(h.wind??0)}${h.wind!=null&&h.wind>=8&&dir?' '+dir:''}`);
+  const cl=_ccBox('','Cloud','#c4b5fd',`<div class="cc-main">${h.cloud!=null?Math.round(h.cloud)+'%':'—'}</div><div class="cc-sub">at ${tl}</div><div class="cc-sub">Day ↑${s&&s.cloudHi!=null?Math.round(s.cloudHi):'—'}% ↓${s&&s.cloudLo!=null?Math.round(s.cloudLo):'—'}%</div>`,cloudSynopsis(h.cloud));
+  return cond+t+r+w+cl;
+}
+
+function relDayLabel(dateStr,today){
+  const diff=Math.round((new Date(dateStr+'T12:00:00')-new Date(today+'T12:00:00'))/86400000);
+  return diff===0?'Today':diff===1?'Tomorrow':diff===-1?'Yesterday':(diff>0?`In ${diff} days`:`${-diff} days ago`);
+}
+
+let focusIso=null; // a specific hour the table is scrolled to (hourly views)
+function pageGridHTML(date){return date===localTodayStr()?buildTodayBoxes():buildDayBoxes(date);}
 
 function updateDateUI(){
   const today=localTodayStr();
   const dateEl=document.getElementById('curr-date');
-  if(dateEl&&selDate)dateEl.textContent=fmtCarouselDate(selDate,today);
+  if(dateEl&&selDate){
+    const d=new Date(selDate+'T12:00:00');
+    const dateStr=d.toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'long'});
+    dateEl.innerHTML=`<div class="cur-date-main">${dateStr}</div><div class="cur-date-rel">${relDayLabel(selDate,today)}</div>`;
+    dateEl.classList.toggle('not-today',selDate!==today);
+  }
   const tb=document.getElementById('today-btn');
   if(tb)tb.classList.toggle('dim',selDate===today);
 }
@@ -1092,7 +1151,7 @@ function renderCurrentBar(){
   if(!selDate||!dates.includes(selDate))selDate=dates.includes(today)?today:dates[0];
   bar._dates=dates;
 
-  bar.innerHTML=dates.map(d=>`<div class="cc-page" data-date="${d}"><div class="cc-grid">${d===today?buildTodayBoxes():buildDayBoxes(d)}</div></div>`).join('');
+  bar.innerHTML=dates.map(d=>`<div class="cc-page" data-date="${d}"><div class="cc-grid">${pageGridHTML(d)}</div></div>`).join('');
   bar.classList.add('loaded');
   requestAnimationFrame(()=>{ bar.scrollLeft=dates.indexOf(selDate)*bar.clientWidth; });
   updateDateUI();
@@ -1129,13 +1188,15 @@ function carouselToDate(date,behavior='smooth'){
 
 function goToToday(){
   const today=localTodayStr();
-  selDate=today;
+  selDate=today; focusIso=null;
   carouselToDate(today,'smooth');
   updateDateUI();
+  const grid=document.querySelector('#curr-bar .cc-page[data-date="'+today+'"] .cc-grid');
+  if(grid)grid.innerHTML=pageGridHTML(today);
   scrollTableToSelected('smooth');
 }
 
-// Table scrolled by the user → figure out which day is at the edge, sync carousel
+// Table scrolled by the user → reflect the hour/day at the edge in the current section
 let _tblTmr;
 function onTableScroll(){
   positionNowOverlay();
@@ -1143,17 +1204,22 @@ function onTableScroll(){
   clearTimeout(_tblTmr);
   _tblTmr=setTimeout(()=>{
     const wrap=document.getElementById('table-wrap');if(!wrap)return;
-    let date=null;
+    let date=null, iso=null;
     if(verticalLayout){
-      const edge=wrap.scrollTop+56;
-      wrap.querySelectorAll('tr[data-date]').forEach(r=>{ if(r.offsetTop<=edge){ if(!date||r.offsetTop>date._t){date={d:r.getAttribute('data-date'),_t:r.offsetTop};} } });
-      date=date?date.d:null;
+      const edge=wrap.scrollTop+56;let best=-1;
+      wrap.querySelectorAll('tr[data-date]').forEach(r=>{ if(r.offsetTop<=edge && r.offsetTop>best){best=r.offsetTop;date=r.getAttribute('data-date');iso=r.getAttribute('data-iso');} });
     } else {
-      const edge=wrap.scrollLeft+102;
-      let best=-1;
-      wrap.querySelectorAll('.hour-header th[data-date]').forEach(th=>{ if(th.offsetLeft<=edge && th.offsetLeft>best){best=th.offsetLeft;date=th.getAttribute('data-date');} });
+      const edge=wrap.scrollLeft+102;let best=-1;
+      wrap.querySelectorAll('.hour-header th[data-date]').forEach(th=>{ if(th.offsetLeft<=edge && th.offsetLeft>best){best=th.offsetLeft;date=th.getAttribute('data-date');iso=th.getAttribute('data-iso');} });
     }
-    if(date&&date!==selDate){selDate=date;updateDateUI();carouselToDate(date,'smooth');}
+    if(!date)return;
+    const newFocus=(state.view!=='daily'&&iso)?iso:null;
+    if(date===selDate && newFocus===focusIso)return;     // nothing changed
+    selDate=date; focusIso=newFocus;
+    updateDateUI();
+    carouselToDate(date,'smooth');
+    const grid=document.querySelector('#curr-bar .cc-page[data-date="'+date+'"] .cc-grid');
+    if(grid)grid.innerHTML = focusIso ? (buildHourBoxes(focusIso)||pageGridHTML(date)) : pageGridHTML(date);
   },110);
 }
 
@@ -1169,7 +1235,12 @@ function initCarouselScroll(){
       const dates=bar._dates||[];if(!dates.length||!bar.clientWidth)return;
       const idx=Math.max(0,Math.min(dates.length-1,Math.round(bar.scrollLeft/bar.clientWidth)));
       const d=dates[idx];
-      if(d&&d!==selDate){selDate=d;updateDateUI();scrollTableToSelected('smooth');}
+      if(d&&(d!==selDate||focusIso)){
+        selDate=d; focusIso=null; updateDateUI();
+        const grid=document.querySelector('#curr-bar .cc-page[data-date="'+d+'"] .cc-grid');
+        if(grid)grid.innerHTML=pageGridHTML(d);
+        scrollTableToSelected('smooth');
+      }
     },100);
   },{passive:true});
 }
@@ -2005,7 +2076,7 @@ function renderVerticalHourly(){
     const rowStyle=isDayStart?'border-top:2px solid var(--day-line)':'';
     const cells=cols.map(c=>renderVertical_cellVal(c.id,i,onlyEnabled,actMap,nowMs,ref)).join('');
     const labelStyle=`font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;white-space:nowrap;${isNow?'color:#ef4444;font-weight:700':''}`;
-    return`<tr class="data-row ${ndCls}${isNow?' now-row':''}${isDayStart?' vday-start':''}" data-date="${ref.time[i].slice(0,10)}" ${isNow?'id="now-row"':''} style="${rowStyle}">
+    return`<tr class="data-row ${ndCls}${isNow?' now-row':''}${isDayStart?' vday-start':''}" data-date="${ref.time[i].slice(0,10)}" data-iso="${ref.time[i]}" ${isNow?'id="now-row"':''} style="${rowStyle}">
       <td class="row-label ${ndCls}" style="${labelStyle}">${DAYS[d.getDay()]} ${d.getDate()} <span style="opacity:.7">${fmtAmPm(d)}</span></td>
       ${cells}
     </tr>`;
@@ -2246,7 +2317,7 @@ function renderHourly(){
     const isNow=ci===nowCi;
     const isPastCol=nowCi>=0&&ci<nowCi;
     const cls=[isNow?'now-col':'',ndCls[ci],isPastCol?'past-col':''].filter(Boolean).join(' ');
-    const dayLabel=DAYS[d.getDay()]+' '+d.getDate();    return`<th class="${cls}" data-date="${ref.time[i].slice(0,10)}"><span class="col-day">${dayLabel}</span><span class="col-time">${timeStr}</span></th>`;
+    const dayLabel=DAYS[d.getDay()]+' '+d.getDate();    return`<th class="${cls}" data-date="${ref.time[i].slice(0,10)}" data-iso="${ref.time[i]}"><span class="col-day">${dayLabel}</span><span class="col-time">${timeStr}</span></th>`;
   }).join('');
 
   const allActive=activeAll();const onlyEnabled=activeEnabled();
