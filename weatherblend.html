@@ -19,15 +19,40 @@
 body{background:var(--bg);color:var(--text-primary);font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:18px;min-height:100vh;}
 
 /* ── Header ── */
-header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:linear-gradient(180deg,#161d29,#121722);position:sticky;top:0;z-index:100;}
-.logo{font-size:22px;font-weight:700;letter-spacing:-.4px;}
+.topbar{position:sticky;top:0;z-index:100;}
+header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;background:linear-gradient(180deg,#161d29,#121722);}
+.logo{font-size:21px;font-weight:700;letter-spacing:-.4px;white-space:nowrap;}
 .logo span{background:linear-gradient(90deg,#4d8df0,#7dd3fc);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
-.loc-btn{display:flex;align-items:center;gap:6px;padding:6px 14px;background:var(--border);border-radius:16px;font-size:15px;color:var(--text-muted);cursor:pointer;border:none;transition:background .15s;}
+.loc-btn{display:flex;align-items:center;gap:5px;padding:5px 12px;background:var(--border);border-radius:16px;font-size:14px;color:var(--text-muted);cursor:pointer;border:none;transition:background .15s;max-width:46vw;}
 .loc-btn:hover{background:var(--border2);}
-.loc-name{color:var(--text-primary);font-weight:500;}
+.loc-name{color:var(--text-primary);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .hdr-btn{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text-muted);cursor:pointer;font-size:18px;transition:all .15s;flex-shrink:0;}
 .hdr-btn:hover{background:var(--border2);color:var(--text-primary);}
 .hdr-btn.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+.hdr-loc{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px;min-width:0;}
+/* Slide-in drawer */
+.drawer-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;}
+.drawer-overlay.hidden{display:none;}
+.drawer{position:absolute;left:0;top:0;bottom:0;width:280px;max-width:82vw;background:var(--surface);border-right:1px solid var(--border2);box-shadow:6px 0 30px rgba(0,0,0,.5);padding:16px;display:flex;flex-direction:column;gap:12px;transform:translateX(-100%);transition:transform .22s ease;overflow-y:auto;}
+.drawer.open{transform:translateX(0);}
+.drawer-head{display:flex;align-items:center;justify-content:space-between;}
+.dh-title{font-size:20px;font-weight:700;letter-spacing:-.3px;}
+.dh-title span{background:linear-gradient(90deg,#4d8df0,#7dd3fc);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
+.drawer-close{width:32px;height:32px;border-radius:8px;border:1px solid var(--border2);background:var(--surface2);color:var(--text-muted);font-size:20px;line-height:1;cursor:pointer;}
+.drawer-label{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin-top:6px;}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+.seg button{padding:9px 6px;border-radius:9px;border:1px solid var(--border2);background:var(--surface2);color:var(--text-muted);font-size:13px;font-weight:600;cursor:pointer;}
+.seg button.active{background:rgba(96,165,250,.16);border-color:var(--accent);color:#bfdbfe;}
+.drawer-item{display:flex;align-items:center;gap:11px;padding:11px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surface2);color:var(--text-primary);font-size:14.5px;font-weight:500;cursor:pointer;text-align:left;}
+.drawer-item:hover{border-color:var(--accent);background:rgba(96,165,250,.08);}
+.drawer-item svg{color:var(--text-muted);flex-shrink:0;}
+/* Sticky date bar */
+.datebar{position:relative;display:flex;align-items:center;justify-content:center;padding:8px 16px;background:var(--bg);border-bottom:1px solid var(--border);}
+.date-center{display:flex;align-items:center;gap:14px;}
+.date-nav{width:38px;height:38px;display:flex;align-items:center;justify-content:center;border-radius:10px;border:1px solid var(--border2);background:var(--surface2);color:var(--text-muted);cursor:pointer;transition:all .15s;}
+.date-nav:hover{color:var(--text-primary);border-color:var(--accent);}
+.date-nav:active{transform:scale(.93);}
+.datebar .today-btn{position:absolute;right:16px;}
 .hdr-right{display:flex;align-items:center;gap:8px;}
 
 /* ── Current conditions: swipeable day carousel ── */
@@ -40,10 +65,14 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .cc-box.cc-cond{grid-column:1 / -1;}
 .cc-box.cc-cond .cc-icon{margin:4px 0 2px;}
 .cc-cond-row{display:flex;align-items:center;gap:14px;}
-.cc-lines{display:flex;flex-direction:column;gap:3px;flex:1;min-width:0;}
-.cc-line{font-size:13px;line-height:1.35;color:var(--text-muted);}
-.cc-line-k{font-weight:700;}
-.cc-line-v{color:var(--text-muted);}
+.cc-cond-word{font-size:17px;font-weight:600;color:var(--text-primary);}
+.cc-daylight{font-size:12.5px;font-weight:500;color:var(--text-dim);}
+.cc-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:14px;}
+.cc-stat{display:flex;flex-direction:column;gap:1px;padding:8px 6px;border-radius:9px;background:rgba(255,255,255,.025);border:1px solid var(--border);text-align:center;}
+.cc-stat-l{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--text-dim);}
+.cc-stat-v{font-size:16px;font-weight:700;color:var(--text-primary);}
+.cc-stat-s{font-size:10px;color:var(--text-dim);min-height:12px;}
+@media(max-width:420px){.cc-stats{grid-template-columns:repeat(2,1fr);}}
 .cc-cond-row .cc-icon{margin:0;flex-shrink:0;}
 .cc-cond-row .cc-syn{margin-top:0;}
 .cc-title{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px;}
@@ -60,9 +89,9 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
   .cc-box.cc-cond{grid-column:auto;}
 }
 .toolbar .loc-wrap{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px;}
-.cur-date{display:flex;flex-direction:column;gap:0;line-height:1.15;}
-.cur-date-main{font-size:15px;font-weight:600;color:var(--text-primary);white-space:nowrap;}
-.cur-date-rel{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--text-dim);}
+.cur-date{display:flex;flex-direction:column;align-items:center;gap:0;line-height:1.1;min-width:150px;}
+.cur-date-main{font-size:19px;font-weight:700;color:var(--text-primary);white-space:nowrap;}
+.cur-date-rel{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text-dim);}
 .cur-date.not-today .cur-date-main{color:#fbbf24;}
 .cur-date.not-today .cur-date-rel{color:#fbbf24;}
 .today-btn{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;border:1px solid var(--border2);background:var(--surface2);color:var(--text-muted);cursor:pointer;transition:opacity .15s,color .15s;}
@@ -78,19 +107,24 @@ header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;alig
 .tf-select{font-size:12px;font-weight:600;padding:4px 8px;border-radius:8px;border:1px solid var(--border2);background:var(--surface2);color:var(--text-primary);cursor:pointer;}
 #hour-bar{display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;padding:10px 16px 14px;scroll-snap-type:x proximity;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
 #hour-bar::-webkit-scrollbar{display:none;}
-.hb-tile{flex:0 0 auto;width:74px;scroll-snap-align:start;display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 6px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.025);}
+.hb-tile{flex:0 0 auto;width:78px;scroll-snap-align:start;display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 8px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.025);}
 .hb-tile.hb-past{opacity:.72;}
 .hb-tile.hb-now{border-color:var(--accent);background:rgba(96,165,250,.12);}
 .hb-hour{font-size:12px;font-weight:700;color:var(--text-primary);}
-.hb-wx{width:26px;height:26px;}
-.hb-wx .wxi{width:26px;height:26px;}
-.hb-m{font-size:13px;font-weight:600;line-height:1.15;}
-.hb-u{font-size:8px;color:var(--text-dim);margin-left:1px;}
+.hb-wx{width:28px;height:28px;}
+.hb-wx .wxi{width:28px;height:28px;}
+.hb-rows{display:flex;flex-direction:column;gap:3px;align-self:stretch;padding-left:4px;}
+.hb-m{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;line-height:1.1;}
+.hb-m svg{flex-shrink:0;}
 .hb-t{color:#86efac;}
 .hb-r{color:#90caf9;}
 .hb-w{color:#d9f99d;}
 .hb-c{color:#c4b5fd;}
+.hb-m span{color:var(--text-primary);font-weight:600;}
 .hb-tile.hb-act .hb-hour::after{content:"•";color:var(--accent);margin-left:3px;}
+/* Fill mode: few tiles stretch to fill the row instead of scrolling */
+#hour-bar.hb-fill{overflow-x:hidden;}
+#hour-bar.hb-fill .hb-tile{flex:1 1 0;width:auto;}
 /* Bottom section nav */
 .bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:300;display:flex;justify-content:space-around;align-items:stretch;background:linear-gradient(0deg,#0d121c,#121925);border-top:1px solid var(--border2);padding:4px 6px env(safe-area-inset-bottom,6px);backdrop-filter:blur(8px);}
 .bnav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 4px;border:none;background:none;color:var(--text-dim);cursor:pointer;font-size:11px;font-weight:600;border-radius:10px;transition:color .15s,background .15s;}
@@ -325,33 +359,59 @@ body{padding-bottom:64px;}
 </head>
 <body>
 
+<div class="topbar">
 <header>
-  <div class="logo">Weather<span>Blend</span></div>
-  <div class="hdr-right">
-    <button class="hdr-btn" id="accuracy-hdr-btn" onclick="showAccuracy()" title="Forecast accuracy" aria-label="Forecast accuracy"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="20" x2="4" y2="13"/><line x1="10" y1="20" x2="10" y2="7"/><line x1="16" y1="20" x2="16" y2="11"/><line x1="21" y1="20" x2="3" y2="20"/></svg></button>
-    <button class="hdr-btn" id="sources-hdr-btn" onclick="toggleSourcesPanel()" title="Config">⚙</button>
-    <button class="hdr-btn" onclick="showHelp()" title="Help">?</button>
-  </div>
-</header>
-
-<div class="model-panel" id="model-panel"></div>
-
-<div class="toolbar">
-  <div class="cur-date" id="curr-date">–</div>
-  <button class="today-btn dim" id="today-btn" onclick="goToToday()" title="Jump to today" aria-label="Jump to today">
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16.5" rx="2"/><line x1="3" y1="9.5" x2="21" y2="9.5"/><line x1="8" y1="2.5" x2="8" y2="6"/><line x1="16" y1="2.5" x2="16" y2="6"/><circle cx="12" cy="15.5" r="2.1" fill="currentColor" stroke="none"/></svg>
+  <button class="hdr-btn ham-btn" onclick="toggleDrawer()" aria-label="Menu" title="Menu">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
   </button>
-  <select class="tf-select" id="hs-view" onchange="setView(this.value)" title="Timeframe">
-    <option value="1h">Hourly</option>
-    <option value="3h">3-hourly</option>
-    <option value="8h">8-hourly</option>
-    <option value="daily">Daily</option>
-  </select>
-  <div class="loc-wrap">
+  <div class="logo">Weather<span>Blend</span></div>
+  <div class="loc-wrap hdr-loc">
     <button class="loc-btn" onclick="promptLocation()">📍 <span class="loc-name" id="loc-name">Detecting…</span></button>
     <div class="loc-detail" id="loc-detail"></div>
   </div>
+</header>
+
+<!-- Slide-in menu -->
+<div class="drawer-overlay hidden" id="drawer-overlay" onclick="if(event.target===this)closeDrawer()">
+  <aside class="drawer" id="drawer">
+    <div class="drawer-head">
+      <span class="dh-title">Weather<span>Blend</span></span>
+      <button class="drawer-close" onclick="closeDrawer()" aria-label="Close">×</button>
+    </div>
+    <div class="drawer-label">Timeframe</div>
+    <div class="seg" id="tf-seg">
+      <button data-v="1h" onclick="setView('1h')">Hourly</button>
+      <button data-v="3h" onclick="setView('3h')">3-hr</button>
+      <button data-v="8h" onclick="setView('8h')">8-hr</button>
+      <button data-v="daily" onclick="setView('daily')">Daily</button>
+    </div>
+    <div class="drawer-label">Options</div>
+    <button class="drawer-item" onclick="closeDrawer();showAccuracy()">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="20" x2="4" y2="13"/><line x1="10" y1="20" x2="10" y2="7"/><line x1="16" y1="20" x2="16" y2="11"/><line x1="21" y1="20" x2="3" y2="20"/></svg>
+      Forecast accuracy</button>
+    <button class="drawer-item" onclick="closeDrawer();openConfig()">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Models &amp; sources</button>
+    <button class="drawer-item" onclick="closeDrawer();showHelp()">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12" y2="17"/></svg>
+      Help &amp; about</button>
+  </aside>
 </div>
+
+<div class="model-panel" id="model-panel"></div>
+
+<!-- Sticky date bar with day navigation -->
+<div class="datebar" id="datebar">
+  <div class="date-center">
+    <button class="date-nav" onclick="stepDay(-1)" aria-label="Previous day"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+    <div class="cur-date" id="curr-date">–</div>
+    <button class="date-nav" onclick="stepDay(1)" aria-label="Next day"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+  </div>
+  <button class="today-btn dim" id="today-btn" onclick="goToToday()" title="Jump to today" aria-label="Jump to today">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16.5" rx="2"/><line x1="3" y1="9.5" x2="21" y2="9.5"/><line x1="8" y1="2.5" x2="8" y2="6"/><line x1="16" y1="2.5" x2="16" y2="6"/><circle cx="12" cy="15.5" r="2.1" fill="currentColor" stroke="none"/></svg>
+  </button>
+</div>
+</div><!-- /topbar -->
 
 <!-- Carousels section (day overview + hourly strip) -->
 <div id="carousels-section">
@@ -573,18 +633,18 @@ window.addEventListener('DOMContentLoaded',()=>{
   applySectionVisibility();
   initCarouselScroll();
   // sync active view button to restored view
-  document.querySelectorAll('#view-btns .btn').forEach(b=>{const mm=b.getAttribute('onclick')?.match(/'([^']+)'/);if(mm)b.classList.toggle('active',mm[1]===state.view);});
+  syncTfSeg();
   buildSourcesPanel();
   updateDetailBtn();
   getLocation();
   // Close the config overlay when clicking/tapping outside it
   document.addEventListener('click',(ev)=>{
     const panel=document.getElementById('model-panel');
-    const btn=document.getElementById('sources-hdr-btn');
     if(!panel||!panel.classList.contains('open'))return;
-    if(panel.contains(ev.target)||btn.contains(ev.target))return;
+    const drawer=document.getElementById('drawer-overlay');
+    if(panel.contains(ev.target))return;
+    if(drawer&&drawer.contains(ev.target))return;
     panel.classList.remove('open');
-    btn.classList.remove('active');
   });
 });
 
@@ -626,7 +686,25 @@ function buildSourcesPanel(){
 
 function toggleSourcesPanel(){
   document.getElementById('model-panel').classList.toggle('open');
-  document.getElementById('sources-hdr-btn').classList.toggle('active');
+}
+function openConfig(){ document.getElementById('model-panel').classList.add('open'); }
+function toggleDrawer(){
+  const o=document.getElementById('drawer-overlay'), d=document.getElementById('drawer');
+  const opening=o.classList.contains('hidden');
+  o.classList.toggle('hidden'); requestAnimationFrame(()=>d.classList.toggle('open',opening));
+}
+function closeDrawer(){
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawer-overlay').classList.add('hidden');
+}
+function syncTfSeg(){
+  document.querySelectorAll('#tf-seg button').forEach(b=>b.classList.toggle('active',b.getAttribute('data-v')===state.view));
+}
+function stepDay(delta){
+  const dates=carouselDates(); if(!dates.length)return;
+  let i=dates.indexOf(selDate); if(i<0)i=dates.indexOf(localTodayStr()); if(i<0)i=0;
+  const ni=Math.max(0,Math.min(dates.length-1,i+delta));
+  if(dates[ni]!==selDate) setSelectedDay(dates[ni],{behavior:'smooth'});
 }
 function toggleModel(key){
   if(autoHidden.has(key))return;
@@ -892,19 +970,29 @@ function cityTypeahead(v){
   },220);
 }
 
+function _haversine(la1,lo1,la2,lo2){
+  const R=6371,d=x=>x*Math.PI/180;
+  const a=Math.sin(d(la2-la1)/2)**2+Math.cos(d(la1))*Math.cos(d(la2))*Math.sin(d(lo2-lo1)/2)**2;
+  return 2*R*Math.asin(Math.sqrt(a));
+}
 function renderCityResults(results, region){
   const box=document.getElementById('city-results'); if(!box)return;
   if(!results.length){ box.innerHTML='<div class="city-empty">No matches — try a different spelling.</div>'; return; }
-  // If the user gave a region (e.g. "NSW"), float matching results to the top
   const want = _AU_STATE[region] || region;
-  const score=r=>{ const a=(r.admin1||'').toLowerCase(), cc=(r.country_code||'').toLowerCase();
-    if(!want)return 0; if(a===want||a.includes(want)||want.includes(a))return -2; if(cc===want)return -1; return 0; };
-  const sorted=results.slice().sort((a,b)=>score(a)-score(b));
+  const haveLoc = state.lat!=null && state.lon!=null;
+  // Primary sort: distance to the user's current location (so the nearest "Orange"
+  // wins over a far bigger one). Region match, if typed, takes precedence.
+  const dist=r=> haveLoc ? _haversine(state.lat,state.lon,r.latitude,r.longitude) : 0;
+  const regionMatch=r=>{ if(!want)return 0; const a=(r.admin1||'').toLowerCase(), cc=(r.country_code||'').toLowerCase();
+    return (a===want||a.includes(want)||want.includes(a)||cc===want) ? 0 : 1; };
+  const sorted=results.slice().sort((a,b)=> (regionMatch(a)-regionMatch(b)) || (dist(a)-dist(b)));
   box.innerHTML=sorted.map(r=>{
+    const km=haveLoc?_haversine(state.lat,state.lon,r.latitude,r.longitude):null;
+    const far=km!=null?(km<100?Math.round(km)+' km':Math.round(km/10)*10+' km'):'';
     const bits=[r.admin1,r.country].filter(Boolean).join(', ');
     const nm=(r.name||'').replace(/"/g,'&quot;');
     return `<button class="city-opt" onclick="pickCity(${r.latitude},${r.longitude},'${nm.replace(/'/g,"\\'")}','${(r.admin1||'').replace(/'/g,"\\'")}','${(r.country_code||'')}')">
-      <span class="city-opt-name">${r.name}</span><span class="city-opt-sub">${bits}</span></button>`;
+      <span class="city-opt-name">${r.name}</span><span class="city-opt-sub">${bits}${far?' · '+far:''}</span></button>`;
   }).join('');
 }
 
@@ -963,9 +1051,9 @@ async function fetchAllModels(){
     try{
       const url=`https://api.open-meteo.com${m.ep}`
         +`?latitude=${state.lat}&longitude=${state.lon}`
-        +`&hourly=precipitation,wind_speed_10m,wind_direction_10m,temperature_2m,weather_code,cloud_cover`
+        +`&hourly=precipitation,wind_speed_10m,wind_direction_10m,temperature_2m,weather_code,cloud_cover,relative_humidity_2m`
         +`&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,`
-        +`wind_speed_10m_max,wind_direction_10m_dominant,sunrise,sunset`
+        +`wind_speed_10m_max,wind_direction_10m_dominant,sunrise,sunset,uv_index_max`
         +`&models=${m.key}&past_days=7&forecast_days=10&timezone=auto&wind_speed_unit=kmh`;
       const res=await fetch(url,{signal:AbortSignal.timeout(20000)});if(!res.ok)throw new Error(`HTTP ${res.status}`);
       const json=await res.json();if(json.error)throw new Error(json.reason||'API error');
@@ -1228,9 +1316,7 @@ function buildTodayBoxes(){
   const arrow=dirArrow16(windDir??0), dir=dirFull(windDir??0);
   const narrative=todayNarrative(temp,wcode,night,wind,dir,rainToday,hi,lo);
 
-  const windS=`${windWord(wind??0)}${wind!=null&&wind>=10?' from the '+dir:(wind!=null?' winds':'')}`;
-  const cond=_condTile(wxIcon(wcode,night,phase),_condLines(
-    tempTrendSyn(temp,hi,lo), rainSynopsis(rainToday,actualRain), windS, cloudSynopsis(cloud)));
+  const cond=_condTile(wxIcon(wcode,night,phase), wxDesc(wcode,!night), dayExtras(localTodayStr()));
   const t=_ccBox('cc-temp','Temp','#86efac',`<div class="cc-main">${_T(temp)}</div><div class="cc-sub">Feels ${_T(feels)}</div><div class="cc-sub">↑ ${_T(hi)}　↓ ${_T(lo)}</div>`);
   const r=_ccBox('','Rain','#90caf9',`<div class="cc-main">${rainToday.toFixed(1)} mm</div><div class="cc-sub">Actual ${actualRain!=null?actualRain.toFixed(1)+' mm':'—'}</div><div class="cc-sub">Expected ${rainToday.toFixed(1)} mm</div>`);
   const w=_ccBox('','Wind','#d9f99d',`<div class="cc-main">${wind!=null?Math.round(wind)+' km/h':'—'}</div><div class="cc-sub">${arrow} ${dir}</div><div class="cc-sub">↑ ${windHi!=null?Math.round(windHi):'—'}　↓ ${windLo!=null?Math.round(windLo):'—'} km/h</div>`);
@@ -1246,9 +1332,7 @@ function buildDayBoxes(dateStr){
   const past=s.isPast;
   const arrow=s.windDir!=null?dirArrow16(s.windDir):'', dir=s.windDir!=null?dirFull(s.windDir):'';
   const HL=(hi,lo,u)=>`↑${hi!=null?Math.round(hi)+u:'—'}<span style="display:inline-block;width:10px"></span>↓${lo!=null?Math.round(lo)+u:'—'}`;
-  const windS=`${windWord(s.windNoon??0)}${s.windNoon!=null&&s.windNoon>=10&&dir?' from the '+dir:(s.windNoon!=null?' winds':'')}`;
-  const cond=_condTile(wxIcon(s.dayCode,false),_condLines(
-    tempDaySynopsis(s.hi,s.lo), rainSynopsis(s.rain,s.actualRain), windS, cloudSynopsis(s.cloudMean)));
+  const cond=_condTile(wxIcon(s.dayCode,false), wxDesc(s.dayCode,true), dayExtras(dateStr));
 
   // TEMP
   const tActual = past && s.aHasT;
@@ -1268,10 +1352,10 @@ function buildDayBoxes(dateStr){
 
   // WIND
   const wActual = past && s.aHasW;
-  const wMain = wActual ? HL(s.aWHi,s.aWLo,'') : HL(s.windHi,s.windLo,'');
+  const wMain = (wActual ? HL(s.aWHi,s.aWLo,'') : HL(s.windHi,s.windLo,'')) + ' km/h';
   const wSubs = wActual
-    ? `<div class="cc-sub">Recorded high / low km/h</div><div class="cc-sub">Forecast ${HL(s.windHi,s.windLo,'')} km/h</div>`
-    : `<div class="cc-sub">Forecast high / low km/h</div>`;
+    ? `<div class="cc-sub">Recorded high / low</div><div class="cc-sub">Forecast ${HL(s.windHi,s.windLo,'')} km/h</div>`
+    : `<div class="cc-sub">Forecast high / low</div>`;
   const w=_ccBox('','Wind','#d9f99d',`<div class="cc-main cc-hl">${wMain}</div>${wSubs}`,`${windWord(s.windNoon??0)}${s.windNoon!=null&&s.windNoon>=10&&dir?' from the '+dir:''}`);
 
   // CLOUD
@@ -1285,13 +1369,23 @@ function buildDayBoxes(dateStr){
   return cond+t+r+w+cl;
 }
 
-// Conditions tile: title, icon, and four colour-coded metric synopsis lines
-function _condTile(iconHtml,linesHtml){
-  return `<div class="cc-box cc-cond"><div class="cc-title" style="color:var(--text-muted)">Conditions</div><div class="cc-cond-row"><div class="cc-icon">${iconHtml}</div><div class="cc-lines">${linesHtml}</div></div></div>`;
-}
-function _condLines(tempS,rainS,windS,cloudS){
-  const row=(k,col,txt)=>`<div class="cc-line"><span class="cc-line-k" style="color:${col}">${k}:</span> <span class="cc-line-v">${txt||'—'}</span></div>`;
-  return row('Temp','#86efac',tempS)+row('Rain','#90caf9',rainS)+row('Wind','#d9f99d',windS)+row('Cloud','#c4b5fd',cloudS);
+// Conditions tile: condition word + daylight, with a sunrise/sunset/UV/humidity grid
+function fmtClock(d){ let h=d.getHours(); const m=String(d.getMinutes()).padStart(2,'0'); const ap=h<12?'am':'pm'; h=h%12||12; return `${h}:${m} ${ap}`; }
+function _condTile(iconHtml,condWord,ex){
+  ex=ex||{};
+  const stat=(label,val,sub)=>`<div class="cc-stat"><div class="cc-stat-l">${label}</div><div class="cc-stat-v">${val}</div><div class="cc-stat-s">${sub||''}</div></div>`;
+  const dl = ex.daylight!=null ? ` · ${fmtDaylight(ex.daylight)} daylight` : '';
+  const stats=[
+    stat('Sunrise', ex.rise?fmtClock(new Date(ex.rise)):'—'),
+    stat('Sunset',  ex.set?fmtClock(new Date(ex.set)):'—'),
+    stat('UV index', ex.uv!=null?ex.uv:'—', ex.uv!=null?uvWord(ex.uv):''),
+    stat('Humidity', ex.humid!=null?ex.humid+'%':'—')
+  ].join('');
+  return `<div class="cc-box cc-cond">
+    <div class="cc-title" style="color:var(--text-muted)">Conditions</div>
+    <div class="cc-cond-row"><div class="cc-icon">${iconHtml}</div><div class="cc-cond-word">${condWord||'—'}<span class="cc-daylight">${dl}</span></div></div>
+    <div class="cc-stats">${stats}</div>
+  </div>`;
 }
 
 // Snapshot of one specific hour (used when the table is scrolled to that column)
@@ -1469,27 +1563,34 @@ function hourTileData(iso){
   return {iso,temp,rain,wind,cloud,code,isAct,past,phase:h.phase,night:h.night};
 }
 
+const MI_TEMP='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/></svg>';
+const MI_RAIN='<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" stroke="none"><path d="M12 2.7c2.9 4 5.3 7 5.3 10A5.3 5.3 0 0 1 12 18a5.3 5.3 0 0 1-5.3-5.3c0-3 2.4-6 5.3-10z"/></svg>';
+const MI_WIND='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10.5a2.5 2.5 0 1 0-2.4-3.2"/><path d="M3 16h7.5a2.5 2.5 0 1 1-2.4 3.2"/><path d="M3 12h15a2.5 2.5 0 1 0-2.4-3.2"/></svg>';
+const MI_CLOUD='<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" stroke="none"><path d="M7 18h10a3.8 3.8 0 0 0 .5-7.6 5.3 5.3 0 0 0-10.2-1.1A3.6 3.6 0 0 0 7 18z"/></svg>';
+
 function buildHourTile(iso){
   const d=hourTileData(iso); if(!d)return '';
   const hr=fmtAmPm(new Date(iso));
-  const T=d.temp!=null?Math.round(d.temp)+'°':'–';
-  const R=d.rain!=null?(d.rain<0.1?'0':d.rain.toFixed(1)):'–';
+  const T=d.temp!=null?d.temp.toFixed(1)+'°':'–';
+  const R=d.rain!=null?(d.rain<0.05?'0':d.rain.toFixed(1)):'–';
   const W=d.wind!=null?Math.round(d.wind):'–';
   const C=d.cloud!=null?Math.round(d.cloud)+'%':'–';
   const now=_nowHourIso(hourBarStep())===iso;
   return `<div class="hb-tile${d.past?' hb-past':''}${d.isAct?' hb-act':''}${now?' hb-now':''}" data-iso="${iso}">
     <div class="hb-hour">${hr}</div>
     <div class="hb-wx">${wxIcon(d.code,d.night,d.phase)}</div>
-    <div class="hb-m hb-t">${T}</div>
-    <div class="hb-m hb-r">${R}<span class="hb-u">mm</span></div>
-    <div class="hb-m hb-w">${W}<span class="hb-u">km/h</span></div>
-    <div class="hb-m hb-c">${C}</div>
+    <div class="hb-rows">
+      <div class="hb-m hb-t">${MI_TEMP}<span>${T}</span></div>
+      <div class="hb-m hb-r">${MI_RAIN}<span>${R}</span></div>
+      <div class="hb-m hb-w">${MI_WIND}<span>${W}</span></div>
+      <div class="hb-m hb-c">${MI_CLOUD}<span>${C}</span></div>
+    </div>
   </div>`;
 }
 
 function renderHourBar(){
   const bar=document.getElementById('hour-bar');
-  const sel=document.getElementById('hs-view'); if(sel&&sel.value!==state.view)sel.value=state.view;
+  syncTfSeg();
   if(!bar)return;
   if(state.view==='daily'){ bar.style.display='none'; bar.innerHTML=''; return; }
   bar.style.display='';
@@ -1499,7 +1600,14 @@ function renderHourBar(){
   const isos=ref.time.filter(t=>t.slice(0,10)===selDate && new Date(t).getHours()%step===0);
   bar._isos=isos;
   bar.innerHTML=isos.map(buildHourTile).join('');
-  requestAnimationFrame(scrollHourBarDefault);
+  bar.classList.remove('hb-fill');         // measure at natural width first
+  requestAnimationFrame(()=>{
+    // If the whole day's tiles fit without scrolling (e.g. 8-hourly = 3 tiles),
+    // let them stretch to fill the width instead of leaving dead space.
+    const fits = bar.scrollWidth <= bar.clientWidth + 4;
+    bar.classList.toggle('hb-fill', fits);
+    scrollHourBarDefault();
+  });
 }
 
 function scrollHourBarDefault(){
@@ -2041,6 +2149,34 @@ function applyHistoricalWeights(){
 
 // Reference hourly grid (first enabled model)
 function refHourly(){const a=activeEnabled();return a.length?state.data[a[0].key]?.hourly:null;}
+function refDaily(){const a=activeEnabled();return a.length?state.data[a[0].key]?.daily:null;}
+
+// Sunrise/sunset, UV peak, humidity & daylight for one day (for the Conditions card)
+function dayExtras(dateStr){
+  const d=refDaily(), h=refHourly();
+  const out={rise:null,set:null,uv:null,humid:null,daylight:null};
+  if(d&&d.time){
+    const i=d.time.indexOf(dateStr);
+    if(i>=0){
+      out.rise=d.sunrise?.[i]||null; out.set=d.sunset?.[i]||null;
+      out.uv=d.uv_index_max?.[i]; if(out.uv!=null)out.uv=Math.round(out.uv);
+      if(out.rise&&out.set){ const mins=Math.round((new Date(out.set)-new Date(out.rise))/60000); if(mins>0)out.daylight=mins; }
+    }
+  }
+  // Humidity: current hour for today, else local midday for the chosen day
+  if(h&&h.time&&h.relative_humidity_2m){
+    const today=localTodayStr();
+    let key;
+    if(dateStr===today){ const n=new Date(),p=x=>String(x).padStart(2,'0'); key=`${n.getFullYear()}-${p(n.getMonth()+1)}-${p(n.getDate())}T${p(n.getHours())}:00`; }
+    else key=dateStr+'T12:00';
+    let idx=h.time.indexOf(key);
+    if(idx<0)idx=h.time.findIndex(t=>t.slice(0,10)===dateStr); // fallback: first hour of day
+    if(idx>=0&&h.relative_humidity_2m[idx]!=null)out.humid=Math.round(h.relative_humidity_2m[idx]);
+  }
+  return out;
+}
+function uvWord(u){ return u==null?'':u<3?'Low':u<6?'Moderate':u<8?'High':u<11?'Very high':'Extreme'; }
+function fmtDaylight(mins){ if(mins==null)return '—'; const hh=Math.floor(mins/60),mm=mins%60; return `${hh}h ${mm}m`; }
 
 // Open-Meteo migrated to underscored field names (cloud_cover, wind_speed_10m,
 // weather_code, …). Map the current names back to the legacy keys the rest of
@@ -2391,7 +2527,7 @@ function secGroup(sec,html){
 function setView(v,el){
   state.view=v;
   savePrefs();
-  document.querySelectorAll('#view-btns .btn').forEach(b=>b.classList.toggle('active',(b.getAttribute('onclick')||'').includes("'"+v+"'")));
+  syncTfSeg();
   renderCurrentBar();  // instant update of rain labels/values
   if(Object.keys(state.data).length)renderTable(); // instant table re-render
 }
