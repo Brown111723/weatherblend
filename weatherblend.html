@@ -59,32 +59,60 @@ header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;alig
 .hdr-right{display:flex;align-items:center;gap:8px;}
 
 /* ── Current conditions: swipeable day carousel ── */
-#curr-bar{border-bottom:1px solid var(--border);background:radial-gradient(130% 150% at 0% 0%,#1d2636 0%,#141a26 55%,#11151f 100%);display:none;}
+#curr-bar{position:relative;overflow:hidden;border-bottom:1px solid var(--border);display:none;transition:background-color .9s ease;background:radial-gradient(130% 150% at 0% 0%,#1d2636 0%,#141a26 55%,#11151f 100%);}
+/* Dynamic weather backdrop — subtle gradient that shifts with the day's sky */
+#curr-bar[data-scene="clear"][data-night="0"]{background:radial-gradient(125% 130% at 78% -15%,#27496e 0%,#16273c 52%,#0e1622 100%);}
+#curr-bar[data-scene="clear"][data-night="1"]{background:radial-gradient(125% 130% at 80% -15%,#212f50 0%,#121a2e 52%,#0a0f1b 100%);}
+#curr-bar[data-scene="few"][data-night="0"],#curr-bar[data-scene="few"][data-night="1"]{background:radial-gradient(125% 130% at 70% -15%,#2a3b52 0%,#172230 52%,#0d141f 100%);}
+#curr-bar[data-scene="clouds"]{background:radial-gradient(125% 130% at 58% -15%,#313c49 0%,#1b2430 52%,#11161f 100%);}
+#curr-bar[data-scene="clouds"][data-night="1"]{background:radial-gradient(125% 130% at 58% -15%,#232c38 0%,#161d28 52%,#0d121b 100%);}
+#curr-bar[data-scene="rain"]{background:radial-gradient(125% 130% at 55% -15%,#2a3a4a 0%,#18222e 52%,#0e151e 100%);}
+#curr-bar[data-scene="rain"][data-night="1"]{background:radial-gradient(125% 130% at 55% -15%,#1f2c3a 0%,#141c27 52%,#0c1119 100%);}
+#curr-bar[data-scene="storm"]{background:radial-gradient(125% 130% at 50% -15%,#343a4d 0%,#191c2a 52%,#0e0f18 100%);}
+#curr-bar[data-scene="snow"]{background:radial-gradient(125% 130% at 60% -15%,#3a4654 0%,#222b37 52%,#141a24 100%);}
+#curr-bar[data-scene="fog"]{background:radial-gradient(125% 130% at 50% -15%,#39414f 0%,#222731 52%,#14171f 100%);}
+/* warm golden glow around sunrise / sunset */
+#curr-bar[data-tod="dawn"]::before,#curr-bar[data-tod="dusk"]::before{content:"";position:absolute;inset:0;pointer-events:none;z-index:0;background:radial-gradient(85% 65% at 80% -5%,rgba(231,138,71,.22),transparent 62%);}
+/* gentle diagonal rain */
+#curr-bar[data-scene="rain"]::after,#curr-bar[data-scene="storm"]::after{content:"";position:absolute;inset:-25% 0;pointer-events:none;z-index:0;opacity:.10;background:repeating-linear-gradient(102deg,transparent 0 6px,rgba(173,201,234,.55) 6px 7px);animation:wb-rain .65s linear infinite;}
+@keyframes wb-rain{from{transform:translateY(-14%);}to{transform:translateY(14%);}}
+/* twinkling stars on a clear night */
+#curr-bar[data-scene="clear"][data-night="1"]::after,#curr-bar[data-scene="few"][data-night="1"]::after{content:"";position:absolute;top:0;left:0;right:0;height:55%;pointer-events:none;z-index:0;background-image:radial-gradient(1.5px 1.5px at 18% 22%,rgba(255,255,255,.8),transparent),radial-gradient(1px 1px at 58% 14%,rgba(255,255,255,.6),transparent),radial-gradient(1.5px 1.5px at 82% 30%,rgba(255,255,255,.55),transparent),radial-gradient(1px 1px at 36% 38%,rgba(255,255,255,.5),transparent),radial-gradient(1px 1px at 92% 12%,rgba(255,255,255,.6),transparent),radial-gradient(1px 1px at 70% 42%,rgba(255,255,255,.45),transparent);animation:wb-twinkle 4.5s ease-in-out infinite alternate;}
+@keyframes wb-twinkle{from{opacity:.45;}to{opacity:.95;}}
+#curr-bar .cc-page{position:relative;z-index:1;}
 #curr-bar.loaded{display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
 #curr-bar.loaded::-webkit-scrollbar{display:none;}
 .cc-page{flex:0 0 100%;scroll-snap-align:start;scroll-snap-stop:always;padding:14px 16px;box-sizing:border-box;}
-.cc-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;}
-.cc-box{background:rgba(255,255,255,0.022);border:1px solid var(--border);border-radius:12px;padding:11px 13px;display:flex;flex-direction:column;gap:2px;min-width:0;overflow:hidden;}
-.cc-box.cc-cond{grid-column:1 / -1;}
-.cc-box.cc-cond .cc-icon{margin:4px 0 2px;}
-.cc-cond-row{display:flex;align-items:center;gap:14px;}
-.cc-lines{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0;}
-.cc-line{font-size:13.5px;line-height:1.4;color:var(--text-muted);}
+.cc-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;align-items:stretch;}
+.cc-box{background:rgba(255,255,255,0.032);border:1px solid var(--border);border-radius:14px;padding:12px 13px;display:flex;flex-direction:column;gap:2px;min-width:0;overflow:hidden;}
+/* NOW / conditions headline card (spans full width) */
+.cc-box.cc-cond{grid-column:1 / -1;gap:0;padding:14px 16px;background:rgba(18,26,40,0.46);border-color:rgba(255,255,255,.09);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);}
+.cc-now-head{font-size:11.5px;font-weight:700;letter-spacing:1.4px;color:var(--text-dim);margin-bottom:5px;}
+.cc-now-main{display:flex;align-items:center;gap:14px;}
+.cc-now-icon{flex-shrink:0;}
+.cc-now-icon .wxi{width:60px;height:60px;filter:drop-shadow(0 3px 9px rgba(0,0,0,.55));}
+.cc-now-temp{display:flex;flex-direction:column;min-width:0;}
+.cc-now-big{font-size:46px;font-weight:300;letter-spacing:-2px;line-height:1;}
+.cc-now-lo{font-size:25px;font-weight:300;color:var(--text-dim);margin-left:9px;letter-spacing:-1px;}
+.cc-now-feels{font-size:13px;color:var(--text-muted);margin-top:3px;}
+.cc-now-narr{font-size:13.5px;line-height:1.5;color:var(--text-muted);margin-top:11px;}
+.cc-now-stats{display:flex;gap:10px;margin-top:12px;padding-top:11px;border-top:1px solid var(--border);}
+.ccs{flex:1;display:flex;align-items:center;gap:7px;min-width:0;}
+.ccs-i{display:flex;flex-shrink:0;}
+.ccs-i svg{width:17px;height:17px;}
+.ccs-txt{display:flex;flex-direction:column;min-width:0;line-height:1.2;}
+.ccs-txt b{font-size:13px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ccs-txt span{font-size:10.5px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .obs-dot{font-size:9px;color:var(--accent);vertical-align:super;margin-left:3px;}
-.cc-cond-row .cc-icon{margin:0;flex-shrink:0;}
-.cc-cond-row .cc-syn{margin-top:0;}
-.cc-title{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px;}
+.cc-title{font-size:11px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;margin-bottom:3px;}
 .cc-icon{line-height:1;}
 .cc-icon .wxi{width:46px;height:46px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.5));}
-.cc-main{font-size:26px;font-weight:700;letter-spacing:-.5px;color:var(--text-primary);line-height:1.05;}
-.cc-main.cc-hl{font-size:17px;letter-spacing:0;white-space:nowrap;}
-.cc-box.cc-temp .cc-main{font-size:26px;letter-spacing:-.5px;}
-.cc-box.cc-temp .cc-main.cc-hl{font-size:17px;letter-spacing:0;}
-.cc-sub{font-size:13px;color:var(--text-muted);line-height:1.45;}
+.cc-main{font-size:25px;font-weight:700;letter-spacing:-.5px;color:var(--text-primary);line-height:1.1;white-space:nowrap;}
+.cc-sub{font-size:12.5px;color:var(--text-muted);line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .cc-syn{font-size:12px;color:var(--text-dim);font-style:italic;margin-top:3px;line-height:1.4;}
 @media(min-width:740px){
-  .cc-grid{grid-template-columns:repeat(5,minmax(0,1fr));align-items:stretch;}
-  .cc-box.cc-cond{grid-column:auto;}
+  .cc-grid{grid-template-columns:repeat(4,minmax(0,1fr));}
+  .cc-box.cc-cond{grid-column:1 / -1;}
 }
 .toolbar .loc-wrap{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px;}
 .cur-date{display:flex;flex-direction:column;align-items:center;gap:0;line-height:1.1;min-width:150px;}
@@ -1323,16 +1351,14 @@ function buildTodayBoxes(){
   const arrow=dirArrow16(windDir??0), dir=dirFull(windDir??0);
   const narrative=todayNarrative(temp,wcode,night,wind,dir,rainToday,hi,lo);
 
-  const cond=_condTile(wxIcon(wcode,night,phase), condTextLines({
-    today:true, condWord:wxDesc(wcode,!night), temp, hi, lo,
-    rain:rainToday, actualRain, windPeak:(windHi??wind), dir
-  }));
+  const cond=condCard({today:true, icon:wxIcon(wcode,night,phase), condWord:wxDesc(wcode,!night),
+    temp, feels, hi, lo, rain:rainToday, actualRain, wind, dir, cloud, code:wcode});
   const dot=on=>on?'<span class="obs-dot" title="BOM observation">●</span>':'';
   const t=_ccBox('cc-temp','Temp','#86efac',`<div class="cc-main">${_T(temp)}${dot(comp?.obsTemp)}</div><div class="cc-sub">Feels ${_T(feels)}</div><div class="cc-sub">↑ ${_T(hi)}　↓ ${_T(lo)}</div>`);
   const rainRemain=Math.max(0,rainToday-(actualRain||0));
   const r=_ccBox('','Rain','#90caf9',`<div class="cc-main">${rainToday.toFixed(1)} mm</div><div class="cc-sub">Actual ${actualRain!=null?actualRain.toFixed(1)+' mm':'—'}</div><div class="cc-sub">Expected ${rainRemain.toFixed(1)} mm</div>`);
   const w=_ccBox('','Wind','#d9f99d',`<div class="cc-main">${wind!=null?Math.round(wind)+' km/h':'—'}${dot(comp?.obsWind)}</div><div class="cc-sub">${arrow} ${dir}</div><div class="cc-sub">↑ ${windHi!=null?Math.round(windHi):'—'}　↓ ${windLo!=null?Math.round(windLo):'—'} km/h</div>`);
-  const cl=_ccBox('','Cloud','#c4b5fd',`<div class="cc-main">${cloud!=null?Math.round(cloud)+'%':'—'}${dot(comp?.obsCloud)}</div><div class="cc-sub">↑ ${cloudHi!=null?Math.round(cloudHi):'—'}%　↓ ${cloudLo!=null?Math.round(cloudLo):'—'}%</div>`);
+  const cl=_ccBox('','Cloud','#c4b5fd',`<div class="cc-main">${cloud!=null?Math.round(cloud)+'%':'—'}${dot(comp?.obsCloud)}</div><div class="cc-sub">↑ ${cloudHi!=null?Math.round(cloudHi):'—'}%　↓ ${cloudLo!=null?Math.round(cloudLo):'—'}%</div><div class="cc-sub">${cloudSynopsis(cloud)}</div>`);
   return cond+(secVisible.temp?t:'')+(secVisible.rain?r:'')+(secVisible.wind?w:'')+(secVisible.cloud?cl:'');
 }
 
@@ -1344,51 +1370,123 @@ function buildDayBoxes(dateStr){
   const past=s.isPast;
   const arrow=s.windDir!=null?dirArrow16(s.windDir):'', dir=s.windDir!=null?dirFull(s.windDir):'';
   const HL=(hi,lo,u)=>`↑${hi!=null?Math.round(hi)+u:'—'}<span style="display:inline-block;width:10px"></span>↓${lo!=null?Math.round(lo)+u:'—'}`;
-  const cond=_condTile(wxIcon(s.dayCode,false), condTextLines({
-    today:false, condWord:wxDesc(s.dayCode,true), hi:s.hi, lo:s.lo,
-    rain:s.rain, actualRain:s.actualRain, windPeak:s.windHi, dir
-  }));
+  const cond=condCard({today:false, icon:wxIcon(s.dayCode,false), condWord:wxDesc(s.dayCode,true),
+    hi:s.hi, lo:s.lo, rain:s.rain, actualRain:s.actualRain, windPeak:s.windHi, dir,
+    cloud:s.cloudMean, code:s.dayCode, past});
 
   // TEMP
   const tActual = past && s.aHasT;
-  const tMain = tActual ? HL(s.aTHi,s.aTLo,'°') : HL(s.hi,s.lo,'°');
-  const tSubs = tActual
-    ? `<div class="cc-sub">Recorded high / low</div><div class="cc-sub">Forecast ${HL(s.hi,s.lo,'°')}</div>`
-    : `<div class="cc-sub">Forecast high / low</div>`;
-  const t=_ccBox('cc-temp','Temp','#86efac',`<div class="cc-main cc-hl">${tMain}</div>${tSubs}`,tempDaySynopsis(tActual?s.aTHi:s.hi,tActual?s.aTLo:s.lo));
+  const tHi = tActual ? s.aTHi : s.hi, tLo = tActual ? s.aTLo : s.lo;
+  const t=_ccBox('cc-temp','Temp','#86efac',
+    `<div class="cc-main">${tHi!=null?Math.round(tHi)+'°':'—'}</div>`+
+    `<div class="cc-sub">↓ ${tLo!=null?Math.round(tLo)+'°':'—'} low</div>`+
+    `<div class="cc-sub">${tActual?'Recorded · fcst '+Math.round(s.hi)+'°/'+Math.round(s.lo)+'°':tempDaySynopsis(s.hi,s.lo)}</div>`);
 
   // RAIN
   const rActual = past && s.actualRain!=null;
-  const rMain = rActual ? s.actualRain.toFixed(1) : s.rain.toFixed(1);
-  const rSubs = rActual
-    ? `<div class="cc-sub">Recorded total</div><div class="cc-sub">Forecast ${s.rain.toFixed(1)} mm</div>`
-    : `<div class="cc-sub">Forecast total</div>`;
-  const r=_ccBox('','Rain','#90caf9',`<div class="cc-main cc-hl">${rMain} mm</div>${rSubs}`,rainSynopsis(s.rain,s.actualRain));
+  const rMain = rActual ? s.actualRain : s.rain;
+  const r=_ccBox('','Rain','#90caf9',
+    `<div class="cc-main">${rMain.toFixed(1)} mm</div>`+
+    `<div class="cc-sub">${rActual?'Forecast '+s.rain.toFixed(1)+' mm':'Day total'}</div>`+
+    `<div class="cc-sub">${rainSynopsis(s.rain,s.actualRain)}</div>`);
 
   // WIND
   const wActual = past && s.aHasW;
-  const wMain = (wActual ? HL(s.aWHi,s.aWLo,'') : HL(s.windHi,s.windLo,'')) + ' km/h';
-  const wSubs = wActual
-    ? `<div class="cc-sub">Recorded high / low</div><div class="cc-sub">Forecast ${HL(s.windHi,s.windLo,'')}</div>`
-    : `<div class="cc-sub">Forecast high / low</div>`;
-  const w=_ccBox('','Wind','#d9f99d',`<div class="cc-main cc-hl">${wMain}</div>${wSubs}`,`${windWord(s.windNoon??0)}${s.windNoon!=null&&s.windNoon>=10&&dir?' from the '+dir:''}`);
+  const wHi = wActual ? s.aWHi : s.windHi;
+  const w=_ccBox('','Wind','#d9f99d',
+    `<div class="cc-main">${wHi!=null?Math.round(wHi)+' km/h':'—'}</div>`+
+    `<div class="cc-sub">${arrow} ${dir||'—'}</div>`+
+    `<div class="cc-sub">${windWord(s.windNoon??wHi??0)}${wActual?' · recorded':''}</div>`);
 
   // CLOUD
   const cActual = past && s.aHasC;
-  const cMain = cActual ? HL(s.aCHi,s.aCLo,'%') : HL(s.cloudHi,s.cloudLo,'%');
-  const cSubs = cActual
-    ? `<div class="cc-sub">Recorded high / low</div><div class="cc-sub">Forecast ${HL(s.cloudHi,s.cloudLo,'%')}</div>`
-    : `<div class="cc-sub">Forecast high / low</div>`;
-  const cl=_ccBox('','Cloud','#c4b5fd',`<div class="cc-main cc-hl">${cMain}</div>${cSubs}`,cloudSynopsis(s.cloudMean));
+  const cHi = cActual ? s.aCHi : s.cloudHi, cLo = cActual ? s.aCLo : s.cloudLo;
+  const cl=_ccBox('','Cloud','#c4b5fd',
+    `<div class="cc-main">${s.cloudMean!=null?Math.round(s.cloudMean)+'%':'—'}</div>`+
+    `<div class="cc-sub">↑ ${cHi!=null?Math.round(cHi):'—'}%　↓ ${cLo!=null?Math.round(cLo):'—'}%</div>`+
+    `<div class="cc-sub">${cloudSynopsis(s.cloudMean)}</div>`);
 
   return cond+(secVisible.temp?t:'')+(secVisible.rain?r:'')+(secVisible.wind?w:'')+(secVisible.cloud?cl:'');
 }
 
-// Conditions tile: icon + a few short, readable lines that work for both the
-// live "now" view (today) and a day's forecast.
-function _condTile(iconHtml,lines){
-  const body=(lines||[]).filter(Boolean).map(t=>`<div class="cc-line">${t}</div>`).join('');
-  return `<div class="cc-box cc-cond"><div class="cc-title" style="color:var(--text-muted)">Conditions</div><div class="cc-cond-row"><div class="cc-icon">${iconHtml}</div><div class="cc-lines">${body}</div></div></div>`;
+// ── Conditions ("NOW" / forecast headline) card ───────────────────────────
+function tempColor(t){
+  if(t==null)return 'var(--text-primary)';
+  if(t<6)return '#60a5fa'; if(t<13)return '#5eead4'; if(t<20)return '#86efac';
+  if(t<27)return '#fcd34d'; if(t<33)return '#fb923c'; return '#f87171';
+}
+function _isRainCode(c){return (c>=51&&c<=67)||(c>=80&&c<=82);}
+function _isSnowCode(c){return (c>=71&&c<=77)||c===85||c===86;}
+function _isStormCode(c){return c>=95;}
+// Weather "scene" for the dynamic backdrop
+function sceneFromCode(c){
+  if(c==null)return 'clouds';
+  if(_isStormCode(c))return 'storm';
+  if(_isSnowCode(c))return 'snow';
+  if(_isRainCode(c))return 'rain';
+  if(c===45||c===48)return 'fog';
+  if(c===3)return 'clouds';
+  if(c===1||c===2)return 'few';
+  return 'clear';
+}
+function nowNarrative(o){
+  const t=o.temp;
+  const tw=t==null?'mild':(t<4?'cold':t<10?'cool':t<17?'mild':t<25?'warm':'hot');
+  const h=new Date().getHours();
+  const tod=h<5?'night':h<11?'morning':h<17?'afternoon':h<21?'evening':'night';
+  const wet=(o.rain>1)?'wet':((o.actualRain>0.1||o.rain>0.2)?'damp':((o.cloud!=null&&o.cloud>70)?'grey':'fine'));
+  const night=(tod==='night');
+  let clause;
+  if(_isRainCode(o.code))      clause=(o.rain>4?'steady rain':'light showers')+(h>=17||h<6?' continuing through the night':' about');
+  else if(_isStormCode(o.code))clause='the chance of a thunderstorm';
+  else if(_isSnowCode(o.code)) clause='snow showers about';
+  else if(o.code===45||o.code===48) clause='areas of fog';
+  else if(o.cloud!=null&&o.cloud>70) clause='overcast skies';
+  else if(o.cloud!=null&&o.cloud>30) clause=night?'patchy cloud':'a mix of sun and cloud';
+  else clause=night?'clear skies':'plenty of sunshine';
+  return _cap(`a ${tw}, ${wet} ${tod} with ${clause}`)+'.';
+}
+function dayNarrative(o){
+  const c=o.code; let clause;
+  if(_isRainCode(c))      clause=(o.rain>4?'Rain at times':'A few showers');
+  else if(_isStormCode(c))clause='Possible thunderstorms';
+  else if(_isSnowCode(c)) clause='Snow showers';
+  else if(c===45||c===48) clause='Fog patches clearing';
+  else if(o.cloud!=null&&o.cloud>70) clause='Overcast';
+  else if(o.cloud!=null&&o.cloud>30) clause='Partly cloudy';
+  else clause='Mostly sunny';
+  const rt=o.rain>0.2?`, around ${o.rain.toFixed(1)} mm`:'';
+  return `${clause}${rt}. High ${o.hi!=null?Math.round(o.hi)+'°':'—'}, low ${o.lo!=null?Math.round(o.lo)+'°':'—'}.`;
+}
+function _stat(icon,big,sub,col){
+  return `<div class="ccs"><span class="ccs-i" style="color:${col||'var(--text-dim)'}">${icon}</span><div class="ccs-txt"><b>${big}</b><span>${sub}</span></div></div>`;
+}
+function condCard(o){
+  const head=(o.condWord||'').toUpperCase();
+  let big,feels='';
+  if(o.today){
+    big=`<div class="cc-now-big" style="color:${tempColor(o.temp)}">${o.temp!=null?tempDisp(o.temp)+'°':'—'}</div>`;
+    feels=o.feels!=null?`<div class="cc-now-feels">Feels like ${tempDisp(o.feels)}°</div>`:'';
+  }else{
+    big=`<div class="cc-now-big" style="color:${tempColor(o.hi)}">${o.hi!=null?Math.round(o.hi)+'°':'—'}<span class="cc-now-lo">${o.lo!=null?Math.round(o.lo)+'°':''}</span></div>`;
+  }
+  const narr=o.today?nowNarrative(o):dayNarrative(o);
+  const stats=[];
+  if(o.today){
+    if(o.actualRain!=null) stats.push(_stat(MI_RAIN,o.actualRain.toFixed(1)+' mm','fallen so far','#90caf9'));
+    stats.push(_stat(MI_RAIN,(o.rain||0).toFixed(1)+' mm','expected today','#90caf9'));
+    if(o.wind!=null) stats.push(_stat(MI_WIND,`${windWord(o.wind)}${o.dir?' '+o.dir:''}`,Math.round(o.wind)+' km/h','#d9f99d'));
+  }else{
+    stats.push(_stat(MI_RAIN,(o.rain||0).toFixed(1)+' mm','expected','#90caf9'));
+    if(o.windPeak!=null) stats.push(_stat(MI_WIND,`${windWord(o.windPeak)}${o.dir?' '+o.dir:''}`,'to '+Math.round(o.windPeak)+' km/h','#d9f99d'));
+    if(o.cloud!=null) stats.push(_stat(MI_CLOUD,Math.round(o.cloud)+'%','cloud','#c4b5fd'));
+  }
+  return `<div class="cc-box cc-cond cc-now">
+    <div class="cc-now-head">${head||'CONDITIONS'}</div>
+    <div class="cc-now-main"><div class="cc-icon cc-now-icon">${o.icon}</div><div class="cc-now-temp">${big}${feels}</div></div>
+    ${narr?`<div class="cc-now-narr">${narr}</div>`:''}
+    ${stats.length?`<div class="cc-now-stats">${stats.join('')}</div>`:''}
+  </div>`;
 }
 function _rdeg(v){return Math.round(v)+'°';}
 function rainTextLine(mm,actual,today){
@@ -1431,7 +1529,7 @@ function buildHourBoxes(iso){
   const s=computeDaySummary(iso.slice(0,10));
   const tl=fmtAmPm(new Date(iso));
   const arrow=h.windDir!=null?dirArrow16(h.windDir):'', dir=h.windDir!=null?dirFull(h.windDir):'';
-  const cond=_condTile(wxIcon(h.code,h.night,h.phase),[`${tl} · ${wxDesc(h.code,!h.night)}${h.temp!=null?', '+tempDisp(h.temp)+'°':''}`]);
+  const cond=condCard({today:false, icon:wxIcon(h.code,h.night,h.phase), condWord:wxDesc(h.code,!h.night), hi:s?.hi, lo:s?.lo, rain:s?.rain||0, windPeak:s?.windHi, dir, cloud:s?.cloudMean, code:h.code});
   const t=_ccBox('cc-temp','Temp','#86efac',`<div class="cc-main">${_T(h.temp)}</div><div class="cc-sub">at ${tl}</div><div class="cc-sub">↑ ${_T(s?.hi)}　↓ ${_T(s?.lo)}</div>`,`${tempWord(h.temp)} at ${tl}`);
   const r=_ccBox('','Rain','#90caf9',`<div class="cc-main">${(h.precip||0).toFixed(1)} mm</div><div class="cc-sub">this hour</div><div class="cc-sub">Day ${(s?.rain||0).toFixed(1)} mm</div>`,rainSynopsis(s?.rain||0,s?.actualRain));
   const w=_ccBox('','Wind','#d9f99d',`<div class="cc-main">${h.wind!=null?Math.round(h.wind)+' km/h':'—'}</div><div class="cc-sub">${arrow} ${dir}</div><div class="cc-sub">at ${tl}</div>`,`${windWord(h.wind??0)}${h.wind!=null&&h.wind>=8&&dir?' '+dir:''}`);
@@ -1457,6 +1555,26 @@ function updateDateUI(){
   }
   const tb=document.getElementById('today-btn');
   if(tb)tb.classList.toggle('dim',selDate===today);
+  applyBackdrop();
+}
+// Set the weather "scene" on the carousel backdrop for the selected day
+function applyBackdrop(){
+  const bar=document.getElementById('curr-bar'); if(!bar)return;
+  let scene='clouds', night=false, tod='day';
+  try{
+    const today=localTodayStr();
+    if((selDate||today)===today){
+      const comp=computeCurrentFromHourly();
+      const _p=x=>String(x).padStart(2,'0'); const n=new Date();
+      const iso=`${n.getFullYear()}-${_p(n.getMonth()+1)}-${_p(n.getDate())}T${_p(n.getHours())}:00`;
+      tod=sunPhaseAt(iso); night=(tod==='night');
+      scene=sceneFromCode(comp&&comp.wcode!=null?comp.wcode:(cachedCurrent&&cachedCurrent.c&&cachedCurrent.c.weathercode));
+    }else{
+      const s=computeDaySummary(selDate);
+      scene=sceneFromCode(s?s.dayCode:null); night=false; tod='day';
+    }
+  }catch(e){}
+  bar.dataset.scene=scene; bar.dataset.night=night?'1':'0'; bar.dataset.tod=tod||'day';
 }
 
 function renderCurrentBar(){
