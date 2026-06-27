@@ -252,7 +252,10 @@ async function trackSync(request, env) {
   }
 }
 
-// Shared insert: forecasts (first-write-wins) + actuals (upsert) + prune.
+// Shared insert: BOM-forecast rows only (first-write-wins) + actuals (upsert) + prune.
+// The 7 Open-Meteo models are no longer stored — their historical forecasts are
+// pulled on demand from Open-Meteo's Previous Runs API at weight-compute time.
+// Only BOM's published forecast (not in Open-Meteo) is archived here.
 async function writeCapture(env, station, issued, forecasts, actuals) {
   const stmts = [];
   const fcSql = env.DB.prepare(
@@ -261,7 +264,8 @@ async function writeCapture(env, station, issued, forecasts, actuals) {
   for (const f of (forecasts || [])) {
     const target = String(f.target || "").trim();
     const model  = String(f.model  || "").trim();
-    if (!DATE_RE.test(target) || !model) continue;
+    if (model !== "bom_forecast") continue;          // only BOM forecast is archived
+    if (!DATE_RE.test(target)) continue;
     stmts.push(fcSql.bind(station, issued, target, model,
       numOrNull(f.tmax), numOrNull(f.tmin), numOrNull(f.rain), numOrNull(f.wind), numOrNull(f.cloud)));
   }
@@ -282,289 +286,316 @@ async function writeCapture(env, station, issued, forecasts, actuals) {
   if (stmts.length) await env.DB.batch(stmts);
 }
 
-// GET /track/weights?station=NNNNN&days=60 — per-metric weights + accuracy stats
+// GET /track/weights?station=&lat=&lon=&days=45
+// Per-metric weights + accuracy stats, computed ON DEMAND from Open-Meteo's
+// Previous Runs API (the 7 global models' historical forecasts at lead 1–7 days),
+// scored against actuals = BOM observations (primary) with ERA5 reanalysis
+// fallback. BOM's own published forecast comes from D1 (the only thing still
+// archived). The whole result is cached per location for ~18 h.
+const PREV_MODELS = ["gfs_seamless","ecmwf_ifs025","icon_seamless","gem_seamless","ukmo_seamless","cma_grapes_global","jma_seamless"];
+const PREV_BASE   = ["temperature_2m","precipitation","cloud_cover","wind_speed_10m"];
+const CACHE_DDL = "CREATE TABLE IF NOT EXISTS weights_cache (k TEXT PRIMARY KEY, json TEXT NOT NULL, computed_at TEXT NOT NULL)";
+
+function cacheKey(lat, lon, days, station) {
+  const latR = Math.round(lat * 10) / 10, lonR = Math.round(lon * 10) / 10;
+  return `${latR}|${lonR}|${days}|${station || "-"}`;
+}
+
 async function trackWeights(url, env) {
   if (!env || !env.DB) return json({ error: "no-db" }, 200);
   const station = String(url.searchParams.get("station") || "").trim();
-  if (!station) return json({ error: "missing-station" }, 400);
-  let days = parseInt(url.searchParams.get("days") || "60", 10);
-  if (!Number.isFinite(days)) days = 60;
-  days = Math.max(7, Math.min(180, days));
-  const win = `-${days} days`;
-  const MINN = 8;          // min matched samples for a metric to be "scored"
-  const MATURE_DAYS = 14;  // distinct verified days before weights are trusted
+  const lat = parseFloat(url.searchParams.get("lat")), lon = parseFloat(url.searchParams.get("lon"));
+  if (!isFinite(lat) || !isFinite(lon)) return json({ error: "missing-latlon", note: "pass &lat=&lon=" }, 400);
+  let days = parseInt(url.searchParams.get("days") || "45", 10);
+  if (!Number.isFinite(days)) days = 45;
+  days = Math.max(14, Math.min(90, days));
+  const key = cacheKey(lat, lon, days, station);
 
   try {
-    const rows = (await env.DB.prepare(
-      `SELECT f.model AS model,
-         SUM(CASE WHEN f.tmax IS NOT NULL AND a.tmax IS NOT NULL THEN 1 ELSE 0 END) AS n_tmax,
-         AVG(CASE WHEN f.tmax IS NOT NULL AND a.tmax IS NOT NULL THEN (f.tmax-a.tmax)*(f.tmax-a.tmax) END) AS mse_tmax,
-         SUM(CASE WHEN f.tmin IS NOT NULL AND a.tmin IS NOT NULL THEN 1 ELSE 0 END) AS n_tmin,
-         AVG(CASE WHEN f.tmin IS NOT NULL AND a.tmin IS NOT NULL THEN (f.tmin-a.tmin)*(f.tmin-a.tmin) END) AS mse_tmin,
-         SUM(CASE WHEN f.rain IS NOT NULL AND a.rain IS NOT NULL THEN 1 ELSE 0 END) AS n_rain,
-         AVG(CASE WHEN f.rain IS NOT NULL AND a.rain IS NOT NULL THEN (f.rain-a.rain)*(f.rain-a.rain) END) AS mse_rain,
-         SUM(CASE WHEN f.wind IS NOT NULL AND a.wind IS NOT NULL THEN 1 ELSE 0 END) AS n_wind,
-         AVG(CASE WHEN f.wind IS NOT NULL AND a.wind IS NOT NULL THEN (f.wind-a.wind)*(f.wind-a.wind) END) AS mse_wind,
-         SUM(CASE WHEN f.cloud IS NOT NULL AND a.cloud IS NOT NULL THEN 1 ELSE 0 END) AS n_cloud,
-         AVG(CASE WHEN f.cloud IS NOT NULL AND a.cloud IS NOT NULL THEN (f.cloud-a.cloud)*(f.cloud-a.cloud) END) AS mse_cloud
-       FROM forecasts f JOIN actuals a ON f.station=a.station AND f.target=a.target
-       WHERE f.station=?1 AND f.issued >= date('now', ?2)
-       GROUP BY f.model`
-    ).bind(station, win).all()).results || [];
+    await env.DB.prepare(CACHE_DDL).run();
+    const c = await env.DB.prepare("SELECT json FROM weights_cache WHERE k=?1 AND computed_at >= datetime('now','-18 hours')").bind(key).first();
+    if (c && c.json) { const obj = JSON.parse(c.json); obj.cached = true; return json(obj); }
+  } catch { /* fall through to compute */ }
 
-    const meta = (await env.DB.prepare(
-      `SELECT COUNT(*) AS pairs, COUNT(DISTINCT f.target) AS days
-       FROM forecasts f JOIN actuals a ON f.station=a.station AND f.target=a.target
-       WHERE f.station=?1 AND f.issued >= date('now', ?2)`
-    ).bind(station, win).first()) || { pairs: 0, days: 0 };
+  let result;
+  try { result = await computeWeights(env, lat, lon, station, days); }
+  catch (e) { return json({ error: "compute", detail: String(e && e.message || e) }, 500); }
 
-    if (!rows.length) {
-      return json({ station, window: days, days: meta.days || 0, pairs: meta.pairs || 0, mature: false, weights: null, stats: [] });
+  try {
+    await env.DB.prepare("INSERT INTO weights_cache (k,json,computed_at) VALUES (?1,?2,datetime('now')) ON CONFLICT(k) DO UPDATE SET json=excluded.json,computed_at=excluded.computed_at").bind(key, JSON.stringify(result)).run();
+    await env.DB.prepare("DELETE FROM weights_cache WHERE computed_at < datetime('now','-3 days')").run();
+  } catch { /* cache write best-effort */ }
+  result.cached = false;
+  return json(result);
+}
+
+// ── Data sources ──────────────────────────────────────────────────────────
+async function fetchPrevRuns(lat, lon, model, days) {
+  const vars = [];
+  for (const b of PREV_BASE) for (let n = 1; n <= 7; n++) vars.push(`${b}_previous_day${n}`);
+  const u = `https://previous-runs-api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+            `&hourly=${vars.join(",")}&models=${model}&past_days=${days}&forecast_days=1&timezone=auto&wind_speed_unit=kmh`;
+  try { const r = await fetch(u, { signal: AbortSignal.timeout(20000) }); if (!r.ok) return null; return await r.json(); }
+  catch { return null; }
+}
+
+// hourly previous-day arrays -> { date -> { N -> {tmax,tmin,rain,wind,cloud} } }
+function aggregatePrev(h) {
+  const out = {};
+  if (!h || !h.time) return out;
+  const T = h.time;
+  for (let i = 0; i < T.length; i++) {
+    const d = String(T[i]).slice(0, 10);
+    let day = out[d]; if (!day) { day = {}; out[d] = day; }
+    for (let n = 1; n <= 7; n++) {
+      const tv = h[`temperature_2m_previous_day${n}`] && h[`temperature_2m_previous_day${n}`][i];
+      const pv = h[`precipitation_previous_day${n}`]   && h[`precipitation_previous_day${n}`][i];
+      const cv = h[`cloud_cover_previous_day${n}`]     && h[`cloud_cover_previous_day${n}`][i];
+      const wv = h[`wind_speed_10m_previous_day${n}`]  && h[`wind_speed_10m_previous_day${n}`][i];
+      if (tv == null && pv == null && cv == null && wv == null) continue;
+      let o = day[n]; if (!o) { o = { tmax: null, tmin: null, rsum: 0, hasR: false, wmax: null, csum: 0, ccnt: 0 }; day[n] = o; }
+      if (tv != null) { o.tmax = o.tmax == null ? tv : Math.max(o.tmax, tv); o.tmin = o.tmin == null ? tv : Math.min(o.tmin, tv); }
+      if (pv != null) { o.rsum += pv; o.hasR = true; }
+      if (wv != null) { o.wmax = o.wmax == null ? wv : Math.max(o.wmax, wv); }
+      if (cv != null) { o.csum += cv; o.ccnt++; }
     }
-
-    // Per model -> per metric RMSE + sample count
-    const stats = rows.map(r => {
-      const rmT = avgRmse([r.mse_tmax, r.mse_tmin]);   // temp = mean of tmax/tmin RMSE
-      return {
-        model: r.model,
-        temp:  rmT,                 nTemp:  (r.n_tmax || 0) + (r.n_tmin || 0),
-        rain:  rmse1(r.mse_rain),   nRain:  r.n_rain  || 0,
-        wind:  rmse1(r.mse_wind),   nWind:  r.n_wind  || 0,
-        cloud: rmse1(r.mse_cloud),  nCloud: r.n_cloud || 0
-      };
-    });
-
-    // Inverse-RMSE weights per metric; models below MINN inherit overall skill
-    const METS = ["temp", "rain", "wind", "cloud"];
-    const nKey = { temp: "nTemp", rain: "nRain", wind: "nWind", cloud: "nCloud" };
-    const prov = {}, scor = {};
-    for (const m of METS) {
-      const raw = {}, sc = [];
-      for (const s of stats) {
-        if (s[nKey[m]] >= MINN && s[m] != null && isFinite(s[m])) { raw[s.model] = 1 / Math.max(0.01, s[m]); sc.push(s.model); }
-      }
-      const sum = sc.reduce((a, k) => a + raw[k], 0) || 1;
-      prov[m] = {}; sc.forEach(k => prov[m][k] = raw[k] / sum);
-      scor[m] = new Set(sc);
-    }
-    const overall = {};
-    for (const s of stats) {
-      const vals = METS.map(m => scor[m].has(s.model) ? prov[m][s.model] : null).filter(v => v != null);
-      overall[s.model] = vals.length ? vals.reduce((a, v) => a + v, 0) / vals.length : 1 / stats.length;
-    }
-    const weights = {};
-    for (const m of METS) {
-      const w = {};
-      for (const s of stats) w[s.model] = scor[m].has(s.model) ? prov[m][s.model] : overall[s.model];
-      const sum = stats.reduce((a, s) => a + w[s.model], 0) || 1;
-      weights[m] = {}; stats.forEach(s => weights[m][s.model] = w[s.model] / sum);
-    }
-
-    return json({
-      station, window: days,
-      days: meta.days || 0, pairs: meta.pairs || 0,
-      mature: (meta.days || 0) >= MATURE_DAYS,
-      matureAt: MATURE_DAYS,
-      weights, stats
-    });
-  } catch (e) {
-    return json({ error: "db-read", detail: String(e && e.message || e) }, 500);
   }
+  for (const d in out) for (const n in out[d]) {
+    const o = out[d][n];
+    out[d][n] = { tmax: o.tmax, tmin: o.tmin, rain: o.hasR ? o.rsum : null, wind: o.wmax, cloud: o.ccnt ? o.csum / o.ccnt : null };
+  }
+  return out;
 }
 
-function rmse1(mse) { return (mse == null || isNaN(mse)) ? null : Math.sqrt(mse); }
-function avgRmse(mses) {
-  const v = mses.map(rmse1).filter(x => x != null);
-  return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+async function fetchEra5(lat, lon, days) {
+  const end   = new Date(Date.now() - 86400000).toISOString().slice(0, 10);              // yesterday
+  const start = new Date(Date.now() - (days + 1) * 86400000).toISOString().slice(0, 10);
+  const u = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}` +
+            `&start_date=${start}&end_date=${end}` +
+            `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max` +
+            `&hourly=cloud_cover&timezone=auto&wind_speed_unit=kmh`;
+  try { const r = await fetch(u, { signal: AbortSignal.timeout(20000) }); if (!r.ok) return {}; return era5ToDaily(await r.json()); }
+  catch { return {}; }
+}
+function era5ToDaily(j) {
+  const out = {}, d = j && j.daily;
+  if (d && d.time) for (let i = 0; i < d.time.length; i++) {
+    out[d.time[i]] = {
+      tmax: d.temperature_2m_max ? d.temperature_2m_max[i] : null,
+      tmin: d.temperature_2m_min ? d.temperature_2m_min[i] : null,
+      rain: d.precipitation_sum  ? d.precipitation_sum[i]  : null,
+      wind: d.wind_speed_10m_max ? d.wind_speed_10m_max[i] : null,
+      cloud: null
+    };
+  }
+  const h = j && j.hourly;
+  if (h && h.time && h.cloud_cover) {
+    const cs = {}, cn = {};
+    for (let i = 0; i < h.time.length; i++) {
+      const dd = String(h.time[i]).slice(0, 10), cv = h.cloud_cover[i];
+      if (cv != null) { cs[dd] = (cs[dd] || 0) + cv; cn[dd] = (cn[dd] || 0) + 1; }
+    }
+    for (const dd in cn) { if (out[dd]) out[dd].cloud = cs[dd] / cn[dd]; else out[dd] = { tmax: null, tmin: null, rain: null, wind: null, cloud: cs[dd] / cn[dd] }; }
+  }
+  return out;
 }
 
+async function bomForecastMap(env, station, days) {
+  const rows = ((await env.DB.prepare(
+    "SELECT target,tmax,tmin,rain,wind,cloud, CAST(round(julianday(target)-julianday(issued)) AS INTEGER) AS h " +
+    "FROM forecasts WHERE station=?1 AND model='bom_forecast' AND issued >= date('now',?2)"
+  ).bind(station, `-${days + 7} days`).all()).results) || [];
+  const out = {};
+  for (const r of rows) {
+    const n = r.h; if (n < 1 || n > 7) continue;
+    let day = out[r.target]; if (!day) { day = {}; out[r.target] = day; }
+    if (!day[n]) day[n] = { tmax: r.tmax, tmin: r.tmin, rain: r.rain, wind: r.wind, cloud: r.cloud };
+  }
+  return out;
+}
+async function bomActualsMap(env, station, days) {
+  const rows = ((await env.DB.prepare(
+    "SELECT target,tmax,tmin,rain,wind,cloud FROM actuals WHERE station=?1 AND target >= date('now',?2)"
+  ).bind(station, `-${days} days`).all()).results) || [];
+  const out = {};
+  for (const r of rows) out[r.target] = { tmax: r.tmax, tmin: r.tmin, rain: r.rain, wind: r.wind, cloud: r.cloud };
+  return out;
+}
+function mergeActuals(bom, era) {
+  const out = {}, dates = new Set([...Object.keys(bom), ...Object.keys(era)]);
+  for (const d of dates) {
+    const b = bom[d] || {}, e = era[d] || {};
+    const pick = (x, y) => (x == null ? (y == null ? null : y) : x);
+    out[d] = { tmax: pick(b.tmax, e.tmax), tmin: pick(b.tmin, e.tmin), rain: pick(b.rain, e.rain), wind: pick(b.wind, e.wind), cloud: pick(b.cloud, e.cloud) };
+  }
+  return out;
+}
+
+// Inverse-RMSE per-metric weights from a list of per-model stats. Models below
+// MINN samples for a metric inherit that model's OVERALL skill (so a model that
+// can't be scored on, say, cloud still gets a sensible cloud weight).
+function deriveWeights(stats) {
+  const MINN = 8, METW = ["temp", "rain", "wind", "cloud"], nKey = { temp: "nTemp", rain: "nRain", wind: "nWind", cloud: "nCloud" };
+  const prov = {}, scor = {};
+  for (const me of METW) {
+    const raw = {}, sc = [];
+    for (const s of stats) if (s[nKey[me]] >= MINN && s[me] != null && isFinite(s[me])) { raw[s.model] = 1 / Math.max(0.01, s[me]); sc.push(s.model); }
+    const sum = sc.reduce((a, k) => a + raw[k], 0) || 1;
+    prov[me] = {}; sc.forEach(k => prov[me][k] = raw[k] / sum); scor[me] = new Set(sc);
+  }
+  const overall = {};
+  for (const s of stats) {
+    const vals = METW.map(me => scor[me].has(s.model) ? prov[me][s.model] : null).filter(v => v != null);
+    overall[s.model] = vals.length ? vals.reduce((a, v) => a + v, 0) / vals.length : (stats.length ? 1 / stats.length : 0);
+  }
+  const weights = {};
+  for (const me of METW) {
+    const w = {};
+    for (const s of stats) w[s.model] = scor[me].has(s.model) ? prov[me][s.model] : overall[s.model];
+    const sum = stats.reduce((a, s) => a + w[s.model], 0) || 1;
+    weights[me] = {}; stats.forEach(s => weights[me][s.model] = w[s.model] / sum);
+  }
+  return weights;
+}
+
+// Build a per-model stat list (model + temp/rain/wind/cloud RMSE & sample counts)
+// from a {tmax,tmin,rain,wind,cloud}->{se,n} accumulator group.
+function statsFromGroup(models, groupOf) {
+  const rmse = o => (o && o.n > 0) ? Math.sqrt(o.se / o.n) : null;
+  const meanOf = arr => { const v = arr.filter(x => x != null); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; };
+  const out = [];
+  for (const m of models) {
+    const g = groupOf(m); if (!g) continue;
+    const s = {
+      model: m,
+      temp:  meanOf([rmse(g.tmax), rmse(g.tmin)]), nTemp: g.tmax.n + g.tmin.n,
+      rain:  rmse(g.rain),  nRain:  g.rain.n,
+      wind:  rmse(g.wind),  nWind:  g.wind.n,
+      cloud: rmse(g.cloud), nCloud: g.cloud.n
+    };
+    if (s.nTemp || s.nRain || s.nWind || s.nCloud) out.push(s);
+  }
+  return out;
+}
+
+// ── The computation ─────────────────────────────────────────────────────────
+async function computeWeights(env, lat, lon, station, days) {
+  if (env.DB) { try { await env.DB.prepare(CACHE_DDL).run(); } catch {} }
+  const [prevResults, era, bomFc, bomAc] = await Promise.all([
+    Promise.all(PREV_MODELS.map(m => fetchPrevRuns(lat, lon, m, days))),
+    fetchEra5(lat, lon, days),
+    (env.DB && station) ? bomForecastMap(env, station, days) : Promise.resolve({}),
+    (env.DB && station) ? bomActualsMap(env, station, days)  : Promise.resolve({})
+  ]);
+  const actual = mergeActuals(bomAc, era);
+
+  const fc = {};
+  PREV_MODELS.forEach((m, i) => { const j = prevResults[i]; fc[m] = (j && j.hourly) ? aggregatePrev(j.hourly) : {}; });
+  fc["bom_forecast"] = bomFc;
+  const MODELS_ALL = [...PREV_MODELS, "bom_forecast"];
+
+  const MET = ["tmax", "tmin", "rain", "wind", "cloud"];
+  const acc = {}; MODELS_ALL.forEach(m => { acc[m] = { met: {}, hz: {} }; MET.forEach(k => acc[m].met[k] = { se: 0, n: 0 }); });
+  const dayset = new Set();
+  for (const m of MODELS_ALL) {
+    const fm = fc[m]; if (!fm) continue;
+    for (const d in fm) {
+      const a = actual[d]; if (!a) continue;
+      for (const n in fm[d]) {
+        const f = fm[d][n];
+        for (const k of MET) {
+          const fv = f[k], av = a[k]; if (fv == null || av == null) continue;
+          const e = (fv - av) * (fv - av);
+          acc[m].met[k].se += e; acc[m].met[k].n++;
+          let hz = acc[m].hz[n]; if (!hz) { hz = {}; MET.forEach(kk => hz[kk] = { se: 0, n: 0 }); acc[m].hz[n] = hz; }
+          hz[k].se += e; hz[k].n++;
+          dayset.add(d);
+        }
+      }
+    }
+  }
+
+  const rmse = o => (o && o.n > 0) ? Math.sqrt(o.se / o.n) : null;
+  const meanOf = arr => { const v = arr.filter(x => x != null); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; };
+
+  // Pooled (all horizons) stats + weights — kept as a fallback the client uses
+  // for "today" (lead 0) and any horizon beyond 7 days.
+  const stats = statsFromGroup(MODELS_ALL, m => acc[m].met);
+  const weights = deriveWeights(stats);
+
+  // Per-horizon weights (lead 1–7 days): each displayed day is blended with the
+  // weight set learned at its own lead time, so near days lean on near-term skill.
+  const weightsByHorizon = {};
+  for (let N = 1; N <= 7; N++) {
+    const statsN = statsFromGroup(MODELS_ALL, m => acc[m].hz[N]);
+    if (statsN.length) weightsByHorizon[N] = deriveWeights(statsN);
+  }
+
+  // Per-horizon RMSE rows (for the accuracy panel's lead-time matrix)
+  const horizon = { temp: [], rain: [], wind: [], cloud: [] };
+  for (const m of MODELS_ALL) {
+    const a = acc[m];
+    for (const n in a.hz) {
+      const hz = a.hz[n], N = +n;
+      const tR = meanOf([rmse(hz.tmax), rmse(hz.tmin)]), nT = hz.tmax.n + hz.tmin.n;
+      if (tR != null)          horizon.temp.push({ model: m, h: N, rmse: tR, n: nT });
+      if (rmse(hz.rain) != null)  horizon.rain.push({ model: m, h: N, rmse: rmse(hz.rain), n: hz.rain.n });
+      if (rmse(hz.wind) != null)  horizon.wind.push({ model: m, h: N, rmse: rmse(hz.wind), n: hz.wind.n });
+      if (rmse(hz.cloud) != null) horizon.cloud.push({ model: m, h: N, rmse: rmse(hz.cloud), n: hz.cloud.n });
+    }
+  }
+
+  const ndays = dayset.size, MATURE_DAYS = 14;
+  const pairs = stats.reduce((a, s) => a + s.nTemp + s.nRain + s.nWind + s.nCloud, 0);
+  return {
+    station: station || null, window: days, days: ndays, pairs,
+    mature: ndays >= MATURE_DAYS, matureAt: MATURE_DAYS,
+    weights: stats.length ? weights : null, weightsByHorizon, stats, horizon,
+    source: "previous-runs+era5+bom", generated: new Date().toISOString()
+  };
+}
 // ════════════════════════════════════════════════════════════════════════
 // CRON CAPTURE — server-side equivalent of the client's snapshot on load
 // ════════════════════════════════════════════════════════════════════════
-// The 7 Open-Meteo models (BOM's own forecast model is captured by the client
-// on visit days; the cron covers the global models gap-free).
-const OM_MODELS = [
-  { key: "gfs_seamless",      ep: "/v1/forecast" },
-  { key: "ecmwf_ifs025",      ep: "/v1/ecmwf"    },
-  { key: "icon_seamless",     ep: "/v1/forecast" },
-  { key: "gem_seamless",      ep: "/v1/forecast" },
-  { key: "ukmo_seamless",     ep: "/v1/forecast" },
-  { key: "cma_grapes_global", ep: "/v1/forecast" },
-  { key: "jma_seamless",      ep: "/v1/forecast" }
-];
-
-async function fetchOpenMeteoModel(lat, lon, model, ep) {
-  const u = `https://api.open-meteo.com${ep}?latitude=${lat}&longitude=${lon}` +
-            `&hourly=precipitation,wind_speed_10m,temperature_2m,cloud_cover` +
-            `&models=${model}&past_days=2&forecast_days=8&timezone=auto&wind_speed_unit=kmh`;
-  try {
-    const r = await fetch(u, { signal: AbortSignal.timeout(15000) });
-    if (!r.ok) return null;
-    return await r.json();
-  } catch { return null; }
-}
-
-// Daily aggregate for one date from a model's hourly arrays (mirrors client modelDay)
-function omModelDay(hourly, dateStr) {
-  if (!hourly || !hourly.time) return null;
-  let tmax = null, tmin = null, rain = 0, wind = null, cs = 0, cn = 0, hasR = false, hasT = false;
-  for (let i = 0; i < hourly.time.length; i++) {
-    if (String(hourly.time[i]).slice(0, 10) !== dateStr) continue;
-    const tv = hourly.temperature_2m ? hourly.temperature_2m[i] : null;
-    if (tv != null) { tmax = tmax == null ? tv : Math.max(tmax, tv); tmin = tmin == null ? tv : Math.min(tmin, tv); hasT = true; }
-    const pv = hourly.precipitation ? hourly.precipitation[i] : null;
-    if (pv != null) { rain += pv; hasR = true; }
-    const wv = hourly.wind_speed_10m ? hourly.wind_speed_10m[i] : null;
-    if (wv != null) wind = wind == null ? wv : Math.max(wind, wv);
-    const cv = hourly.cloud_cover ? hourly.cloud_cover[i] : null;
-    if (cv != null) { cs += cv; cn++; }
-  }
-  if (!hasT && !hasR) return null;
-  return { tmax, tmin, rain: hasR ? rain : null, wind, cloud: cn ? cs / cn : null };
-}
-
-// Fetch raw BOM observation JSON for a station (same product-trying as the endpoint)
-async function fetchBomObsData(station, state) {
-  let products = [];
-  if (state && STATE_PRODUCTS[state]) products.push(...STATE_PRODUCTS[state]);
-  if (!products.length) products = Object.values(STATE_PRODUCTS).flat();
-  products = [...new Set(products)];
-  for (const productId of products) {
-    const bomUrl = `https://www.bom.gov.au/fwo/${productId}/${productId}.${station}.json`;
-    try {
-      const resp = await fetch(bomUrl, { headers: BOM_HEADERS, cf: { cacheTtlByStatus: { "200-299": 300, "400-599": 0 }, cacheEverything: true } });
-      if (resp.ok) {
-        const data = await resp.json();
-        const obs = data && data.observations && data.observations.data;
-        if (Array.isArray(obs) && obs.length) return data;
-      }
-    } catch { /* try next product */ }
-  }
-  return null;
-}
-
-function parseBomRainW(val) {
-  if (val == null || val === "-" || val === "") return 0;
-  if (typeof val === "number") return val;
-  const s = String(val).trim();
-  if (s.toLowerCase() === "trace") return 0.1;
-  const n = parseFloat(s);
-  return isNaN(n) ? 0 : n;
-}
-
-// BOM observations -> completed-day actuals (mirrors client parseBomObs + bomDailyActuals)
-function bomObsToDailyActuals(data, localToday) {
-  const obs = (data && data.observations && data.observations.data) || [];
-  if (!obs.length) return [];
-  const sorted = obs.slice().sort((a, b) => String(a.local_date_time_full || "").localeCompare(String(b.local_date_time_full || "")));
-  const byHour = {};
-  for (const o of sorted) {
-    const raw = o.local_date_time_full; if (!raw || raw.length < 12) continue;
-    const yr = raw.slice(0, 4), mo = raw.slice(4, 6), dy = raw.slice(6, 8), hr = raw.slice(8, 10), mn = raw.slice(10, 12);
-    const hourKey = `${yr}-${mo}-${dy}T${hr}:00`;
-    const t = parseFloat(o.air_temp);
-    const okt = (o.cloud_oktas == null || o.cloud_oktas === "") ? null : parseFloat(o.cloud_oktas);
-    const cloud = (okt != null && !isNaN(okt)) ? Math.max(0, Math.min(100, okt / 8 * 100)) : null;
-    const wspd = (o.wind_spd_kmh == null || o.wind_spd_kmh === "") ? null : parseFloat(o.wind_spd_kmh);
-    const rec = {
-      temp: (!isNaN(t) && String(o.air_temp).trim() !== "") ? t : null,
-      traceCum: parseBomRainW(o.rain_trace),
-      cloud, wind: (wspd != null && !isNaN(wspd)) ? wspd : null
-    };
-    if (mn === "00" || !(hourKey in byHour)) byHour[hourKey] = rec;
-  }
-  const keys = Object.keys(byHour).sort();
-  // per-hour rain increment (reset when the 9am cumulative drops)
-  const byDay = {};
-  let prevCum = null;
-  for (const k of keys) {
-    const r = byHour[k];
-    let inc;
-    if (prevCum == null) inc = 0;
-    else if (r.traceCum < prevCum) inc = r.traceCum;
-    else inc = r.traceCum - prevCum;
-    prevCum = r.traceCum;
-    const d = k.slice(0, 10);
-    if (d >= localToday) continue;                  // completed days only
-    const o = byDay[d] || (byDay[d] = { tmax: null, tmin: null, rain: 0, wind: null, cs: 0, cn: 0, hasR: false, hasT: false });
-    if (r.temp != null) { o.tmax = o.tmax == null ? r.temp : Math.max(o.tmax, r.temp); o.tmin = o.tmin == null ? r.temp : Math.min(o.tmin, r.temp); o.hasT = true; }
-    o.rain += Math.max(0, inc); o.hasR = true;
-    if (r.wind != null) o.wind = o.wind == null ? r.wind : Math.max(o.wind, r.wind);
-    if (r.cloud != null) { o.cs += r.cloud; o.cn++; }
-  }
-  return Object.keys(byDay).map(d => {
-    const o = byDay[d];
-    return { target: d, tmax: o.hasT ? o.tmax : null, tmin: o.hasT ? o.tmin : null, rain: o.hasR ? o.rain : null, wind: o.wind, cloud: o.cn ? o.cs / o.cn : null, source: "bom" };
-  }).filter(a => a.tmax != null || a.rain != null);
-}
-
+// The cron keeps BOM observations (the actuals) fresh between visits. The 7
+// global models are no longer captured here — their past forecasts are fetched
+// on demand from the Previous Runs API. BOM's published forecast is archived by
+// the client on visit days.
 async function captureStation(env, st) {
   const lat = st.lat, lon = st.lon;
   if (lat == null || lon == null) return;
-  let utcOff = null, localToday = null;
-  const forecasts = [];
-  for (const mm of OM_MODELS) {
-    const om = await fetchOpenMeteoModel(lat, lon, mm.key, mm.ep);
-    if (!om || !om.hourly || !om.hourly.time) continue;
-    if (utcOff == null) {
-      utcOff = om.utc_offset_seconds || 0;
-      localToday = new Date(Date.now() + utcOff * 1000).toISOString().slice(0, 10);
-    }
-    const dates = [...new Set(om.hourly.time.map(t => String(t).slice(0, 10)))].filter(d => d >= localToday).slice(0, 8);
-    for (const d of dates) { const a = omModelDay(om.hourly, d); if (a) forecasts.push({ target: d, model: mm.key, ...a }); }
-  }
-  if (localToday == null) localToday = new Date().toISOString().slice(0, 10);
+  // AEST-ish cutoff so only completed local days are written as actuals.
+  const localToday = new Date(Date.now() + 10 * 3600 * 1000).toISOString().slice(0, 10);
   let actuals = [];
   try { const data = await fetchBomObsData(st.station, st.state); if (data) actuals = bomObsToDailyActuals(data, localToday); } catch { /* no obs */ }
-  await writeCapture(env, st.station, localToday, forecasts, actuals);
+  if (actuals.length) await writeCapture(env, st.station, localToday, [], actuals);
 }
-
 // ════════════════════════════════════════════════════════════════════════
 // PER-HORIZON ACCURACY  GET /track/horizon?station=X&days=60&metric=temp
 // ════════════════════════════════════════════════════════════════════════
 async function trackHorizon(url, env) {
   if (!env || !env.DB) return json({ error: "no-db" }, 200);
   const station = String(url.searchParams.get("station") || "").trim();
-  if (!station) return json({ error: "missing-station" }, 400);
-  let days = parseInt(url.searchParams.get("days") || "60", 10);
-  if (!Number.isFinite(days)) days = 60;
-  days = Math.max(7, Math.min(180, days));
-  const win = `-${days} days`;
+  const lat = parseFloat(url.searchParams.get("lat")), lon = parseFloat(url.searchParams.get("lon"));
+  if (!isFinite(lat) || !isFinite(lon)) return json({ error: "missing-latlon", note: "pass &lat=&lon=" }, 400);
   const metric = ["temp", "rain", "wind", "cloud"].includes(url.searchParams.get("metric")) ? url.searchParams.get("metric") : "temp";
+  let days = parseInt(url.searchParams.get("days") || "45", 10);
+  if (!Number.isFinite(days)) days = 45;
+  days = Math.max(14, Math.min(90, days));
+  const key = cacheKey(lat, lon, days, station);
 
-  // metric -> the squared-error / count expressions
-  let sel;
-  if (metric === "temp") {
-    sel = `SUM(CASE WHEN f.tmax IS NOT NULL AND a.tmax IS NOT NULL THEN 1 ELSE 0 END)
-            + SUM(CASE WHEN f.tmin IS NOT NULL AND a.tmin IS NOT NULL THEN 1 ELSE 0 END) AS n,
-           AVG(CASE WHEN f.tmax IS NOT NULL AND a.tmax IS NOT NULL THEN (f.tmax-a.tmax)*(f.tmax-a.tmax) END) AS mse_a,
-           AVG(CASE WHEN f.tmin IS NOT NULL AND a.tmin IS NOT NULL THEN (f.tmin-a.tmin)*(f.tmin-a.tmin) END) AS mse_b`;
-  } else {
-    const c = metric; // rain|wind|cloud are single columns of the same name
-    sel = `SUM(CASE WHEN f.${c} IS NOT NULL AND a.${c} IS NOT NULL THEN 1 ELSE 0 END) AS n,
-           AVG(CASE WHEN f.${c} IS NOT NULL AND a.${c} IS NOT NULL THEN (f.${c}-a.${c})*(f.${c}-a.${c}) END) AS mse_a,
-           NULL AS mse_b`;
-  }
-
+  let obj = null;
   try {
-    const rows = ((await env.DB.prepare(
-      `SELECT f.model AS model,
-              CAST(julianday(f.target) - julianday(f.issued) AS INTEGER) AS h,
-              ${sel}
-       FROM forecasts f JOIN actuals a ON f.station=a.station AND f.target=a.target
-       WHERE f.station=?1 AND f.issued >= date('now', ?2)
-         AND CAST(julianday(f.target) - julianday(f.issued) AS INTEGER) BETWEEN 0 AND 10
-       GROUP BY f.model, h`
-    ).bind(station, win).all()).results) || [];
-
-    const out = rows.map(r => {
-      const parts = [r.mse_a, r.mse_b].map(m => (m == null || isNaN(m)) ? null : Math.sqrt(m)).filter(x => x != null);
-      const rmse = parts.length ? parts.reduce((a, b) => a + b, 0) / parts.length : null;
-      return { model: r.model, h: r.h, rmse, n: r.n || 0 };
-    }).filter(r => r.rmse != null);
-
-    return json({ station, window: days, metric, rows: out });
-  } catch (e) {
-    return json({ error: "db-read", detail: String(e && e.message || e) }, 500);
+    await env.DB.prepare(CACHE_DDL).run();
+    const c = await env.DB.prepare("SELECT json FROM weights_cache WHERE k=?1 AND computed_at >= datetime('now','-18 hours')").bind(key).first();
+    if (c && c.json) obj = JSON.parse(c.json);
+  } catch { /* fall through */ }
+  if (!obj) {
+    try {
+      obj = await computeWeights(env, lat, lon, station, days);
+      await env.DB.prepare("INSERT INTO weights_cache (k,json,computed_at) VALUES (?1,?2,datetime('now')) ON CONFLICT(k) DO UPDATE SET json=excluded.json,computed_at=excluded.computed_at").bind(key, JSON.stringify(obj)).run();
+    } catch (e) { return json({ error: "compute", detail: String(e && e.message || e) }, 500); }
   }
+  const rows = (obj.horizon && obj.horizon[metric]) || [];
+  return json({ station: station || null, window: days, metric, rows });
 }
