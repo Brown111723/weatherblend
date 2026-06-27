@@ -29,7 +29,11 @@ header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;alig
 .hdr-btn{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text-muted);cursor:pointer;font-size:18px;transition:all .15s;flex-shrink:0;}
 .hdr-btn:hover{background:var(--border2);color:var(--text-primary);}
 .hdr-btn.active{background:var(--accent);border-color:var(--accent);color:#fff;}
-.hdr-loc{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px;min-width:0;}
+.hdr-loc{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px;min-width:0;cursor:pointer;}
+.hdr-loc .loc-name{font-size:15px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46vw;line-height:1.15;}
+.loc-sub{display:flex;align-items:center;gap:4px;}
+.loc-sub .loc-detail{font-size:11.5px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40vw;}
+.loc-pin{color:var(--accent);flex-shrink:0;}
 /* Slide-in drawer */
 .drawer-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;}
 .drawer-overlay.hidden{display:none;}
@@ -47,12 +51,11 @@ header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;alig
 .drawer-item:hover{border-color:var(--accent);background:rgba(96,165,250,.08);}
 .drawer-item svg{color:var(--text-muted);flex-shrink:0;}
 /* Sticky date bar */
-.datebar{position:relative;display:flex;align-items:center;justify-content:center;padding:8px 16px;background:var(--bg);border-bottom:1px solid var(--border);}
-.date-center{display:flex;align-items:center;gap:14px;}
-.date-nav{width:38px;height:38px;display:flex;align-items:center;justify-content:center;border-radius:10px;border:1px solid var(--border2);background:var(--surface2);color:var(--text-muted);cursor:pointer;transition:all .15s;}
+.datebar{position:relative;display:flex;align-items:center;justify-content:center;gap:18px;padding:8px 16px;background:var(--bg);border-bottom:1px solid var(--border);}
+.date-nav{width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:9px;border:1px solid var(--border2);background:var(--surface2);color:var(--text-muted);cursor:pointer;transition:all .15s;}
 .date-nav:hover{color:var(--text-primary);border-color:var(--accent);}
-.date-nav:active{transform:scale(.93);}
-.datebar .today-btn{position:absolute;right:16px;}
+.date-nav:active{transform:scale(.92);}
+.cur-date{cursor:pointer;}
 .hdr-right{display:flex;align-items:center;gap:8px;}
 
 /* ── Current conditions: swipeable day carousel ── */
@@ -65,16 +68,9 @@ header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;alig
 .cc-box.cc-cond{grid-column:1 / -1;}
 .cc-box.cc-cond .cc-icon{margin:4px 0 2px;}
 .cc-cond-row{display:flex;align-items:center;gap:14px;}
-.cc-cond-word{font-size:17px;font-weight:600;color:var(--text-primary);}
-.cc-daylight{font-size:12.5px;font-weight:500;color:var(--text-dim);}
-.cc-obs{font-size:12px;font-weight:600;color:var(--accent);}
+.cc-lines{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0;}
+.cc-line{font-size:13.5px;line-height:1.4;color:var(--text-muted);}
 .obs-dot{font-size:9px;color:var(--accent);vertical-align:super;margin-left:3px;}
-.cc-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:14px;}
-.cc-stat{display:flex;flex-direction:column;gap:1px;padding:8px 6px;border-radius:9px;background:rgba(255,255,255,.025);border:1px solid var(--border);text-align:center;}
-.cc-stat-l{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--text-dim);}
-.cc-stat-v{font-size:16px;font-weight:700;color:var(--text-primary);}
-.cc-stat-s{font-size:10px;color:var(--text-dim);min-height:12px;}
-@media(max-width:420px){.cc-stats{grid-template-columns:repeat(2,1fr);}}
 .cc-cond-row .cc-icon{margin:0;flex-shrink:0;}
 .cc-cond-row .cc-syn{margin-top:0;}
 .cc-title{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:2px;}
@@ -109,7 +105,7 @@ header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;alig
 .tf-select{font-size:12px;font-weight:600;padding:4px 8px;border-radius:8px;border:1px solid var(--border2);background:var(--surface2);color:var(--text-primary);cursor:pointer;}
 #hour-bar{display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;padding:10px 16px 14px;scroll-snap-type:x proximity;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
 #hour-bar::-webkit-scrollbar{display:none;}
-.hb-tile{flex:0 0 auto;width:78px;scroll-snap-align:start;display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 8px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.025);}
+.hb-tile{flex:0 0 auto;width:78px;scroll-snap-align:start;display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 8px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,0.022);}
 .hb-tile.hb-past{opacity:.72;}
 .hb-tile.hb-now{border-color:var(--accent);background:rgba(96,165,250,.12);}
 .hb-hour{font-size:12px;font-weight:700;color:var(--text-primary);}
@@ -367,9 +363,9 @@ body{padding-bottom:64px;}
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
   </button>
   <div class="logo">Weather<span>Blend</span></div>
-  <div class="loc-wrap hdr-loc">
-    <button class="loc-btn" onclick="promptLocation()">📍 <span class="loc-name" id="loc-name">Detecting…</span></button>
-    <div class="loc-detail" id="loc-detail"></div>
+  <div class="hdr-loc" onclick="promptLocation()" role="button" tabindex="0" title="Change location">
+    <div class="loc-name" id="loc-name">Detecting…</div>
+    <div class="loc-sub"><span class="loc-detail" id="loc-detail"></span><svg class="loc-pin" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11z"/><circle cx="12" cy="10" r="2.4"/></svg></div>
   </div>
 </header>
 
@@ -404,14 +400,9 @@ body{padding-bottom:64px;}
 
 <!-- Sticky date bar with day navigation -->
 <div class="datebar" id="datebar">
-  <div class="date-center">
-    <button class="date-nav" onclick="stepDay(-1)" aria-label="Previous day"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
-    <div class="cur-date" id="curr-date">–</div>
-    <button class="date-nav" onclick="stepDay(1)" aria-label="Next day"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
-  </div>
-  <button class="today-btn dim" id="today-btn" onclick="goToToday()" title="Jump to today" aria-label="Jump to today">
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16.5" rx="2"/><line x1="3" y1="9.5" x2="21" y2="9.5"/><line x1="8" y1="2.5" x2="8" y2="6"/><line x1="16" y1="2.5" x2="16" y2="6"/><circle cx="12" cy="15.5" r="2.1" fill="currentColor" stroke="none"/></svg>
-  </button>
+  <button class="date-nav" onclick="stepDay(-1)" aria-label="Previous day"><svg viewBox="0 0 10 12" width="13" height="15"><polygon points="9,0 9,12 0,6" fill="currentColor"/></svg></button>
+  <div class="cur-date" id="curr-date" onclick="goToToday()" title="Jump to today">–</div>
+  <button class="date-nav" onclick="stepDay(1)" aria-label="Next day"><svg viewBox="0 0 10 12" width="13" height="15"><polygon points="1,0 1,12 10,6" fill="currentColor"/></svg></button>
 </div>
 </div><!-- /topbar -->
 
@@ -538,15 +529,15 @@ body{padding-bottom:64px;}
 </div>
 
 <nav class="bottom-nav" id="bottom-nav">
-  <button class="bnav-btn" data-sec="cards" onclick="toggleSection('cards')">
+  <button class="bnav-btn" data-sec="cards" onclick="toggleView('cards')">
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="14" width="11" height="6" rx="1.5"/><line x1="17" y1="15" x2="21" y2="15"/><line x1="17" y1="19" x2="21" y2="19"/></svg>
     <span>Cards</span>
   </button>
-  <button class="bnav-btn" data-sec="table" onclick="toggleSection('table')">
+  <button class="bnav-btn" data-sec="table" onclick="toggleView('table')">
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="1.5"/><line x1="3" y1="9.5" x2="21" y2="9.5"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="4" x2="9" y2="20"/></svg>
     <span>Table</span>
   </button>
-  <button class="bnav-btn" data-sec="map" onclick="toggleSection('map')">
+  <button class="bnav-btn" data-sec="map" onclick="toggleView('map')">
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><line x1="9" y1="4" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="20"/></svg>
     <span>Map</span>
   </button>
@@ -604,7 +595,7 @@ const MODELS = [
 
 const enabled    = new Set(MODELS.map(m=>m.key));
 const autoHidden = new Set();
-let showDetail = false;const secVisible = { temp:true, wind:false, rain:true, cloud:false };
+let showDetail = false;const secVisible = { temp:true, wind:true, rain:true, cloud:true };
 // Per-section source-row visibility (toggled by clicking a section header)
 const secDetail = { temp:false, rain:false, wind:false, cloud:false };
 
@@ -711,8 +702,8 @@ function stepDay(delta){
 function toggleModel(key){
   if(autoHidden.has(key))return;
   const el=document.getElementById('toggle-'+key);
-  if(enabled.has(key)){enabled.delete(key);el.className='model-toggle disabled';}
-  else{enabled.add(key);el.className='model-toggle enabled';}
+  if(enabled.has(key)){enabled.delete(key);if(el){el.classList.remove('enabled');el.classList.add('disabled');}}
+  else{enabled.add(key);if(el){el.classList.remove('disabled');el.classList.add('enabled');}}
   savePrefs(); if(Object.keys(state.data).length){renderCurrentBar();renderTable();}
 }
 function toggleDetail(){
@@ -762,13 +753,13 @@ function toggleDebug(btn){
 
 function toggleSection(sec,btn){
   secVisible[sec]=!secVisible[sec];
-  // Update whatever button was clicked (panel toggle uses model-toggle classes)
   if(btn){
     btn.classList.toggle('enabled', secVisible[sec]);
     btn.classList.toggle('disabled',!secVisible[sec]);
   }
-  document.querySelectorAll(`.section-group[data-sec="${sec}"]`).forEach(el=>el.classList.toggle('sec-off',!secVisible[sec]));
   savePrefs();
+  // Apply across every view: cards, hourly tiles AND the table
+  if(Object.keys(state.data).length){ renderCurrentBar(); renderTable(); }
 }
 
 // ══════════════════════════════════════════
@@ -1332,16 +1323,17 @@ function buildTodayBoxes(){
   const arrow=dirArrow16(windDir??0), dir=dirFull(windDir??0);
   const narrative=todayNarrative(temp,wcode,night,wind,dir,rainToday,hi,lo);
 
-  const ex=dayExtras(localTodayStr());
-  if(comp?.obsHumid!=null)ex.humid=comp.obsHumid;     // live BOM humidity for "now"
-  const obsTag=comp?.obsTime?`<span class="cc-obs">· obs ${comp.obsTime}</span>`:'';
-  const cond=_condTile(wxIcon(wcode,night,phase), `${wxDesc(wcode,!night)} ${obsTag}`, ex);
+  const cond=_condTile(wxIcon(wcode,night,phase), condTextLines({
+    today:true, condWord:wxDesc(wcode,!night), temp, hi, lo,
+    rain:rainToday, actualRain, windPeak:(windHi??wind), dir
+  }));
   const dot=on=>on?'<span class="obs-dot" title="BOM observation">●</span>':'';
   const t=_ccBox('cc-temp','Temp','#86efac',`<div class="cc-main">${_T(temp)}${dot(comp?.obsTemp)}</div><div class="cc-sub">Feels ${_T(feels)}</div><div class="cc-sub">↑ ${_T(hi)}　↓ ${_T(lo)}</div>`);
-  const r=_ccBox('','Rain','#90caf9',`<div class="cc-main">${rainToday.toFixed(1)} mm</div><div class="cc-sub">Actual ${actualRain!=null?actualRain.toFixed(1)+' mm':'—'}</div><div class="cc-sub">Expected ${rainToday.toFixed(1)} mm</div>`);
+  const rainRemain=Math.max(0,rainToday-(actualRain||0));
+  const r=_ccBox('','Rain','#90caf9',`<div class="cc-main">${rainToday.toFixed(1)} mm</div><div class="cc-sub">Actual ${actualRain!=null?actualRain.toFixed(1)+' mm':'—'}</div><div class="cc-sub">Expected ${rainRemain.toFixed(1)} mm</div>`);
   const w=_ccBox('','Wind','#d9f99d',`<div class="cc-main">${wind!=null?Math.round(wind)+' km/h':'—'}${dot(comp?.obsWind)}</div><div class="cc-sub">${arrow} ${dir}</div><div class="cc-sub">↑ ${windHi!=null?Math.round(windHi):'—'}　↓ ${windLo!=null?Math.round(windLo):'—'} km/h</div>`);
   const cl=_ccBox('','Cloud','#c4b5fd',`<div class="cc-main">${cloud!=null?Math.round(cloud)+'%':'—'}${dot(comp?.obsCloud)}</div><div class="cc-sub">↑ ${cloudHi!=null?Math.round(cloudHi):'—'}%　↓ ${cloudLo!=null?Math.round(cloudLo):'—'}%</div>`);
-  return cond+t+r+w+cl;
+  return cond+(secVisible.temp?t:'')+(secVisible.rain?r:'')+(secVisible.wind?w:'')+(secVisible.cloud?cl:'');
 }
 
 // Past/future day overview. Past → recorded actuals as the headline with the
@@ -1352,7 +1344,10 @@ function buildDayBoxes(dateStr){
   const past=s.isPast;
   const arrow=s.windDir!=null?dirArrow16(s.windDir):'', dir=s.windDir!=null?dirFull(s.windDir):'';
   const HL=(hi,lo,u)=>`↑${hi!=null?Math.round(hi)+u:'—'}<span style="display:inline-block;width:10px"></span>↓${lo!=null?Math.round(lo)+u:'—'}`;
-  const cond=_condTile(wxIcon(s.dayCode,false), wxDesc(s.dayCode,true), dayExtras(dateStr));
+  const cond=_condTile(wxIcon(s.dayCode,false), condTextLines({
+    today:false, condWord:wxDesc(s.dayCode,true), hi:s.hi, lo:s.lo,
+    rain:s.rain, actualRain:s.actualRain, windPeak:s.windHi, dir
+  }));
 
   // TEMP
   const tActual = past && s.aHasT;
@@ -1374,7 +1369,7 @@ function buildDayBoxes(dateStr){
   const wActual = past && s.aHasW;
   const wMain = (wActual ? HL(s.aWHi,s.aWLo,'') : HL(s.windHi,s.windLo,'')) + ' km/h';
   const wSubs = wActual
-    ? `<div class="cc-sub">Recorded high / low</div><div class="cc-sub">Forecast ${HL(s.windHi,s.windLo,'')} km/h</div>`
+    ? `<div class="cc-sub">Recorded high / low</div><div class="cc-sub">Forecast ${HL(s.windHi,s.windLo,'')}</div>`
     : `<div class="cc-sub">Forecast high / low</div>`;
   const w=_ccBox('','Wind','#d9f99d',`<div class="cc-main cc-hl">${wMain}</div>${wSubs}`,`${windWord(s.windNoon??0)}${s.windNoon!=null&&s.windNoon>=10&&dir?' from the '+dir:''}`);
 
@@ -1386,26 +1381,34 @@ function buildDayBoxes(dateStr){
     : `<div class="cc-sub">Forecast high / low</div>`;
   const cl=_ccBox('','Cloud','#c4b5fd',`<div class="cc-main cc-hl">${cMain}</div>${cSubs}`,cloudSynopsis(s.cloudMean));
 
-  return cond+t+r+w+cl;
+  return cond+(secVisible.temp?t:'')+(secVisible.rain?r:'')+(secVisible.wind?w:'')+(secVisible.cloud?cl:'');
 }
 
-// Conditions tile: condition word + daylight, with a sunrise/sunset/UV/humidity grid
-function fmtClock(d){ let h=d.getHours(); const m=String(d.getMinutes()).padStart(2,'0'); const ap=h<12?'am':'pm'; h=h%12||12; return `${h}:${m} ${ap}`; }
-function _condTile(iconHtml,condWord,ex){
-  ex=ex||{};
-  const stat=(label,val,sub)=>`<div class="cc-stat"><div class="cc-stat-l">${label}</div><div class="cc-stat-v">${val}</div><div class="cc-stat-s">${sub||''}</div></div>`;
-  const dl = ex.daylight!=null ? ` · ${fmtDaylight(ex.daylight)} daylight` : '';
-  const stats=[
-    stat('Sunrise', ex.rise?fmtClock(new Date(ex.rise)):'—'),
-    stat('Sunset',  ex.set?fmtClock(new Date(ex.set)):'—'),
-    stat('UV index', ex.uv!=null?ex.uv:'—', ex.uv!=null?uvWord(ex.uv):''),
-    stat('Humidity', ex.humid!=null?ex.humid+'%':'—')
-  ].join('');
-  return `<div class="cc-box cc-cond">
-    <div class="cc-title" style="color:var(--text-muted)">Conditions</div>
-    <div class="cc-cond-row"><div class="cc-icon">${iconHtml}</div><div class="cc-cond-word">${condWord||'—'}<span class="cc-daylight">${dl}</span></div></div>
-    <div class="cc-stats">${stats}</div>
-  </div>`;
+// Conditions tile: icon + a few short, readable lines that work for both the
+// live "now" view (today) and a day's forecast.
+function _condTile(iconHtml,lines){
+  const body=(lines||[]).filter(Boolean).map(t=>`<div class="cc-line">${t}</div>`).join('');
+  return `<div class="cc-box cc-cond"><div class="cc-title" style="color:var(--text-muted)">Conditions</div><div class="cc-cond-row"><div class="cc-icon">${iconHtml}</div><div class="cc-lines">${body}</div></div></div>`;
+}
+function _rdeg(v){return Math.round(v)+'°';}
+function rainTextLine(mm,actual,today){
+  if(mm==null||mm<0.2) return (today&&actual>0.05)?`${actual.toFixed(1)} mm so far, little more due.`:'Little or no rain expected.';
+  const word=mm<2?'Light':mm<10?'Moderate':'Heavy';
+  const so=(today&&actual!=null&&actual>0.05)?` (${actual.toFixed(1)} mm so far)`:'';
+  return `${word} rain${so}, around ${mm.toFixed(1)} mm.`;
+}
+function windTextLine(v,dir){
+  if(v==null) return 'Winds light.';
+  if(v<3) return 'Winds calm.';
+  return `${windWord(v)} ${dir?dir+' ':''}winds to ${Math.round(v)} km/h.`;
+}
+function condTextLines(o){
+  const L=[];
+  L.push(o.today&&o.temp!=null ? `${o.condWord}, currently ${_rdeg(o.temp)}.` : `${o.condWord}.`);
+  if(o.hi!=null&&o.lo!=null) L.push(o.today ? `Reaching ${_rdeg(o.hi)}, down to ${_rdeg(o.lo)} overnight.` : `High ${_rdeg(o.hi)}, low ${_rdeg(o.lo)}.`);
+  L.push(rainTextLine(o.rain,o.actualRain,o.today));
+  L.push(windTextLine(o.windPeak,o.dir));
+  return L;
 }
 
 // Snapshot of one specific hour (used when the table is scrolled to that column)
@@ -1428,7 +1431,7 @@ function buildHourBoxes(iso){
   const s=computeDaySummary(iso.slice(0,10));
   const tl=fmtAmPm(new Date(iso));
   const arrow=h.windDir!=null?dirArrow16(h.windDir):'', dir=h.windDir!=null?dirFull(h.windDir):'';
-  const cond=_condTile(wxIcon(h.code,h.night,h.phase),`${tl} · ${wxDesc(h.code,!h.night)}${h.temp!=null?', '+tempDisp(h.temp)+'°':''}`);
+  const cond=_condTile(wxIcon(h.code,h.night,h.phase),[`${tl} · ${wxDesc(h.code,!h.night)}${h.temp!=null?', '+tempDisp(h.temp)+'°':''}`]);
   const t=_ccBox('cc-temp','Temp','#86efac',`<div class="cc-main">${_T(h.temp)}</div><div class="cc-sub">at ${tl}</div><div class="cc-sub">↑ ${_T(s?.hi)}　↓ ${_T(s?.lo)}</div>`,`${tempWord(h.temp)} at ${tl}`);
   const r=_ccBox('','Rain','#90caf9',`<div class="cc-main">${(h.precip||0).toFixed(1)} mm</div><div class="cc-sub">this hour</div><div class="cc-sub">Day ${(s?.rain||0).toFixed(1)} mm</div>`,rainSynopsis(s?.rain||0,s?.actualRain));
   const w=_ccBox('','Wind','#d9f99d',`<div class="cc-main">${h.wind!=null?Math.round(h.wind)+' km/h':'—'}</div><div class="cc-sub">${arrow} ${dir}</div><div class="cc-sub">at ${tl}</div>`,`${windWord(h.wind??0)}${h.wind!=null&&h.wind>=8&&dir?' '+dir:''}`);
@@ -1568,20 +1571,23 @@ function _nowHourIso(step){
 
 // Values for one hour tile: actual where the hour is past & observed, else forecast blend
 function hourTileData(iso){
-  const h=computeHourSnapshot(iso); if(!h)return null;
-  const past=new Date(iso).getTime()<Date.now();
-  let temp=h.temp, rain=h.precip, wind=h.wind, cloud=h.cloud, isAct=false;
-  if(past && actualData && actualData.hourly && actualData.hourly.time){
-    const ai=actualData.hourly.time.indexOf(iso);
-    if(ai>=0){
-      const at=actualData.hourly.temperature_2m?.[ai], ap=actualData.hourly.precipitation?.[ai],
-            aw=actualData.hourly.windspeed_10m?.[ai], ac=actualData.hourly.cloudcover?.[ai];
-      if(at!=null){temp=at;isAct=true;} if(ap!=null){rain=ap;isAct=true;}
-      if(aw!=null){wind=aw;} if(ac!=null){cloud=ac;}
-    }
+  const ref=refHourly(); if(!ref?.time)return null;
+  const idx=ref.time.indexOf(iso); if(idx<0)return null;
+  const step=hourBarStep();
+  const hz=horizonOf(iso.slice(0,10));
+  let temp=wBlendAt('temperature_2m',idx,hz), rain=wBlendAt('precipitation',idx,hz),
+      wind=wBlendAt('windspeed_10m',idx,hz), cloud=wBlendAt('cloudcover',idx,hz);
+  const rawCode=state.data[activeEnabled()[0]?.key]?.hourly?.weathercode?.[idx]??null;
+  const phase=sunPhaseAt(iso), past=new Date(iso).getTime()<Date.now();
+  let isAct=false;
+  if(past){
+    const at=actWindowAt('temperature_2m',idx,step), ap=actWindowAt('precipitation',idx,step),
+          aw=actWindowAt('windspeed_10m',idx,step), ac=actWindowAt('cloudcover',idx,step);
+    if(at!=null){temp=at;isAct=true;} if(ap!=null){rain=ap;isAct=true;}
+    if(aw!=null)wind=aw; if(ac!=null)cloud=ac;
   }
-  const code=deriveCondCode(rain,cloud, h.code);
-  return {iso,temp,rain,wind,cloud,code,isAct,past,phase:h.phase,night:h.night};
+  const code=deriveCondCode(rain,cloud,rawCode);
+  return {iso,temp,rain,wind,cloud,code,isAct,past,phase,night:phase==='night'};
 }
 
 const MI_TEMP='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/></svg>';
@@ -1597,15 +1603,16 @@ function buildHourTile(iso){
   const W=d.wind!=null?Math.round(d.wind):'–';
   const C=d.cloud!=null?Math.round(d.cloud)+'%':'–';
   const now=_nowHourIso(hourBarStep())===iso;
+  const rows=[
+    secVisible.temp?`<div class="hb-m hb-t">${MI_TEMP}<span>${T}</span></div>`:'',
+    secVisible.rain?`<div class="hb-m hb-r">${MI_RAIN}<span>${R}</span></div>`:'',
+    secVisible.wind?`<div class="hb-m hb-w">${MI_WIND}<span>${W}</span></div>`:'',
+    secVisible.cloud?`<div class="hb-m hb-c">${MI_CLOUD}<span>${C}</span></div>`:''
+  ].join('');
   return `<div class="hb-tile${d.past?' hb-past':''}${d.isAct?' hb-act':''}${now?' hb-now':''}" data-iso="${iso}">
     <div class="hb-hour">${hr}</div>
     <div class="hb-wx">${wxIcon(d.code,d.night,d.phase)}</div>
-    <div class="hb-rows">
-      <div class="hb-m hb-t">${MI_TEMP}<span>${T}</span></div>
-      <div class="hb-m hb-r">${MI_RAIN}<span>${R}</span></div>
-      <div class="hb-m hb-w">${MI_WIND}<span>${W}</span></div>
-      <div class="hb-m hb-c">${MI_CLOUD}<span>${C}</span></div>
-    </div>
+    <div class="hb-rows">${rows}</div>
   </div>`;
 }
 
@@ -1651,7 +1658,7 @@ function applySectionVisibility(){
   });
 }
 
-function toggleSection(sec){
+function toggleView(sec){
   sectionsVisible[sec]=!sectionsVisible[sec];
   applySectionVisibility();
   savePrefs();
@@ -2158,9 +2165,10 @@ async function syncAndLoadAccuracy(){
 
   try{
     const ll=`&lat=${state.lat}&lon=${state.lon}`;
-    const r=await fetch(`${BOM_WORKER_URL}/track/weights?station=${encodeURIComponent(station)}${ll}&days=60`,{signal:AbortSignal.timeout(25000)});
+    const r=await fetch(`${BOM_WORKER_URL}/track/weights?station=${encodeURIComponent(station)}${ll}&days=35`,{signal:AbortSignal.timeout(30000)});
     const j=await r.json();
     accuracyMeta=j; accuracyStats=j&&j.stats||null; _horizonCache={};
+    if(j&&j.diag){ dbg(`accuracy diag: models OK [${(j.diag.modelsOK||[]).join(', ')||'none'}], failed [${(j.diag.modelsFailed||[]).join(', ')||'none'}], ERA5 ${j.diag.eraDays}d, BOM-obs ${j.diag.bomActualDays}d`); }
     if(j&&j.weights&&j.mature){
       historicalWeights=j.weights; historicalWeightsByH=j.weightsByHorizon||null; applyHistoricalWeights();
       const nH=historicalWeightsByH?Object.keys(historicalWeightsByH).length:0;
@@ -2368,6 +2376,35 @@ function fieldSec(field){
   if(/cloud/.test(field))return'cloud';
   return null;
 }
+// Per-model window aggregate (matching the table's hVals: sum rain, average the
+// rest, first value for direction/code) then a horizon-aware weighted blend.
+// Used by BOTH the table's average row and the hourly carousel so they agree.
+function wBlendAt(field,i,horizon){
+  const step=state.view==='3h'?3:state.view==='8h'?8:1;
+  const a=activeEnabled(); if(!a.length)return null;
+  const isFirst=(field==='winddirection_10m'||field==='weathercode');
+  const isSum=(field==='precipitation');
+  const pairs=a.map(m=>{
+    const arr=state.data[m.key]?.hourly?.[field];
+    if(!arr)return {key:m.key,val:null};
+    if(step===1||isFirst)return {key:m.key,val:arr[i]??null};
+    let sum=0,cnt=0;
+    for(let k=0;k<step;k++){const v=arr[i+k];if(v!=null&&!isNaN(v)){sum+=v;cnt++;}}
+    if(!cnt)return {key:m.key,val:null};
+    return {key:m.key,val:isSum?sum:sum/cnt};
+  });
+  return weightedAvgOf(pairs,fieldSec(field),horizon);
+}
+// Observed value over the same window (BOM/OM actuals), index-aligned to the ref grid
+function actWindowAt(field,idx,step){
+  if(!actualData||!actualData.hourly||!actualData.hourly.time)return null;
+  const arr=actualData.hourly[field]; if(!arr)return null;
+  const isSum=(field==='precipitation');
+  let sum=0,cnt=0;
+  for(let k=0;k<step;k++){const v=arr[idx+k];if(v!=null&&!isNaN(v)){sum+=v;cnt++;}}
+  if(!cnt)return null;
+  return isSum?sum:sum/cnt;
+}
 // Per-section weight badge for a model's source row
 function wBadge(sec,key){
   const w=(metricWeights[sec]||{})[key];
@@ -2417,7 +2454,7 @@ function rainCls(v){if(!v||v<0.05)return'r0';if(v<0.2)return'r1';if(v<0.5)return
 function windCls(v){if(!v||v<10)return'wc';if(v<20)return'wl';if(v<35)return'wm';if(v<55)return'wh';return'wx';}
 function cloudCls(v){if(v==null)return"";if(v<=12)return"cl0";if(v<=25)return"cl1";if(v<=50)return"cl2";if(v<=75)return"cl3";if(v<=87)return"cl4";return"cl5";}
 function buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled,ref,actMap){
-  const avg=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:hVals(m.key,"cloudcover",indices)[ci]})),'cloud'));
+  const avg=indices.map(i=>wBlendAt('cloudcover',i,horizonOf(ref.time[i].slice(0,10))));
   const avgCells=avg.map((v,ci)=>{const cls=cloudCls(v);const nc=ci===nowCi?"now-col":"";const txt=v!=null?Math.round(v)+"%":"—";return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(" ")}">${txt}</td>`,(ndCls[ci]+" "+pastCls[ci]).trim());}).join("");
   const srcRows=allActive.map(m=>{const v=hVals(m.key,"cloudcover",indices);const cells=v.map((x,ci)=>{const cls=cloudCls(x);const nc=ci===nowCi?"now-col":"";return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(" ")}">${x!=null?Math.round(x)+"%":"—"}</td>`,(ndCls[ci]+" "+pastCls[ci]).trim());}).join("");return`<tr class="${srcRowClass(m,'cloud')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span>${wBadge('cloud',m.key)}</span></td>${cells}</tr>`;}).join("");
   const nowMs=Date.now();
@@ -2968,16 +3005,16 @@ function renderHourly(){
     const cells=v.map((x,ci)=>{const nc=ci===nowCi?'now-col':'';return injectColCls(`<td class="${[x!=null?tempCls(x):'',nc].filter(Boolean).join(' ')}">${x!=null?tempDisp(x)+'°':'—'}</td>`,ndCls[ci]);}).join('');
     return`<tr class="${srcRowClass(m,'temp')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span><span style="font-size:10px;color:var(--text-muted)">${(()=>{const w=(metricWeights.temp||{})[m.key];if(!w)return '';const pct=Math.round(w*100);const cls=pct>=20?'high':pct>=10?'mid':'low';return '<span class="weight-badge '+cls+'">'+pct+'%</span>';})()}</span></span></td>${cells}</tr>`;
   }).join('');
-  const avgTemp=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:hVals(m.key,'temperature_2m',indices)[ci]})),'temp'));
+  const avgTemp=indices.map(i=>wBlendAt('temperature_2m',i,horizonOf(ref.time[i].slice(0,10))));
   const avgTempCells=avgTemp.map((v,ci)=>{
     const cls=v!=null?tempCls(v):'';
     const nc=ci===nowCi?'now-col':''; return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(' ')}">${v!=null?tempDisp(v)+'°':'<span class="empty">—</span>'}</td>`,(ndCls[ci]+' '+pastCls[ci]).trim());
   }).join('');
 
   // ── WIND ──
-  const avgWind=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:hVals(m.key,'windspeed_10m',indices)[ci]})),'wind'));
+  const avgWind=indices.map(i=>wBlendAt('windspeed_10m',i,horizonOf(ref.time[i].slice(0,10))));
   const avgWindCells=avgWind.map((v,ci)=>{const nc=ci===nowCi?'now-col':'';return injectColCls(`<td class="${[v!=null?windCls(v):'',pastCls[ci]||'',nc].filter(Boolean).join(' ')}">${fmt(v,0)}</td>`,ndCls[ci]);}).join('');
-  const avgDir=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:hVals(m.key,'winddirection_10m',indices)[ci]})),'wind'));
+  const avgDir=indices.map(i=>wBlendAt('winddirection_10m',i,horizonOf(ref.time[i].slice(0,10))));
   const avgDirCells=avgDir.map((v,ci)=>{const nc=ci===nowCi?'now-col':'';return injectColCls(`<td class="${['dir-cell',pastCls[ci]||'',nc].filter(Boolean).join(' ')}">${v!=null?dirArrow(v):'—'}</td>`,ndCls[ci]);}).join('');
   const windModelRows=allActive.map(m=>{
     const v=hVals(m.key,'windspeed_10m',indices);
@@ -2991,7 +3028,7 @@ function renderHourly(){
     const cells=v.map((x,ci)=>{const cls=rainCls(x);const txt=x==null?'—':x<0.05?'<span class="empty">0</span>':x.toFixed(1);return injectColCls(`<td class="${cls}">${txt}</td>`,ndCls[ci]);}).join('');
     return`<tr class="${srcRowClass(m,'rain')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span><span style="font-size:10px;color:var(--text-muted)">${(()=>{const w=(metricWeights.rain||{})[m.key];if(!w)return '';const pct=Math.round(w*100);const cls=pct>=20?'high':pct>=10?'mid':'low';return '<span class="weight-badge '+cls+'">'+pct+'%</span>';})()}</span></span></td>${cells}</tr>`;
   }).join('');
-  const avgRain=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:hVals(m.key,'precipitation',indices)[ci]})),'rain'));
+  const avgRain=indices.map(i=>wBlendAt('precipitation',i,horizonOf(ref.time[i].slice(0,10))));
   const avgRainCells=avgRain.map((v,ci)=>{const cls=rainCls(v);const txt=v==null?'—':v<0.05?'<span class="empty">0</span>':v.toFixed(1);
     return injectColCls(`<td class="${cls}">${txt}</td>`,ndCls[ci]);
   }).join('');
@@ -3322,7 +3359,7 @@ async function loadHorizon(metric){
   let j=_horizonCache[metric];
   if(!j){
     host.innerHTML='<div class="acc-na" style="padding:8px 2px">Loading…</div>';
-    try{ const ll=`&lat=${state.lat}&lon=${state.lon}`; const r=await fetch(`${BOM_WORKER_URL}/track/horizon?station=${encodeURIComponent(_trackStation)}${ll}&days=60&metric=${metric}`,{signal:AbortSignal.timeout(25000)}); j=await r.json(); _horizonCache[metric]=j; }
+    try{ const ll=`&lat=${state.lat}&lon=${state.lon}`; const r=await fetch(`${BOM_WORKER_URL}/track/horizon?station=${encodeURIComponent(_trackStation)}${ll}&days=35&metric=${metric}`,{signal:AbortSignal.timeout(30000)}); j=await r.json(); _horizonCache[metric]=j; }
     catch(e){ host.innerHTML='<div class="acc-na" style="padding:8px 2px">Could not load lead-time data.</div>'; return; }
   }
   host.innerHTML=horizonMatrixHTML(j,metric);
