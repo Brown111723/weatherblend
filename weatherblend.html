@@ -96,7 +96,7 @@ header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;alig
 .cc-now-icon .wxi{width:58px;height:58px;filter:drop-shadow(0 3px 9px rgba(0,0,0,.55));}
 .cc-now-temp{display:flex;flex-direction:column;min-width:0;}
 .cc-now-big{font-size:44px;font-weight:300;letter-spacing:-2px;line-height:1;}
-.cc-now-lo{font-size:24px;font-weight:300;color:var(--text-dim);margin-left:8px;letter-spacing:-1px;}
+.cc-now-lo{font-size:24px;font-weight:300;color:var(--text-muted);margin-left:8px;letter-spacing:-1px;}
 .cc-now-feels{font-size:13px;color:var(--text-muted);margin-top:3px;}
 .cc-now-side{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:3px;text-align:right;}
 .cc-now-rain{font-size:27px;font-weight:600;letter-spacing:-.5px;line-height:1;}
@@ -118,6 +118,11 @@ header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;alig
 .nc-axis .nc-ico,.nc-axis .nc-hl{height:auto;min-height:0;}
 .nc-axis-track{flex:1;min-width:0;position:relative;height:11px;}
 .nc-axis-track span{position:absolute;top:0;font-size:9px;letter-spacing:.3px;color:var(--text-muted);white-space:nowrap;}
+.nc-legend{display:flex;gap:16px;justify-content:flex-end;margin-top:7px;font-size:10.5px;color:var(--text-dim);}
+.nc-legend span{display:flex;align-items:center;gap:5px;}
+.nc-legend i{display:inline-block;width:16px;height:0;border-top:2px solid var(--text-muted);}
+.nc-legend i.ncl-dash{border-top-style:dashed;}
+.nc-legend i.ncl-pred{border-top:1.5px dotted var(--text-muted);opacity:.75;}
 .ccs{flex:1;display:flex;align-items:center;gap:7px;min-width:0;}
 .ccs-i{display:flex;flex-shrink:0;}
 .ccs-i svg{width:17px;height:17px;}
@@ -130,6 +135,9 @@ header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;alig
 .cc-icon .wxi{width:46px;height:46px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.5));}
 .cc-main{font-size:25px;font-weight:700;letter-spacing:-.5px;color:var(--text-primary);line-height:1.1;white-space:nowrap;}
 .cc-lo2{font-size:.6em;color:var(--text-dim);font-weight:600;margin-left:4px;letter-spacing:0;}
+.cc-main .cc-hlw{font-size:20px;letter-spacing:-.3px;}
+.cc-ar{font-size:.6em;color:var(--text-dim);font-weight:700;margin-right:1px;vertical-align:1px;}
+.cc-ar2{margin-left:9px;}
 .cc-unit{font-size:.46em;color:var(--text-dim);font-weight:600;margin-left:4px;letter-spacing:.3px;}
 .cc-box:not(.cc-cond){min-height:98px;}
 .cc-sub{font-size:12.5px;color:var(--text-muted);line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -659,6 +667,7 @@ let verticalLayout = false;
 let showDebug = false;             // debug panel hidden by default
 let showActuals = true;            // show the BOM "Actual" rows/columns
 let learnDays = 35;                // accuracy learning window (days), configurable
+let showPredLine = false;          // overlay forecast curve on past hours in sparklines
 let actualData = null;             // BOM observation actuals for the past days
 let manualLocationOverride = false; // set when user picks a city by hand this session
 let locationOffsetSec = null;      // UTC offset (sec) of the location — aligns BOM forecast times
@@ -713,6 +722,7 @@ function buildSourcesPanel(){
     ti("tog-weighted",e(useWeightedAvg),"⚖️","toggleWeighting(document.getElementById('tog-weighted'))","Weighted")+
     ti("tog-vert",e(verticalLayout),"⇅","toggleVertical(document.getElementById('tog-vert'))","Vertical")+
     ti("tog-actual",e(showActuals),"✓","toggleActuals(document.getElementById('tog-actual'))","Actual")+
+    ti("tog-pred",e(showPredLine),"📈","togglePredLine(document.getElementById('tog-pred'))","Predicted line")+
     ti("tog-debug",e(showDebug),"🐞","toggleDebug(document.getElementById('tog-debug'))","Debug")+
     `</div></div>`+
     `<div class="config-row">`+
@@ -810,6 +820,12 @@ function setLearnDays(v){
 function applyDebugVisibility(){
   const p=document.getElementById('debug-panel');
   if(p)p.style.display=showDebug?'flex':'none';
+}
+function togglePredLine(btn){
+  showPredLine=!showPredLine;
+  if(btn){btn.classList.toggle('enabled',showPredLine);btn.classList.toggle('disabled',!showPredLine);}
+  savePrefs();
+  if(Object.keys(state.data).length)renderCurrentBar();
 }
 function toggleDebug(btn){
   showDebug=!showDebug;
@@ -931,7 +947,7 @@ function loadSavedLocation(){
 function savePrefs(){
   try{
     localStorage.setItem('wb_prefs',JSON.stringify({
-      showDetail,useWeightedAvg,verticalLayout,showDebug,showActuals,learnDays,
+      showDetail,useWeightedAvg,verticalLayout,showDebug,showActuals,learnDays,showPredLine,
       secVisible:{...secVisible},
       secDetail:{...secDetail},
       enabled:[...enabled],
@@ -949,6 +965,7 @@ function loadPrefs(){
     if(p.showDebug!==undefined)showDebug=p.showDebug;
     if(p.showActuals!==undefined)showActuals=p.showActuals;
     if(p.learnDays!==undefined&&p.learnDays>=1&&p.learnDays<=90)learnDays=p.learnDays;
+    if(p.showPredLine!==undefined)showPredLine=p.showPredLine;
     if(p.secVisible)Object.assign(secVisible,p.secVisible);
     if(p.secDetail)Object.assign(secDetail,p.secDetail);
     if(p.enabled){enabled.clear();p.enabled.forEach(k=>{if(MODELS.find(m=>m.key===k))enabled.add(k);});}
@@ -1412,7 +1429,7 @@ function buildDayBoxes(dateStr){
     hi:s.hi, lo:s.lo, aHi:s.aTHi, aLo:s.aTLo, aHasT:s.aHasT, rain:s.rain, actualRain:s.actualRain, windPeak:s.windHi, dir,
     cloud:s.cloudMean, code:s.dayCode, past});
 
-  const HL2=(hi,lo,u)=>`${hi!=null?Math.round(hi)+u:'—'}<span class="cc-lo2">/ ${lo!=null?Math.round(lo)+u:'—'}</span>`;
+  const HL2=(hi,lo,u)=>`<span class="cc-hlw"><span class="cc-ar">↑</span>${hi!=null?Math.round(hi)+u:'—'}<span class="cc-ar cc-ar2">↓</span>${lo!=null?Math.round(lo)+u:'—'}</span>`;
 
   // TEMP — past: actual hi/lo + forecast under · future: forecast hi/lo + synopsis
   const tActual = past && s.aHasT;
@@ -1529,11 +1546,19 @@ function _dayHourPoints(dateStr){
   const idxs=[]; ref.time.forEach((t,i)=>{ if(t.slice(0,10)===dateStr) idxs.push(i); });
   if(idxs.length<2)return null;
   const hz=horizonOf(dateStr), now=Date.now();
-  const f=(field,i)=>wBlendAt(field,i,hz);          // forecast (predicted) line for the whole day
-  const temp =idxs.map(i=>f('temperature_2m',i));
-  const rain =idxs.map(i=>_rcell(f('precipitation',i)));
-  const wind =idxs.map(i=>f('windspeed_10m',i));
-  const cloud=idxs.map(i=>f('cloudcover',i));
+  const fval=(field,i)=>wBlendAt(field,i,hz);                 // pure forecast (predicted)
+  const val=(field,i)=>{                                      // observed past, forecast future (plotted)
+    const t=ref.time[i];
+    if(new Date(t).getTime()<=now && actualData && actualData.hourly && actualData.hourly.time){
+      const ai=actualData.hourly.time.indexOf(t);
+      if(ai>=0){ const av=actualData.hourly[field]?.[ai]; if(av!=null) return av; }
+    }
+    return fval(field,i);
+  };
+  const temp =idxs.map(i=>val('temperature_2m',i)),  tempF =idxs.map(i=>fval('temperature_2m',i));
+  const rain =idxs.map(i=>_rcell(val('precipitation',i))), rainF=idxs.map(i=>_rcell(fval('precipitation',i)));
+  const wind =idxs.map(i=>val('windspeed_10m',i)),   windF =idxs.map(i=>fval('windspeed_10m',i));
+  const cloud=idxs.map(i=>val('cloudcover',i)),       cloudF=idxs.map(i=>fval('cloudcover',i));
   const times=idxs.map(i=>ref.time[i]);
   const N=times.length-1;
   const ticks=[];
@@ -1548,7 +1573,7 @@ function _dayHourPoints(dateStr){
     else{ const a=new Date(times[last]).getTime(), b=new Date(times[last+1]).getTime();
       nowFrac=(last+Math.min(1,Math.max(0,(now-a)/(b-a))))/N; }
   }
-  return {temp,rain,wind,cloud,ticks,nowFrac,n:idxs.length};
+  return {temp,tempF,rain,rainF,wind,windF,cloud,cloudF,ticks,nowFrac,n:idxs.length};
 }
 function _sparkline(vals,o){
   const W=240,H=30,padX=2,padT=5,padB=4,n=vals.length;
@@ -1566,10 +1591,18 @@ function _sparkline(vals,o){
   const stops=vals.map((v,i)=> v==null?null:`<stop offset="${(n>1?i/(n-1):0)*100}%" stop-color="${o.ramp(v)}" stop-opacity="0.5"/>`).filter(Boolean).join('');
   const grid=(o.ticks||[]).map(t=>{const gx=(t.frac*(W-2*padX)+padX).toFixed(1);return `<line x1="${gx}" y1="${padT-2}" x2="${gx}" y2="${H-padB+1}" stroke="var(--border)" stroke-width="1" opacity="0.5" vector-effect="non-scaling-stroke"/>`;}).join('');
   const nowLine=(o.now!=null)?`<line x1="${(o.now*(W-2*padX)+padX).toFixed(1)}" y1="0" x2="${(o.now*(W-2*padX)+padX).toFixed(1)}" y2="${H}" stroke="#ff4d4f" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`:'';
+  // Optional predicted (forecast) curve over the observed/past span, to compare prediction vs actual
+  let predLine='';
+  if(o.showPred && o.fc && o.fc.length===n){
+    const fcPts=o.fc.map((v,i)=> (v==null||X(i)>cut+0.6)?null:[X(i),Y(v)]);
+    const dpred=path(fcPts);
+    if(dpred) predLine=`<path d="${dpred}" fill="none" stroke="${o.color}" stroke-width="1.1" stroke-dasharray="1.5 2.5" opacity="0.6" vector-effect="non-scaling-stroke"/>`;
+  }
   return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" height="${H}">
     <defs><linearGradient id="${o.gid}" x1="0" y1="0" x2="1" y2="0">${stops}</linearGradient></defs>
     ${grid}
     <path d="${area}" fill="url(#${o.gid})"/>
+    ${predLine}
     ${path(solid)?`<path d="${path(solid)}" fill="none" stroke="${o.color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`:''}
     ${dash&&path(dash)?`<path d="${path(dash)}" fill="none" stroke="${o.color}" stroke-width="1.6" stroke-dasharray="3 3" stroke-linejoin="round" stroke-linecap="round" opacity="0.85" vector-effect="non-scaling-stroke"/>`:''}
     ${nowLine}
@@ -1582,15 +1615,15 @@ function nowChartHTML(dateStr){
   const now=isToday?p.nowFrac:null;
   const g=_sgid++;
   const rows=[
-    {k:'temp', ic:MI_TEMP,c:'#86efac',vals:p.temp,ramp:_rampTemp,gid:'sgT'+g,fmt:v=>Math.round(v)+'°'},
-    {k:'rain', ic:MI_RAIN,c:'#60a5fa',vals:p.rain,ramp:_rampRain,gid:'sgR'+g,zero:true,fmt:v=>(v>=10?Math.round(v):v.toFixed(1))},
-    {k:'wind', ic:MI_WIND,c:'#a3e635',vals:p.wind,ramp:_rampWind,gid:'sgW'+g,zero:true,fmt:v=>Math.round(v)},
-    {k:'cloud',ic:MI_CLOUD,c:'#c4b5fd',vals:p.cloud,ramp:_rampCloud,gid:'sgC'+g,fmt:v=>Math.round(v)+'%'}
+    {k:'temp', ic:MI_TEMP,c:'#86efac',vals:p.temp,fc:p.tempF,ramp:_rampTemp,gid:'sgT'+g,fmt:v=>Math.round(v)+'°'},
+    {k:'rain', ic:MI_RAIN,c:'#60a5fa',vals:p.rain,fc:p.rainF,ramp:_rampRain,gid:'sgR'+g,zero:true,fmt:v=>(v>=10?Math.round(v):v.toFixed(1))},
+    {k:'wind', ic:MI_WIND,c:'#a3e635',vals:p.wind,fc:p.windF,ramp:_rampWind,gid:'sgW'+g,zero:true,fmt:v=>Math.round(v)},
+    {k:'cloud',ic:MI_CLOUD,c:'#c4b5fd',vals:p.cloud,fc:p.cloudF,ramp:_rampCloud,gid:'sgC'+g,fmt:v=>Math.round(v)+'%'}
   ].filter(r=>secVisible[r.k]);
   if(!rows.length)return '';
   const body=rows.map(r=>{
-    const sc=_scaleOf(r.vals,r.zero);
-    const spark=_sparkline(r.vals,{color:r.c,ramp:r.ramp,zeroBase:r.zero,scale:sc,ticks:p.ticks,split,now,gid:r.gid});
+    const sc=_scaleOf(showPredLine&&r.fc?r.vals.concat(r.fc):r.vals,r.zero);   // scale fits predicted overlay too
+    const spark=_sparkline(r.vals,{color:r.c,ramp:r.ramp,zeroBase:r.zero,scale:sc,ticks:p.ticks,split,now,gid:r.gid,fc:r.fc,showPred:showPredLine});
     return `<div class="nc-row"><span class="nc-ico" style="color:${r.c}">${r.ic}</span><div class="nc-spark">${spark}</div><div class="nc-hl"><span>${r.fmt(sc.mx)}</span><span>${r.fmt(sc.mn)}</span></div></div>`;
   }).join('');
   const axisLabels=(p.ticks||[]).map(t=>{
@@ -1598,7 +1631,8 @@ function nowChartHTML(dateStr){
     return `<span style="${al}">${t.label}</span>`;
   }).join('');
   const axis=`<div class="nc-axis"><span class="nc-ico"></span><div class="nc-axis-track">${axisLabels}</div><span class="nc-hl"></span></div>`;
-  return `<div class="now-chart">${body}${axis}</div>`;
+  const legend=`<div class="nc-legend"><span><i class="ncl-line"></i>Observed</span><span><i class="ncl-dash"></i>Forecast</span>${showPredLine?`<span><i class="ncl-pred"></i>Predicted</span>`:''}</div>`;
+  return `<div class="now-chart">${body}${axis}${legend}</div>`;
 }
 function condCard(o){
   const isT=o.today, past=!isT&&o.past;
