@@ -105,7 +105,12 @@ header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;alig
 .cns-i{display:inline-flex;}
 .cns-i svg{width:14px;height:14px;}
 .cc-now-stats{display:flex;gap:10px;margin-top:12px;padding-top:11px;border-top:1px solid var(--border);}
-.now-chart{margin-top:13px;padding-top:12px;border-top:1px solid var(--border);}
+.now-chart{margin-top:13px;padding-top:18px;border-top:1px solid var(--border);}
+.nc-rows{position:relative;}
+.nc-scrubbable{touch-action:pan-y;cursor:ew-resize;}
+.nc-cursor{position:absolute;top:-4px;bottom:1px;width:0;border-left:1.5px solid #ff4d4f;pointer-events:none;z-index:4;transition:left .12s ease;}
+.nc-rows.scrubbing .nc-cursor{transition:none;}
+.nc-cursor-time{position:absolute;top:-14px;left:50%;transform:translateX(-50%);font-size:9px;font-weight:800;color:#ff4d4f;white-space:nowrap;letter-spacing:.2px;text-shadow:0 0 3px rgba(0,0,0,.7);}
 .nc-row{display:flex;align-items:center;gap:10px;height:30px;}
 .nc-row+.nc-row{margin-top:5px;}
 .nc-ico{flex:0 0 18px;display:flex;align-items:center;justify-content:center;}
@@ -136,8 +141,9 @@ header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;alig
 .cc-main{font-size:25px;font-weight:700;letter-spacing:-.5px;color:var(--text-primary);line-height:1.1;white-space:nowrap;}
 .cc-lo2{font-size:.6em;color:var(--text-dim);font-weight:600;margin-left:4px;letter-spacing:0;}
 .cc-main .cc-hlw{font-size:20px;letter-spacing:-.3px;}
-.cc-ar{font-size:.6em;color:var(--text-dim);font-weight:700;margin-right:1px;vertical-align:1px;}
+.cc-ar{font-size:.6em;color:#aebccf;font-weight:700;margin-right:1px;vertical-align:1px;}
 .cc-ar2{margin-left:9px;}
+.cns-u{font-size:.82em;color:var(--text-dim);font-weight:600;}
 .cc-unit{font-size:.46em;color:var(--text-dim);font-weight:600;margin-left:4px;letter-spacing:.3px;}
 .cc-box:not(.cc-cond){min-height:98px;}
 .cc-sub{font-size:12.5px;color:var(--text-muted);line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -1196,7 +1202,7 @@ async function fetchAllModels(){
 function buildForecastRainCache(){
   const onlyEnabled=activeEnabled();if(!onlyEnabled.length)return;
   const ref=state.data[onlyEnabled[0].key].hourly;
-  const now=new Date();
+  const now=locNowDate();
   // Start from current hour (forecast only, not past data)
   let si=ref.time.findIndex(t=>new Date(t)>=now);if(si<0)si=0;
   cachedForecastRain=Array.from({length:25},(_,i)=>{
@@ -1210,7 +1216,7 @@ function buildForecastRainCache(){
 // ══════════════════════════════════════════
 function buildHiLoCache(){
   const onlyEnabled=activeEnabled();if(!onlyEnabled.length)return;
-  const _n=new Date();const todayStr=`${_n.getFullYear()}-${String(_n.getMonth()+1).padStart(2,"0")}-${String(_n.getDate()).padStart(2,"0")}`;
+  const _n=locNowDate();const todayStr=`${_n.getFullYear()}-${String(_n.getMonth()+1).padStart(2,"0")}-${String(_n.getDate()).padStart(2,"0")}`;
   const hiVals=onlyEnabled.map(m=>{
     const d=state.data[m.key]?.daily;if(!d)return null;
     const di=d.time.findIndex(t=>t===todayStr);if(di<0)return null;
@@ -1258,7 +1264,7 @@ function _rcell(v){ return (v==null||v<0.05)?0:Math.round(v*10)/10; }
 function computeCurrentFromHourly(){
   const onlyEnabled=activeEnabled();if(!onlyEnabled.length)return null;
   const ref=state.data[onlyEnabled[0].key]?.hourly;if(!ref)return null;
-  const now=new Date();
+  const now=locNowDate();
   // LOCAL date string (not UTC) — data timestamps are in local time
   const pad=n=>String(n).padStart(2,'0');
   const todayStr=`${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
@@ -1327,7 +1333,17 @@ function computeCurrentFromHourly(){
 
 // Selected day in the carousel (date string); null → today
 let selDate=null;
-function localTodayStr(){const n=new Date();const p=x=>String(x).padStart(2,'0');return `${n.getFullYear()}-${p(n.getMonth()+1)}-${p(n.getDate())}`;}
+// "Now" in the SELECTED LOCATION's timezone. Open-Meteo returns wall-clock times
+// (timezone=auto) which JS parses as device-local; rebuild the location's wall
+// time the same way so comparisons line up even for a city in another timezone.
+function locNowDate(){
+  const off=(typeof locationOffsetSec==='number'?locationOffsetSec:-new Date().getTimezoneOffset()*60);
+  const d=new Date(Date.now()+off*1000);
+  return new Date(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate(),d.getUTCHours(),d.getUTCMinutes(),d.getUTCSeconds());
+}
+function locNowMs(){ return locNowDate().getTime(); }
+function locNowLabel(){ return locNowDate().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}); }
+function localTodayStr(){const n=locNowDate();const p=x=>String(x).padStart(2,'0');return `${n.getFullYear()}-${p(n.getMonth()+1)}-${p(n.getDate())}`;}
 
 // All dates available in the carousel (past 7 + future 10), from the ref grid
 function carouselDates(){
@@ -1342,7 +1358,7 @@ function computeDaySummary(dateStr){
   const ref=state.data[onlyEnabled[0].key]?.hourly;if(!ref?.time)return null;
   const today=localTodayStr();
   const isToday=dateStr===today, isFuture=dateStr>today, isPast=dateStr<today;
-  const now=new Date();
+  const now=locNowDate();
   const hz=horizonOf(dateStr);
   const wAt=(f,i)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.hourly?.[f]?.[i]??null})),fieldSec(f),hz);
 
@@ -1426,7 +1442,9 @@ function buildDayBoxes(dateStr){
   const arrow=s.windDir!=null?dirArrow16(s.windDir):'', dir=s.windDir!=null?dirFull(s.windDir):'';
   const HL=(hi,lo,u)=>`↑${hi!=null?Math.round(hi)+u:'—'}<span style="display:inline-block;width:10px"></span>↓${lo!=null?Math.round(lo)+u:'—'}`;
   const cond=condCard({today:false, dateStr, icon:wxIcon(s.dayCode,false), condWord:wxDesc(s.dayCode,true),
-    hi:s.hi, lo:s.lo, aHi:s.aTHi, aLo:s.aTLo, aHasT:s.aHasT, rain:s.rain, actualRain:s.actualRain, windPeak:s.windHi, dir,
+    hi:s.hi, lo:s.lo, aHi:s.aTHi, aLo:s.aTLo, aHasT:s.aHasT, rain:s.rain, actualRain:s.actualRain,
+    windHi:s.windHi, windLo:s.windLo, aWHi:s.aWHi, aWLo:s.aWLo, aHasW:s.aHasW, dir,
+    cloudHi:s.cloudHi, cloudLo:s.cloudLo, aCHi:s.aCHi, aCLo:s.aCLo, aHasC:s.aHasC,
     cloud:s.cloudMean, code:s.dayCode, past});
 
   const HL2=(hi,lo,u)=>`<span class="cc-hlw"><span class="cc-ar">↑</span>${hi!=null?Math.round(hi)+u:'—'}<span class="cc-ar cc-ar2">↓</span>${lo!=null?Math.round(lo)+u:'—'}</span>`;
@@ -1545,7 +1563,7 @@ function _dayHourPoints(dateStr){
   const ref=refHourly(); if(!ref||!ref.time)return null;
   const idxs=[]; ref.time.forEach((t,i)=>{ if(t.slice(0,10)===dateStr) idxs.push(i); });
   if(idxs.length<2)return null;
-  const hz=horizonOf(dateStr), now=Date.now();
+  const hz=horizonOf(dateStr), now=locNowMs();
   const fval=(field,i)=>wBlendAt(field,i,hz);                 // pure forecast (predicted)
   const val=(field,i)=>{                                      // observed past, forecast future (plotted)
     const t=ref.time[i];
@@ -1560,6 +1578,8 @@ function _dayHourPoints(dateStr){
   const wind =idxs.map(i=>val('windspeed_10m',i)),   windF =idxs.map(i=>fval('windspeed_10m',i));
   const cloud=idxs.map(i=>val('cloudcover',i)),       cloudF=idxs.map(i=>fval('cloudcover',i));
   const times=idxs.map(i=>ref.time[i]);
+  const refKey=activeEnabled()[0]?.key;
+  const codes=idxs.map(i=>state.data[refKey]?.hourly?.weathercode?.[i]??null);
   const N=times.length-1;
   const ticks=[];
   times.forEach((t,k)=>{ const hr=new Date(t).getHours();
@@ -1573,7 +1593,7 @@ function _dayHourPoints(dateStr){
     else{ const a=new Date(times[last]).getTime(), b=new Date(times[last+1]).getTime();
       nowFrac=(last+Math.min(1,Math.max(0,(now-a)/(b-a))))/N; }
   }
-  return {temp,tempF,rain,rainF,wind,windF,cloud,cloudF,ticks,nowFrac,n:idxs.length};
+  return {temp,tempF,rain,rainF,wind,windF,cloud,cloudF,times,codes,ticks,nowFrac,n:idxs.length};
 }
 function _sparkline(vals,o){
   const W=240,H=30,padX=2,padT=5,padB=4,n=vals.length;
@@ -1623,7 +1643,7 @@ function nowChartHTML(dateStr){
   if(!rows.length)return '';
   const body=rows.map(r=>{
     const sc=_scaleOf(showPredLine&&r.fc?r.vals.concat(r.fc):r.vals,r.zero);   // scale fits predicted overlay too
-    const spark=_sparkline(r.vals,{color:r.c,ramp:r.ramp,zeroBase:r.zero,scale:sc,ticks:p.ticks,split,now,gid:r.gid,fc:r.fc,showPred:showPredLine});
+    const spark=_sparkline(r.vals,{color:r.c,ramp:r.ramp,zeroBase:r.zero,scale:sc,ticks:p.ticks,split,now:null,gid:r.gid,fc:r.fc,showPred:showPredLine});
     return `<div class="nc-row"><span class="nc-ico" style="color:${r.c}">${r.ic}</span><div class="nc-spark">${spark}</div><div class="nc-hl"><span>${r.fmt(sc.mx)}</span><span>${r.fmt(sc.mn)}</span></div></div>`;
   }).join('');
   const axisLabels=(p.ticks||[]).map(t=>{
@@ -1632,8 +1652,84 @@ function nowChartHTML(dateStr){
   }).join('');
   const axis=`<div class="nc-axis"><span class="nc-ico"></span><div class="nc-axis-track">${axisLabels}</div><span class="nc-hl"></span></div>`;
   const legend=`<div class="nc-legend"><span><i class="ncl-line"></i>Observed</span><span><i class="ncl-dash"></i>Forecast</span>${showPredLine?`<span><i class="ncl-pred"></i>Predicted</span>`:''}</div>`;
-  return `<div class="now-chart">${body}${axis}${legend}</div>`;
+  let cursor='';
+  if(isToday && now!=null){
+    const cf=_curFrac(now);
+    cursor=`<div class="nc-cursor" style="left:${cf}"><span class="nc-cursor-time">${locNowLabel()}</span></div>`;
+  }
+  const scrubAttr=isToday?` data-scrub="1" data-date="${dateStr}"`:'';
+  return `<div class="now-chart"><div class="nc-rows${isToday?' nc-scrubbable':''}"${scrubAttr}>${body}${cursor}</div>${axis}${legend}</div>`;
 }
+// Convert an hour-fraction (0..1 over the day) to a CSS left within the sparkline
+// drawing area, accounting for the icon/value columns and the SVG's 2px inset.
+function _curFrac(frac){ const cf=(2+frac*236)/240; return `calc(28px + (100% - 68px) * ${cf})`; }
+
+// ── Interactive sparkline scrubbing (today): drag the now-line to read any hour ─
+let _scrub=null;
+function _scrubIcon(p,idx){
+  const iso=p.times[idx]; const code=deriveCondCode(p.rain[idx],p.cloud[idx],p.codes[idx]);
+  const phase=sunPhaseAt(iso); return wxIcon(code,phase==='night',phase);
+}
+function _scrubMainHTML(d){
+  const big=`<div class="cc-now-big" style="color:${tempColor(d.temp)}">${d.temp!=null?Math.round(d.temp)+'°':'—'}</div>`;
+  const tempBlock=secVisible.temp?`<div class="cc-now-temp">${big}<div class="cc-now-feels">${d.timeLabel}</div></div>`:'';
+  const rws=[];
+  if(secVisible.rain) rws.push(`<div class="cc-now-sub cc-now-rainfig" style="color:#60a5fa"><span class="cns-i">${MI_RAIN}</span>${d.rain!=null?d.rain.toFixed(1)+' mm':'—'}</div>`);
+  if(secVisible.wind) rws.push(`<div class="cc-now-sub" style="color:#a3e635"><span class="cns-i">${MI_WIND}</span>${d.wind!=null?Math.round(d.wind)+' km/h':'—'}</div>`);
+  if(secVisible.cloud) rws.push(`<div class="cc-now-sub" style="color:#c4b5fd"><span class="cns-i">${MI_CLOUD}</span>${d.cloud!=null?Math.round(d.cloud)+'%':'—'}</div>`);
+  const side=rws.length?`<div class="cc-now-side">${rws.join('')}</div>`:'';
+  return `<div class="cc-icon cc-now-icon">${d.icon}</div>${tempBlock}${side}`;
+}
+function _scrubFrac(clientX,rows){
+  const r=rows.getBoundingClientRect(); const left=r.left+28, right=r.right-40, w=Math.max(1,right-left);
+  return Math.max(0,Math.min(1,(clientX-left)/w));
+}
+function _scrubAt(idx){
+  const p=_scrub.p, n=p.n;
+  const d={temp:p.temp[idx],rain:p.rain[idx],wind:p.wind[idx],cloud:p.cloud[idx],icon:_scrubIcon(p,idx),timeLabel:fmtAmPm(new Date(p.times[idx]))};
+  _scrub.mainEl.innerHTML=_scrubMainHTML(d);
+  _scrub.cursor.style.left=_curFrac(n>1?idx/(n-1):0);
+  _scrub.cursor.classList.add('scrub-on');
+  const te=_scrub.cursor.querySelector('.nc-cursor-time'); if(te)te.textContent=d.timeLabel;
+}
+function _scrubMove(e){
+  if(!_scrub)return;
+  if(!_scrub.active){
+    const dx=Math.abs(e.clientX-_scrub.sx), dy=Math.abs(e.clientY-_scrub.sy);
+    if(dx<4&&dy<4)return;
+    if(dy>dx){ _scrubEnd(); return; }            // vertical intent → let the page scroll
+    _scrub.active=true; _scrub.rows.classList.add('scrubbing');
+  }
+  _scrubAt(Math.round(_scrubFrac(e.clientX,_scrub.rows)*(_scrub.p.n-1)));
+  e.preventDefault();
+}
+function _scrubEnd(){
+  if(!_scrub)return;
+  if(_scrub.active){
+    _scrub.mainEl.innerHTML=_scrub.orig;                          // restore live "now" card
+    _scrub.cursor.style.left=_curFrac(_scrub.p.nowFrac??1);       // snap line back to current hour
+    _scrub.cursor.classList.remove('scrub-on');
+    const te=_scrub.cursor.querySelector('.nc-cursor-time'); if(te)te.textContent=locNowLabel();
+    _scrub.rows.classList.remove('scrubbing');
+  }
+  document.removeEventListener('pointermove',_scrubMove);
+  document.removeEventListener('pointerup',_scrubEnd);
+  document.removeEventListener('pointercancel',_scrubEnd);
+  _scrub=null;
+}
+function _scrubStart(e){
+  if(_scrub)return;
+  const rows=e.target.closest('.nc-rows[data-scrub]'); if(!rows)return;
+  if(rows.getAttribute('data-date')!==localTodayStr())return;
+  const p=_dayHourPoints(rows.getAttribute('data-date')); if(!p||p.nowFrac==null)return;
+  const card=rows.closest('.cc-now'); const mainEl=card&&card.querySelector('.cc-now-main'); const cursor=rows.querySelector('.nc-cursor');
+  if(!mainEl||!cursor)return;
+  _scrub={rows,p,mainEl,orig:mainEl.innerHTML,cursor,sx:e.clientX,sy:e.clientY,active:false};
+  document.addEventListener('pointermove',_scrubMove,{passive:false});
+  document.addEventListener('pointerup',_scrubEnd);
+  document.addEventListener('pointercancel',_scrubEnd);
+}
+document.addEventListener('pointerdown',_scrubStart);
 function condCard(o){
   const isT=o.today, past=!isT&&o.past;
   let big='', sub2='';
@@ -1645,11 +1741,20 @@ function condCard(o){
     const hi=useAct?o.aHi:o.hi, lo=useAct?o.aLo:o.lo;
     big=`<div class="cc-now-big" style="color:${tempColor(hi)}">${hi!=null?Math.round(hi)+'°':'—'}${lo!=null?`<span class="cc-now-lo">${Math.round(lo)}°</span>`:''}</div>`;
   }
-  const rainV=isT?o.rain:((past&&o.actualRain!=null)?o.actualRain:o.rain), windV=isT?o.wind:o.windPeak, cloudV=o.cloud;
+  const HLs=(hi,lo,u)=>`<span class="cc-ar">↑</span>${hi!=null?Math.round(hi)+u:'—'}<span class="cc-ar cc-ar2">↓</span>${lo!=null?Math.round(lo)+u:'—'}`;
+  const rainV=isT?o.rain:((past&&o.actualRain!=null)?o.actualRain:o.rain);
+  const wHi=(past&&o.aHasW)?o.aWHi:o.windHi, wLo=(past&&o.aHasW)?o.aWLo:o.windLo;
+  const cHi=(past&&o.aHasC)?o.aCHi:o.cloudHi, cLo=(past&&o.aHasC)?o.aCLo:o.cloudLo;
   const sideRows=[];
   if(secVisible.rain) sideRows.push(`<div class="cc-now-sub cc-now-rainfig" style="color:#60a5fa"><span class="cns-i">${MI_RAIN}</span>${rainV!=null?rainV.toFixed(1)+' mm':'—'}</div>`);
-  if(secVisible.wind) sideRows.push(`<div class="cc-now-sub" style="color:#a3e635"><span class="cns-i">${MI_WIND}</span>${windV!=null?Math.round(windV)+' km/h':'—'}${o.dir?' '+o.dir:''}</div>`);
-  if(secVisible.cloud) sideRows.push(`<div class="cc-now-sub" style="color:#c4b5fd"><span class="cns-i">${MI_CLOUD}</span>${cloudV!=null?Math.round(cloudV)+'%':'—'}</div>`);
+  if(secVisible.wind){
+    const w=isT?`${o.wind!=null?Math.round(o.wind)+' km/h':'—'}${o.dir?' '+o.dir:''}`:`${HLs(wHi,wLo,'')}<span class="cns-u"> km/h</span>`;
+    sideRows.push(`<div class="cc-now-sub" style="color:#a3e635"><span class="cns-i">${MI_WIND}</span>${w}</div>`);
+  }
+  if(secVisible.cloud){
+    const c=isT?`${o.cloud!=null?Math.round(o.cloud)+'%':'—'}`:`${HLs(cHi,cLo,'%')}`;
+    sideRows.push(`<div class="cc-now-sub" style="color:#c4b5fd"><span class="cns-i">${MI_CLOUD}</span>${c}</div>`);
+  }
   const side=sideRows.length?`<div class="cc-now-side">${sideRows.join('')}</div>`:'';
   const tempBlock=secVisible.temp?`<div class="cc-now-temp">${big}${sub2?`<div class="cc-now-feels">${sub2}</div>`:''}</div>`:'';
   return `<div class="cc-box cc-cond cc-now">
@@ -1856,7 +1961,7 @@ function initCarouselScroll(){
 function hourBarStep(){ return state.view==='3h'?3:state.view==='8h'?8:1; }
 
 function _nowHourIso(step){
-  const n=new Date(), p=x=>String(x).padStart(2,'0');
+  const n=locNowDate(), p=x=>String(x).padStart(2,'0');
   const hr=Math.floor(n.getHours()/(step||1))*(step||1);
   return `${n.getFullYear()}-${p(n.getMonth()+1)}-${p(n.getDate())}T${p(hr)}:00`;
 }
@@ -1866,14 +1971,26 @@ function hourTileData(iso){
   const ref=refHourly(); if(!ref?.time)return null;
   const idx=ref.time.indexOf(iso); if(idx<0)return null;
   const hz=horizonOf(iso.slice(0,10));
-  // Always the blended FORECAST so the tile matches the table's forecast row
-  // exactly. (Observed values live in the table's Actual rows + the "now" card.)
-  const temp=wBlendAt('temperature_2m',idx,hz), rain=wBlendAt('precipitation',idx,hz),
-        wind=wBlendAt('windspeed_10m',idx,hz), cloud=wBlendAt('cloudcover',idx,hz);
+  // Forecast blend by default; override with observed actuals for past hours.
+  let temp=wBlendAt('temperature_2m',idx,hz), rain=wBlendAt('precipitation',idx,hz),
+      wind=wBlendAt('windspeed_10m',idx,hz), cloud=wBlendAt('cloudcover',idx,hz);
+  const past=new Date(iso).getTime()<locNowMs();
+  let isAct=false;
+  if(past && actualData?.hourly?.time){
+    const ai=actualData.hourly.time.indexOf(iso);
+    if(ai>=0){
+      const at=actualData.hourly.temperature_2m?.[ai], ar=actualData.hourly.precipitation?.[ai],
+            aw=actualData.hourly.windspeed_10m?.[ai], ac=actualData.hourly.cloudcover?.[ai];
+      if(at!=null){temp=at;isAct=true;}
+      if(ar!=null)rain=ar;
+      if(aw!=null)wind=aw;
+      if(ac!=null)cloud=ac;
+    }
+  }
   const rawCode=state.data[activeEnabled()[0]?.key]?.hourly?.weathercode?.[idx]??null;
-  const phase=sunPhaseAt(iso), past=new Date(iso).getTime()<Date.now();
+  const phase=sunPhaseAt(iso);
   const code=deriveCondCode(rain,cloud,rawCode);
-  return {iso,temp,rain,wind,cloud,code,isAct:false,past,phase,night:phase==='night'};
+  return {iso,temp,rain,wind,cloud,code,isAct,past,phase,night:phase==='night'};
 }
 
 const MI_TEMP='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/></svg>';
