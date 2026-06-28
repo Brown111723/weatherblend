@@ -97,6 +97,17 @@ header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;alig
 .cc-now-feels{font-size:13px;color:var(--text-muted);margin-top:3px;}
 .cc-now-narr{font-size:13.5px;line-height:1.5;color:var(--text-muted);margin-top:11px;}
 .cc-now-stats{display:flex;gap:10px;margin-top:12px;padding-top:11px;border-top:1px solid var(--border);}
+.now-chart{margin-top:13px;padding-top:12px;border-top:1px solid var(--border);}
+.nc-row{display:flex;align-items:center;gap:10px;height:30px;}
+.nc-row+.nc-row{margin-top:5px;}
+.nc-ico{flex:0 0 18px;display:flex;align-items:center;justify-content:center;}
+.nc-ico svg{width:16px;height:16px;}
+.nc-spark{flex:1;min-width:0;}
+.spark{display:block;width:100%;height:30px;overflow:visible;}
+.nc-legend{display:flex;gap:16px;justify-content:flex-end;margin-top:8px;font-size:10.5px;color:var(--text-dim);}
+.nc-legend span{display:flex;align-items:center;gap:5px;}
+.nc-legend i{display:inline-block;width:16px;height:0;border-top:2px solid var(--text-muted);}
+.nc-legend i.ncl-dash{border-top-style:dashed;}
 .ccs{flex:1;display:flex;align-items:center;gap:7px;min-width:0;}
 .ccs-i{display:flex;flex-shrink:0;}
 .ccs-i svg{width:17px;height:17px;}
@@ -193,6 +204,9 @@ body{padding-bottom:64px;}
 .model-panel.open{display:flex;}
 .config-row{display:flex;flex-direction:column;align-items:flex-start;gap:4px;width:100%;padding:4px 0;}
 .config-row-label{font-size:10px;color:var(--text-dim);font-weight:700;letter-spacing:1px;text-transform:uppercase;width:100%;margin-bottom:3px;}
+.learn-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.learn-select{background:var(--surface2);color:var(--text-primary);border:1px solid var(--border2);border-radius:9px;padding:7px 10px;font-size:13px;font-family:inherit;cursor:pointer;}
+.learn-hint{font-size:11px;color:var(--text-dim);flex:1;min-width:120px;line-height:1.35;}
 .tog-item{display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;min-width:44px;}
 .tog-item .tog-btn{width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:10px;border:1px solid var(--border);background:transparent;transition:all .15s;font-size:18px;}
 .tog-item .tog-btn.enabled{border-color:var(--border2);background:var(--surface);}
@@ -630,6 +644,7 @@ let useWeightedAvg = true;         // toggled by config panel
 let verticalLayout = false;
 let showDebug = false;             // debug panel hidden by default
 let showActuals = true;            // show the BOM "Actual" rows/columns
+let learnDays = 35;                // accuracy learning window (days), configurable
 let actualData = null;             // BOM observation actuals for the past days
 let manualLocationOverride = false; // set when user picks a city by hand this session
 let locationOffsetSec = null;      // UTC offset (sec) of the location — aligns BOM forecast times
@@ -685,6 +700,14 @@ function buildSourcesPanel(){
     ti("tog-vert",e(verticalLayout),"⇅","toggleVertical(document.getElementById('tog-vert'))","Vertical")+
     ti("tog-actual",e(showActuals),"✓","toggleActuals(document.getElementById('tog-actual'))","Actual")+
     ti("tog-debug",e(showDebug),"🐞","toggleDebug(document.getElementById('tog-debug'))","Debug")+
+    `</div></div>`+
+    `<div class="config-row">`+
+    `<div class="config-row-label">Learning window</div>`+
+    `<div class="learn-row">`+
+    `<select class="learn-select" onchange="setLearnDays(this.value)">`+
+    [14,21,35,60,90].map(d=>`<option value="${d}"${learnDays===d?' selected':''}>${d} days</option>`).join('')+
+    `</select>`+
+    `<span class="learn-hint">Days of history used to score model accuracy</span>`+
     `</div></div>`+
     `<div class="config-row">`+
     `<div class="config-row-label">Sources</div>`+
@@ -760,6 +783,15 @@ function toggleActuals(btn){
   if(btn){btn.classList.toggle('enabled',showActuals);btn.classList.toggle('disabled',!showActuals);}
   savePrefs();
   if(Object.keys(state.data).length){renderTable();}
+}
+function setLearnDays(v){
+  const d=parseInt(v,10); if(isNaN(d))return;
+  learnDays=Math.max(7,Math.min(90,d));
+  savePrefs();
+  // Re-pull learned weights over the new window, then re-render
+  historicalWeights=null; historicalWeightsByH=null; accuracyMeta=null; accuracyStats=null; _horizonCache={};
+  dbg('learning window → '+learnDays+' days; refetching weights…');
+  syncAndLoadAccuracy().then(()=>{ try{ renderCurrentBar(); renderTable(); }catch(e){} }).catch(e=>dbg('relearn error: '+e.message));
 }
 function applyDebugVisibility(){
   const p=document.getElementById('debug-panel');
@@ -885,7 +917,7 @@ function loadSavedLocation(){
 function savePrefs(){
   try{
     localStorage.setItem('wb_prefs',JSON.stringify({
-      showDetail,useWeightedAvg,verticalLayout,showDebug,showActuals,
+      showDetail,useWeightedAvg,verticalLayout,showDebug,showActuals,learnDays,
       secVisible:{...secVisible},
       secDetail:{...secDetail},
       enabled:[...enabled],
@@ -902,6 +934,7 @@ function loadPrefs(){
     if(p.verticalLayout!==undefined)verticalLayout=p.verticalLayout;
     if(p.showDebug!==undefined)showDebug=p.showDebug;
     if(p.showActuals!==undefined)showActuals=p.showActuals;
+    if(p.learnDays!==undefined&&p.learnDays>=7&&p.learnDays<=90)learnDays=p.learnDays;
     if(p.secVisible)Object.assign(secVisible,p.secVisible);
     if(p.secDetail)Object.assign(secDetail,p.secDetail);
     if(p.enabled){enabled.clear();p.enabled.forEach(k=>{if(MODELS.find(m=>m.key===k))enabled.add(k);});}
@@ -1105,28 +1138,24 @@ async function fetchAllModels(){
   const t=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
   setStatus('ok',`${ok}/${MODELS.length} models · ${t}${failed.length?' · unavail: '+failed.join(', '):''}`);
 
-  // Render the table immediately with a simple (equal-weight) average so it
-  // always appears fast. BOM actuals + RMSE weights are then fetched in the
-  // background and the table re-renders once they're ready.
+  // Prepare caches + panels, but DON'T paint yet — we want the first render to
+  // be final and internally consistent (same weights everywhere), so compute the
+  // BOM actuals + RMSE weights first (with a safety timeout so a slow BOM fetch
+  // can't hang the UI), then render cards + table together from one snapshot.
+  try{ buildForecastRainCache(); buildHiLoCache(); buildSourcesPanel(); scheduleAutoRefresh(); }catch(e){ dbg('prep error: '+e.message); }
+  setStatus('spin','Finalising forecast…');
+  dbg('fetching BOM actuals + weights before first paint…');
   try{
-    buildForecastRainCache();
-    buildHiLoCache();
-    renderCurrentBar();
-    buildSourcesPanel();
-    scheduleAutoRefresh();
-    renderTable();
-    dbg('✓ table rendered (equal-weight, pre-actuals)');
-  }catch(e){ dbg('❌ initial render error: '+e.message); }
+    await Promise.race([ fetchActualsAndComputeWeights(), new Promise(r=>setTimeout(r,6000)) ]);
+    dbg('actuals/weights ready'+(actualData?(' — '+actualData.source+' '+(actualData.stationName||'')):' — no actuals'));
+  }catch(e){ dbg('❌ actuals/weights error: '+e.message); }
+  setStatus('ok',`${ok}/${MODELS.length} models · ${t}${failed.length?' · unavail: '+failed.join(', '):''}`);
+  try{ renderCurrentBar(); renderTable(); dbg('✓ rendered (weighted, with actuals)'); }
+  catch(e){ dbg('❌ render error: '+e.message); }
 
-  // Background: fetch BOM actuals, compute weights, then re-render.
-  dbg('fetching BOM actuals…');
-  fetchActualsAndComputeWeights().then(()=>{
-    dbg('actuals/weights done'+(actualData?(' — '+actualData.source+' '+(actualData.stationName||'')):' — no actuals'));
-    try{ renderCurrentBar(); buildSourcesPanel(); renderTable(); dbg('✓ table re-rendered with weights'); }
-    catch(e){ dbg('❌ re-render error: '+e.message); }
-    // Then: record today's forecasts + BOM actuals and pull learned weights
-    syncAndLoadAccuracy().catch(e=>dbg('accuracy sync error: '+e.message));
-  }).catch(e=>{ dbg('❌ actuals/weights error: '+e.message); });
+  // Then: record today's forecasts + BOM actuals and pull learned weights, which
+  // refine the blend and trigger one more consistent re-render.
+  syncAndLoadAccuracy().catch(e=>dbg('accuracy sync error: '+e.message));
 }
 
 // ══════════════════════════════════════════
@@ -1335,7 +1364,7 @@ function buildTodayBoxes(){
   const arrow=dirArrow16(windDir??0), dir=dirFull(windDir??0);
   const narrative=todayNarrative(temp,wcode,night,wind,dir,rainToday,hi,lo);
 
-  const cond=condCard({today:true, icon:wxIcon(wcode,night,phase), condWord:wxDesc(wcode,!night),
+  const cond=condCard({today:true, dateStr:localTodayStr(), icon:wxIcon(wcode,night,phase), condWord:wxDesc(wcode,!night),
     temp, feels, hi, lo, rain:rainToday, restOfDay:comp?.rainRemainToday, actualRain, wind, dir, cloud, code:wcode});
   const dot=on=>on?'<span class="obs-dot" title="BOM observation">●</span>':'';
   const t=_ccBox('cc-temp','Temp','#86efac',`<div class="cc-main">${_T(temp)}${dot(comp?.obsTemp)}</div><div class="cc-sub">Feels ${_T(feels)}</div><div class="cc-sub">↑ ${_T(hi)}　↓ ${_T(lo)}</div>`);
@@ -1354,7 +1383,7 @@ function buildDayBoxes(dateStr){
   const past=s.isPast;
   const arrow=s.windDir!=null?dirArrow16(s.windDir):'', dir=s.windDir!=null?dirFull(s.windDir):'';
   const HL=(hi,lo,u)=>`↑${hi!=null?Math.round(hi)+u:'—'}<span style="display:inline-block;width:10px"></span>↓${lo!=null?Math.round(lo)+u:'—'}`;
-  const cond=condCard({today:false, icon:wxIcon(s.dayCode,false), condWord:wxDesc(s.dayCode,true),
+  const cond=condCard({today:false, dateStr, icon:wxIcon(s.dayCode,false), condWord:wxDesc(s.dayCode,true),
     hi:s.hi, lo:s.lo, rain:s.rain, actualRain:s.actualRain, windPeak:s.windHi, dir,
     cloud:s.cloudMean, code:s.dayCode, past});
 
@@ -1445,6 +1474,82 @@ function dayNarrative(o){
 function _stat(icon,big,sub,col){
   return `<div class="ccs"><span class="ccs-i" style="color:${col||'var(--text-dim)'}">${icon}</span><div class="ccs-txt"><b>${big}</b><span>${sub}</span></div></div>`;
 }
+// ── Day trend sparklines (NOW card) ─────────────────────────────────────────
+// Value→colour ramps that mirror the table's heat shading.
+function _rampTemp(v){return v<5?'#60a5fa':v<12?'#38bdf8':v<22?'#4ade80':v<30?'#fbbf24':'#f87171';}
+function _rampRain(v){return v<0.05?'#1e3a5f':v<0.2?'#3b82f6':v<0.5?'#2563eb':v<1?'#1d4ed8':v<2?'#1e40af':'#172554';}
+function _rampWind(v){return v<10?'#22c55e':v<20?'#84cc16':v<35?'#eab308':v<55?'#f97316':'#ef4444';}
+function _rampCloud(v){return v<12?'#60a5fa':v<40?'#818cf8':v<70?'#a78bfa':'#8b5cf6';}
+let _sgid=0;
+function _dayHourPoints(dateStr){
+  const ref=refHourly(); if(!ref||!ref.time)return null;
+  const idxs=[]; ref.time.forEach((t,i)=>{ if(t.slice(0,10)===dateStr) idxs.push(i); });
+  if(idxs.length<2)return null;
+  const hz=horizonOf(dateStr), now=Date.now();
+  // Observed value for past hours (so the solid part of the line is real obs),
+  // blended forecast otherwise — matching the Observed/Forecast legend.
+  const val=(field,i)=>{
+    const t=ref.time[i];
+    if(new Date(t).getTime()<=now && actualData && actualData.hourly && actualData.hourly.time){
+      const ai=actualData.hourly.time.indexOf(t);
+      if(ai>=0){ const av=actualData.hourly[field]?.[ai]; if(av!=null) return av; }
+    }
+    return wBlendAt(field,i,hz);
+  };
+  const temp=idxs.map(i=>val('temperature_2m',i));
+  const rain=idxs.map(i=>val('precipitation',i));
+  const wind=idxs.map(i=>val('windspeed_10m',i));
+  const cloud=idxs.map(i=>val('cloudcover',i));
+  const times=idxs.map(i=>ref.time[i]);
+  let nowFrac=null;
+  if(dateStr===localTodayStr()){
+    let last=-1;
+    times.forEach((t,k)=>{ if(new Date(t).getTime()<=now) last=k; });
+    if(last<0) nowFrac=0;
+    else if(last>=times.length-1) nowFrac=1;
+    else{ const a=new Date(times[last]).getTime(), b=new Date(times[last+1]).getTime();
+      nowFrac=(last+Math.min(1,Math.max(0,(now-a)/(b-a))))/(times.length-1); }
+  }
+  return {temp,rain,wind,cloud,nowFrac,n:idxs.length};
+}
+function _sparkline(vals,o){
+  const W=240,H=30,padX=2,padT=5,padB=4,n=vals.length;
+  const valid=vals.filter(v=>v!=null&&!isNaN(v)); if(!valid.length)return '<div class="spark"></div>';
+  let mn=Math.min(...valid),mx=Math.max(...valid); if(o.zeroBase)mn=0; if(mn===mx){mn-=1;mx+=1;}
+  const X=i=> padX + (n>1? i*(W-2*padX)/(n-1):0);
+  const Y=v=> v==null?null : (H-padB) - (v-mn)/(mx-mn)*(H-padT-padB);
+  const pts=vals.map((v,i)=> v==null?null:[X(i),Y(v)]);
+  const path=arr=>{let d='',on=false;arr.forEach(p=>{if(!p){on=false;return;}d+=(on?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)+' ';on=true;});return d.trim();};
+  const cut=(o.split==null?1:o.split)*(W-2*padX)+padX;
+  const solid=pts.map(p=> p&&p[0]<=cut+0.6?p:null);
+  const dash =(o.split!=null&&o.split<1)?pts.map(p=> p&&p[0]>=cut-0.6?p:null):null;
+  const firstX=pts.find(p=>p)[0], area=path(pts)+` L ${X(n-1).toFixed(1)} ${H-padB} L ${firstX.toFixed(1)} ${H-padB} Z`;
+  const stops=vals.map((v,i)=> v==null?null:`<stop offset="${(n>1?i/(n-1):0)*100}%" stop-color="${o.ramp(v)}" stop-opacity="0.5"/>`).filter(Boolean).join('');
+  const nowLine=(o.now!=null)?`<line x1="${(o.now*(W-2*padX)+padX).toFixed(1)}" y1="0" x2="${(o.now*(W-2*padX)+padX).toFixed(1)}" y2="${H}" stroke="#ff4d4f" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`:'';
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" height="${H}">
+    <defs><linearGradient id="${o.gid}" x1="0" y1="0" x2="1" y2="0">${stops}</linearGradient></defs>
+    <path d="${area}" fill="url(#${o.gid})"/>
+    ${path(solid)?`<path d="${path(solid)}" fill="none" stroke="${o.color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`:''}
+    ${dash&&path(dash)?`<path d="${path(dash)}" fill="none" stroke="${o.color}" stroke-width="1.6" stroke-dasharray="3 3" stroke-linejoin="round" stroke-linecap="round" opacity="0.85" vector-effect="non-scaling-stroke"/>`:''}
+    ${nowLine}
+  </svg>`;
+}
+function nowChartHTML(dateStr){
+  const p=_dayHourPoints(dateStr); if(!p)return '';
+  const today=localTodayStr(), isToday=dateStr===today, isPast=dateStr<today;
+  const split=isToday?(p.nowFrac??1):(isPast?1:0);
+  const now=isToday?p.nowFrac:null;
+  const g=_sgid++;
+  const rows=[
+    {ic:MI_TEMP,c:'#86efac',vals:p.temp,ramp:_rampTemp,gid:'sgT'+g},
+    {ic:MI_RAIN,c:'#60a5fa',vals:p.rain,ramp:_rampRain,gid:'sgR'+g,zero:true},
+    {ic:MI_WIND,c:'#a3e635',vals:p.wind,ramp:_rampWind,gid:'sgW'+g,zero:true},
+    {ic:MI_CLOUD,c:'#c4b5fd',vals:p.cloud,ramp:_rampCloud,gid:'sgC'+g,zero:true}
+  ];
+  const body=rows.map(r=>`<div class="nc-row"><span class="nc-ico" style="color:${r.c}">${r.ic}</span><div class="nc-spark">${_sparkline(r.vals,{color:r.c,ramp:r.ramp,zeroBase:r.zero,split,now,gid:r.gid})}</div></div>`).join('');
+  const legend=`<div class="nc-legend"><span><i class="ncl-line"></i>Observed</span><span><i class="ncl-dash"></i>Forecast</span></div>`;
+  return `<div class="now-chart">${body}${legend}</div>`;
+}
 function condCard(o){
   const head=(o.condWord||'').toUpperCase();
   let big,feels='';
@@ -1470,6 +1575,7 @@ function condCard(o){
     <div class="cc-now-main"><div class="cc-icon cc-now-icon">${o.icon}</div><div class="cc-now-temp">${big}${feels}</div></div>
     ${narr?`<div class="cc-now-narr">${narr}</div>`:''}
     ${stats.length?`<div class="cc-now-stats">${stats.join('')}</div>`:''}
+    ${o.dateStr?nowChartHTML(o.dateStr):''}
   </div>`;
 }
 function _rdeg(v){return Math.round(v)+'°';}
@@ -1675,21 +1781,15 @@ function _nowHourIso(step){
 function hourTileData(iso){
   const ref=refHourly(); if(!ref?.time)return null;
   const idx=ref.time.indexOf(iso); if(idx<0)return null;
-  const step=hourBarStep();
   const hz=horizonOf(iso.slice(0,10));
-  let temp=wBlendAt('temperature_2m',idx,hz), rain=wBlendAt('precipitation',idx,hz),
-      wind=wBlendAt('windspeed_10m',idx,hz), cloud=wBlendAt('cloudcover',idx,hz);
+  // Always the blended FORECAST so the tile matches the table's forecast row
+  // exactly. (Observed values live in the table's Actual rows + the "now" card.)
+  const temp=wBlendAt('temperature_2m',idx,hz), rain=wBlendAt('precipitation',idx,hz),
+        wind=wBlendAt('windspeed_10m',idx,hz), cloud=wBlendAt('cloudcover',idx,hz);
   const rawCode=state.data[activeEnabled()[0]?.key]?.hourly?.weathercode?.[idx]??null;
   const phase=sunPhaseAt(iso), past=new Date(iso).getTime()<Date.now();
-  let isAct=false;
-  if(past){
-    const at=actWindowAt('temperature_2m',idx,step), ap=actWindowAt('precipitation',idx,step),
-          aw=actWindowAt('windspeed_10m',idx,step), ac=actWindowAt('cloudcover',idx,step);
-    if(at!=null){temp=at;isAct=true;} if(ap!=null){rain=ap;isAct=true;}
-    if(aw!=null)wind=aw; if(ac!=null)cloud=ac;
-  }
   const code=deriveCondCode(rain,cloud,rawCode);
-  return {iso,temp,rain,wind,cloud,code,isAct,past,phase,night:phase==='night'};
+  return {iso,temp,rain,wind,cloud,code,isAct:false,past,phase,night:phase==='night'};
 }
 
 const MI_TEMP='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/></svg>';
@@ -2267,7 +2367,7 @@ async function syncAndLoadAccuracy(){
 
   try{
     const ll=`&lat=${state.lat}&lon=${state.lon}`;
-    const r=await fetch(`${BOM_WORKER_URL}/track/weights?station=${encodeURIComponent(station)}${ll}&days=35`,{signal:AbortSignal.timeout(30000)});
+    const r=await fetch(`${BOM_WORKER_URL}/track/weights?station=${encodeURIComponent(station)}${ll}&days=${learnDays}`,{signal:AbortSignal.timeout(30000)});
     const j=await r.json();
     accuracyMeta=j; accuracyStats=j&&j.stats||null; _horizonCache={};
     if(j&&j.diag){ dbg(`accuracy diag: models OK [${(j.diag.modelsOK||[]).join(', ')||'none'}], failed [${(j.diag.modelsFailed||[]).join(', ')||'none'}], ERA5 ${j.diag.eraDays}d, BOM-obs ${j.diag.bomActualDays}d`); }
@@ -3459,7 +3559,7 @@ async function loadHorizon(metric){
   let j=_horizonCache[metric];
   if(!j){
     host.innerHTML='<div class="acc-na" style="padding:8px 2px">Loading…</div>';
-    try{ const ll=`&lat=${state.lat}&lon=${state.lon}`; const r=await fetch(`${BOM_WORKER_URL}/track/horizon?station=${encodeURIComponent(_trackStation)}${ll}&days=35&metric=${metric}`,{signal:AbortSignal.timeout(30000)}); j=await r.json(); _horizonCache[metric]=j; }
+    try{ const ll=`&lat=${state.lat}&lon=${state.lon}`; const r=await fetch(`${BOM_WORKER_URL}/track/horizon?station=${encodeURIComponent(_trackStation)}${ll}&days=${learnDays}&metric=${metric}`,{signal:AbortSignal.timeout(30000)}); j=await r.json(); _horizonCache[metric]=j; }
     catch(e){ host.innerHTML='<div class="acc-na" style="padding:8px 2px">Could not load lead-time data.</div>'; return; }
   }
   host.innerHTML=horizonMatrixHTML(j,metric);
