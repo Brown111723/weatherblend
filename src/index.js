@@ -86,6 +86,7 @@ export default {
     if (url.pathname === "/track/sync"    && request.method === "POST") return trackSync(request, env);
     if (url.pathname === "/track/weights" && request.method === "GET")  return trackWeights(url, env);
     if (url.pathname === "/track/horizon" && request.method === "GET")  return trackHorizon(url, env);
+    if (url.pathname === "/track/bomhourly" && request.method === "GET") return trackBomHourly(url, env);
 
     // ── Endpoint 3: BOM forecast (location search -> hourly forecast) ──────
     // /?forecast=1&search=Bathurst&lat=-33.42&lon=149.58
@@ -235,9 +236,11 @@ async function trackSync(request, env) {
 
   const forecasts = Array.isArray(body.forecasts) ? body.forecasts.slice(0, 400) : [];
   const actuals   = Array.isArray(body.actuals)   ? body.actuals.slice(0, 60)   : [];
+  const bomHourly = Array.isArray(body.bomHourly) ? body.bomHourly.slice(0, 600) : [];
 
   try {
     await writeCapture(env, station, issued, forecasts, actuals);
+    if (bomHourly.length) await writeBomHourly(env, station, bomHourly);
     // Register the station (coords + state) so the daily cron can refresh it
     const meta = body.meta || {};
     if (meta.lat != null && meta.lon != null) {
@@ -246,7 +249,7 @@ async function trackSync(request, env) {
         "ON CONFLICT(station) DO UPDATE SET lat=excluded.lat,lon=excluded.lon,state=excluded.state,name=excluded.name,last_seen=date('now')"
       ).bind(station, numOrNull(meta.lat), numOrNull(meta.lon), String(meta.state || ""), String(meta.name || "")).run();
     }
-    return json({ ok: true, forecasts: forecasts.length, actuals: actuals.length });
+    return json({ ok: true, forecasts: forecasts.length, actuals: actuals.length, bomHourly: bomHourly.length });
   } catch (e) {
     return json({ error: "db-write", detail: String(e && e.message || e) }, 500);
   }
@@ -284,6 +287,50 @@ async function writeCapture(env, station, issued, forecasts, actuals) {
   stmts.push(env.DB.prepare("DELETE FROM forecasts WHERE issued < date('now','-120 days')"));
   stmts.push(env.DB.prepare("DELETE FROM actuals   WHERE target < date('now','-120 days')"));
   if (stmts.length) await env.DB.batch(stmts);
+}
+
+// BOM hourly forecast archive. BOM's API is future-only, so we store each issue's
+// hourly forecast (first-write-wins per target hour) and serve the past hours back
+// so the client can show "what BOM forecast for this hour" the next day. 21-day TTL.
+async function ensureBomHourly(env) {
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS bom_hourly (" +
+    "station TEXT NOT NULL, target_ts TEXT NOT NULL, " +
+    "temp REAL, rain REAL, wind REAL, dir REAL, wc REAL, " +
+    "PRIMARY KEY (station, target_ts))"
+  ).run();
+}
+async function writeBomHourly(env, station, rows) {
+  await ensureBomHourly(env);
+  const stmts = [];
+  const ins = env.DB.prepare(
+    "INSERT OR IGNORE INTO bom_hourly (station,target_ts,temp,rain,wind,dir,wc) VALUES (?,?,?,?,?,?,?)"
+  );
+  for (const r of rows) {
+    const ts = String(r.ts || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(ts)) continue;
+    stmts.push(ins.bind(station, ts,
+      numOrNull(r.temp), numOrNull(r.rain), numOrNull(r.wind), numOrNull(r.dir), numOrNull(r.wc)));
+  }
+  // prune anything older than 21 days (compare on the date portion)
+  stmts.push(env.DB.prepare("DELETE FROM bom_hourly WHERE substr(target_ts,1,10) < date('now','-21 days')"));
+  if (stmts.length) await env.DB.batch(stmts);
+}
+// GET /track/bomhourly?station=NNNNN  -> { rows:[{ts,temp,rain,wind,dir,wc}] } (last 21 days)
+async function trackBomHourly(url, env) {
+  if (!env || !env.DB) return json({ error: "no-db", rows: [] }, 200);
+  const station = String(url.searchParams.get("station") || "").trim();
+  if (!station) return json({ error: "no-station", rows: [] }, 200);
+  try {
+    await ensureBomHourly(env);
+    const q = await env.DB.prepare(
+      "SELECT target_ts AS ts, temp, rain, wind, dir, wc FROM bom_hourly " +
+      "WHERE station = ? AND substr(target_ts,1,10) >= date('now','-21 days') ORDER BY target_ts"
+    ).bind(station).all();
+    return json({ ok: true, rows: (q && q.results) || [] });
+  } catch (e) {
+    return json({ error: "db-read", detail: String(e && e.message || e), rows: [] }, 200);
+  }
 }
 
 // GET /track/weights?station=&lat=&lon=&days=45
