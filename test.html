@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Weather Background Tester</title>
+  <style>
+    :root {
+      --sky-top: #7ec8ff;
+      --sky-bottom: #dff4ff;
+      --sun: rgba(255, 230, 120, 0.95);
+      --cloud: rgba(255, 255, 255, 0.9);
+      --rain: rgba(160, 220, 255, 0.75);
+      --wind: rgba(255, 255, 255, 0.55);
+      --ground: rgba(20, 80, 35, 0.95);
+      --text: #ffffff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--text);
+      overflow: hidden;
+      background: linear-gradient(to bottom, var(--sky-top), var(--sky-bottom));
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 330px 1fr;
+      min-height: 100vh;
+    }
+
+    .panel {
+      background: rgba(10, 18, 30, 0.72);
+      backdrop-filter: blur(10px);
+      padding: 22px;
+      overflow-y: auto;
+      border-right: 1px solid rgba(255,255,255,0.12);
+    }
+
+    h1 { margin: 0 0 10px; font-size: 24px; }
+    p { margin: 0 0 18px; line-height: 1.45; color: rgba(255,255,255,0.82); }
+
+    .group {
+      margin-bottom: 18px;
+      padding: 14px;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 16px;
+      background: rgba(255,255,255,0.05);
+    }
+
+    .group h2 {
+      margin: 0 0 12px;
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.7);
+    }
+
+    label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 8px 0;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    input[type="radio"] { accent-color: #74d0ff; }
+
+    .canvas {
+      position: relative;
+      overflow: hidden;
+      background: linear-gradient(to bottom, var(--sky-top), var(--sky-bottom));
+      transition: background 0.6s ease, filter 0.6s ease;
+    }
+
+    .sun, .moon, .cloud, .rain-layer, .wind-layer, .ground, .stars {
+      position: absolute;
+      pointer-events: none;
+    }
+
+    .sun {
+      top: 10%;
+      left: 70%;
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      background: var(--sun);
+      box-shadow: 0 0 60px 20px rgba(255, 220, 120, 0.28);
+      transform: translate(-50%, -50%);
+      opacity: 0;
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+
+    .moon {
+      top: 12%;
+      left: 72%;
+      width: 92px;
+      height: 92px;
+      border-radius: 50%;
+      background: #f5f0d8;
+      box-shadow: 0 0 50px 12px rgba(245, 240, 216, 0.18);
+      transform: translate(-50%, -50%);
+      opacity: 0;
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+
+    .moon::after {
+      content: "";
+      position: absolute;
+      inset: 0 0 0 18px;
+      border-radius: 50%;
+      background: rgba(10, 18, 30, 0.92);
+    }
+
+    .cloud {
+      width: 180px;
+      height: 60px;
+      background: var(--cloud);
+      border-radius: 60px;
+      filter: drop-shadow(0 10px 18px rgba(0,0,0,0.12));
+      opacity: 0;
+      transition: opacity 0.5s ease, transform 0.5s ease;
+    }
+
+    .cloud::before,
+    .cloud::after {
+      content: "";
+      position: absolute;
+      background: inherit;
+      border-radius: 50%;
+    }
+
+    .cloud::before { width: 72px; height: 72px; left: 24px; top: -36px; }
+    .cloud::after { width: 96px; height: 96px; left: 72px; top: -48px; }
+
+    .c1 { top: 15%; left: 12%; }
+    .c2 { top: 26%; left: 62%; transform: scale(1.2); }
+    .c3 { top: 50%; left: 18%; transform: scale(0.9); }
+
+    .rain-layer {
+      inset: 0;
+      background-image: linear-gradient(transparent 0 92%, var(--rain) 92% 100%);
+      background-size: 18px 28px;
+      opacity: 0;
+      animation: rainMove 0.65s linear infinite;
+      mix-blend-mode: screen;
+      transition: opacity 0.4s ease;
+    }
+
+    @keyframes rainMove {
+      from { background-position: 0 0; }
+      to { background-position: 0 28px; }
+    }
+
+    .wind-layer {
+      inset: 0;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+      background-image: radial-gradient(circle at 0 50%, var(--wind) 0 3px, transparent 4px),
+                        radial-gradient(circle at 0 50%, var(--wind) 0 3px, transparent 4px),
+                        radial-gradient(circle at 0 50%, var(--wind) 0 3px, transparent 4px);
+      background-size: 220px 120px, 260px 160px, 180px 100px;
+      background-position: -40px 20%, -60px 50%, -80px 78%;
+      background-repeat: repeat-x;
+      animation: windMove 4s linear infinite;
+      filter: blur(0.2px);
+    }
+
+    @keyframes windMove {
+      from { transform: translateX(-10px); }
+      to { transform: translateX(120px); }
+    }
+
+    .ground {
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 22%;
+      background: linear-gradient(to top, rgba(18, 70, 30, 0.98), rgba(34, 120, 50, 0.82));
+      clip-path: ellipse(90% 100% at 50% 100%);
+      opacity: 0.95;
+    }
+
+    .stars {
+      inset: 0;
+      opacity: 0;
+      transition: opacity 0.6s ease;
+      background-image:
+        radial-gradient(circle at 15% 20%, rgba(255,255,255,0.9) 0 1px, transparent 2px),
+        radial-gradient(circle at 30% 30%, rgba(255,255,255,0.8) 0 1px, transparent 2px),
+        radial-gradient(circle at 58% 18%, rgba(255,255,255,0.85) 0 1px, transparent 2px),
+        radial-gradient(circle at 80% 25%, rgba(255,255,255,0.7) 0 1px, transparent 2px),
+        radial-gradient(circle at 72% 42%, rgba(255,255,255,0.8) 0 1px, transparent 2px),
+        radial-gradient(circle at 20% 55%, rgba(255,255,255,0.65) 0 1px, transparent 2px);
+      background-repeat: no-repeat;
+    }
+
+    .hud {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: rgba(0,0,0,0.25);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.12);
+      max-width: 320px;
+    }
+
+    .hud .title { font-size: 14px; opacity: 0.8; margin-bottom: 4px; }
+    .hud .status { font-size: 22px; font-weight: 700; }
+    .hud .sub { margin-top: 6px; font-size: 13px; opacity: 0.85; line-height: 1.35; }
+
+    .day .sun, .day .cloud { opacity: 1; }
+    .night .moon, .night .stars { opacity: 1; }
+    .cloudy .cloud { opacity: 1; }
+    .rainy .rain-layer { opacity: 1; }
+    .windy .wind-layer { opacity: 1; }
+
+    .hot { filter: saturate(1.18) brightness(1.03); }
+    .mild { filter: saturate(1.05) brightness(1.0); }
+    .cool { filter: saturate(0.95) brightness(0.96); }
+    .cold { filter: saturate(0.86) brightness(0.9); }
+
+    .hot { --sky-top: #ff9a4d; --sky-bottom: #ffd38a; --ground: rgba(90, 98, 33, 0.95); }
+    .mild { --sky-top: #62b9ff; --sky-bottom: #dff6ff; }
+    .cool { --sky-top: #4d86c8; --sky-bottom: #b7d7ff; }
+    .cold { --sky-top: #7f95ba; --sky-bottom: #dde7f5; --cloud: rgba(245, 250, 255, 0.94); }
+    .night { --sky-top: #08162d; --sky-bottom: #1c365f; --sun: rgba(255,255,255,0.0); --cloud: rgba(240, 244, 255, 0.42); }
+    .night.hot { --sky-top: #22153d; --sky-bottom: #4b2f58; }
+    .night.rainy { --sky-top: #0b1323; --sky-bottom: #1f2d45; }
+    .rainy { --cloud: rgba(248, 250, 255, 0.82); }
+    .windy { --cloud: rgba(255,255,255,0.88); }
+
+    @media (max-width: 900px) {
+      .app { grid-template-columns: 1fr; }
+      .panel { max-height: 42vh; border-right: none; border-bottom: 1px solid rgba(255,255,255,0.12); }
+      body { overflow: auto; }
+      .canvas { min-height: 58vh; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="panel">
+      <h1>Weather Background Tester</h1>
+      <p>Use the radio buttons to switch time of day, temperature, rain, cloud cover, and wind states. The background updates instantly.</p>
+
+      <div class="group">
+        <h2>Time of day</h2>
+        <label><input type="radio" name="time" value="day" checked> Day</label>
+        <label><input type="radio" name="time" value="sunset"> Sunset</label>
+        <label><input type="radio" name="time" value="night"> Night</label>
+      </div>
+
+      <div class="group">
+        <h2>Temperature</h2>
+        <label><input type="radio" name="temp" value="hot"> Hot</label>
+        <label><input type="radio" name="temp" value="mild" checked> Mild</label>
+        <label><input type="radio" name="temp" value="cool"> Cool</label>
+        <label><input type="radio" name="temp" value="cold"> Cold</label>
+      </div>
+
+      <div class="group">
+        <h2>Rain</h2>
+        <label><input type="radio" name="rain" value="clear" checked> Clear</label>
+        <label><input type="radio" name="rain" value="rainy"> Rain</label>
+      </div>
+
+      <div class="group">
+        <h2>Cloud cover</h2>
+        <label><input type="radio" name="cloud" value="clear" checked> Clear</label>
+        <label><input type="radio" name="cloud" value="cloudy"> Cloudy</label>
+        <label><input type="radio" name="cloud" value="overcast"> Overcast</label>
+      </div>
+
+      <div class="group">
+        <h2>Wind</h2>
+        <label><input type="radio" name="wind" value="calm" checked> Calm</label>
+        <label><input type="radio" name="wind" value="windy"> Windy</label>
+      </div>
+    </aside>
+
+    <main id="scene" class="canvas day mild">
+      <div class="stars"></div>
+      <div class="sun"></div>
+      <div class="moon"></div>
+      <div class="cloud c1"></div>
+      <div class="cloud c2"></div>
+      <div class="cloud c3"></div>
+      <div class="rain-layer"></div>
+      <div class="wind-layer"></div>
+      <div class="ground"></div>
+
+      <div class="hud">
+        <div class="title">Preview</div>
+        <div id="status" class="status">Day · Mild · Clear</div>
+        <div id="sub" class="sub">Sunny, clear weather with a bright sky.</div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const scene = document.getElementById('scene');
+    const status = document.getElementById('status');
+    const sub = document.getElementById('sub');
+
+    const timeText = { day: 'Day', sunset: 'Sunset', night: 'Night' };
+    const tempText = { hot: 'Hot', mild: 'Mild', cool: 'Cool', cold: 'Cold' };
+    const rainText = { clear: 'Clear', rainy: 'Rainy' };
+    const cloudText = { clear: 'Clear', cloudy: 'Cloudy', overcast: 'Overcast' };
+    const windText = { calm: 'Calm', windy: 'Windy' };
+
+    function getSelected(name) {
+      return document.querySelector(`input[name="${name}"]:checked`)?.value;
+    }
+
+    function updateScene() {
+      const time = getSelected('time');
+      const temp = getSelected('temp');
+      const rain = getSelected('rain');
+      const cloud = getSelected('cloud');
+      const wind = getSelected('wind');
+
+      scene.className = 'canvas';
+      scene.classList.add(time);
+      scene.classList.add(temp);
+      if (rain === 'rainy') scene.classList.add('rainy');
+      if (cloud !== 'clear') scene.classList.add('cloudy');
+      if (wind === 'windy') scene.classList.add('windy');
+      if (cloud === 'overcast') scene.style.filter = 'brightness(0.86) contrast(0.98)';
+      else scene.style.filter = '';
+
+      const parts = [timeText[time], tempText[temp], rainText[rain], cloudText[cloud], windText[wind]];
+      status.textContent = `${parts[0]} · ${parts[1]} · ${parts[2]}`;
+
+      let desc = '';
+      if (time === 'night') desc += 'A darker sky with stars and moonlight. ';
+      else if (time === 'sunset') desc += 'Warm sunset tones across the sky. ';
+      else desc += 'Bright daylight with a clear horizon. ';
+
+      if (rain === 'rainy') desc += 'Rain is falling across the scene. ';
+      else desc += 'No rain is shown. ';
+
+      if (cloud === 'overcast') desc += 'Heavy cloud cover softens the light. ';
+      else if (cloud === 'cloudy') desc += 'A few clouds are drifting overhead. ';
+      else desc += 'The sky is mostly open. ';
+
+      if (wind === 'windy') desc += 'Wind streaks are animated in the background.';
+      else desc += 'The air is calm.';
+
+      sub.textContent = desc;
+    }
+
+    document.querySelectorAll('input[type="radio"]').forEach(r => r.addEventListener('change', updateScene));
+    updateScene();
+  </script>
+</body>
+</html>
