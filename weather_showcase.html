@@ -1,208 +1,271 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Weather Showcase</title>
+<title>WeatherBlend — Ambient</title>
 
 <style>
-    html, body {
-        margin: 0;
-        padding: 0;
-        height: 100%;
-        font-family: Arial, sans-serif;
-        overflow: hidden;
-        color: white;
-    }
+html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    font-family: system-ui, Arial;
+    background: #000;
+    color: white;
+}
 
-    /* ===== BACKGROUND LAYERS ===== */
-    .bg {
-        position: fixed;
-        inset: 0;
-        z-index: -2;
-        transition: background 1s ease;
-    }
+/* =========================
+   BASE SKY LAYER
+========================= */
+#sky {
+    position: fixed;
+    inset: 0;
+    transition: background 2s ease;
+    z-index: -3;
+}
 
-    /* animated overlay */
-    .animated-overlay {
-        position: fixed;
-        inset: 0;
-        z-index: -1;
-        pointer-events: none;
-    }
+/* atmospheric haze */
+#haze {
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    pointer-events: none;
+    background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.05), transparent 60%);
+    mix-blend-mode: screen;
+    opacity: 0.5;
+}
 
-    /* rain animation */
-    .rain::before {
-        content: "";
-        position: absolute;
-        width: 200%;
-        height: 200%;
-        background-image: url("https://i.imgur.com/5M0g5Zb.png");
-        animation: rain 0.4s linear infinite;
-        opacity: 0.25;
-    }
+/* =========================
+   PARTICLE LAYERS
+========================= */
+.layer {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+}
 
-    @keyframes rain {
-        from { transform: translateY(-50%); }
-        to { transform: translateY(0%); }
-    }
+/* rain */
+.rain::before {
+    content: "";
+    position: absolute;
+    width: 200%;
+    height: 200%;
+    background: repeating-linear-gradient(
+        120deg,
+        rgba(180,220,255,0.0) 0px,
+        rgba(180,220,255,0.0) 4px,
+        rgba(180,220,255,0.15) 5px,
+        rgba(180,220,255,0.0) 8px
+    );
+    animation: rainMove 0.6s linear infinite;
+    transform: rotate(10deg);
+}
 
-    /* clouds drifting */
-    .clouds {
-        background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.2), transparent 60%),
-                    radial-gradient(circle at 70% 50%, rgba(255,255,255,0.15), transparent 60%);
-        animation: drift 20s linear infinite;
-    }
+@keyframes rainMove {
+    from { transform: translateY(-30%) rotate(10deg); }
+    to { transform: translateY(30%) rotate(10deg); }
+}
 
-    @keyframes drift {
-        0% { transform: translateX(-10%); }
-        100% { transform: translateX(10%); }
-    }
+/* clouds */
+.clouds::before {
+    content: "";
+    position: absolute;
+    inset: -20%;
+    background:
+        radial-gradient(circle at 30% 40%, rgba(255,255,255,0.08), transparent 40%),
+        radial-gradient(circle at 70% 60%, rgba(255,255,255,0.06), transparent 45%);
+    filter: blur(20px);
+    animation: drift 25s ease-in-out infinite alternate;
+}
 
-    /* night stars */
-    .night {
-        background: radial-gradient(circle at 20% 20%, white 1px, transparent 2px),
-                    radial-gradient(circle at 70% 40%, white 1px, transparent 2px),
-                    radial-gradient(circle at 50% 80%, white 1px, transparent 2px),
-                    linear-gradient(#050814, #000);
-        background-size: 200px 200px;
-        animation: stars 6s ease-in-out infinite alternate;
-    }
+@keyframes drift {
+    from { transform: translateX(-5%) scale(1.05); }
+    to { transform: translateX(5%) scale(1.1); }
+}
 
-    @keyframes stars {
-        from { filter: brightness(0.8); }
-        to { filter: brightness(1.2); }
-    }
+/* stars */
+.stars::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(1px 1px at 20% 30%, white, transparent),
+        radial-gradient(1px 1px at 70% 20%, white, transparent),
+        radial-gradient(1px 1px at 40% 80%, white, transparent),
+        radial-gradient(1px 1px at 80% 60%, white, transparent);
+    opacity: 0.6;
+    animation: twinkle 4s ease-in-out infinite alternate;
+}
 
-    /* sunny */
-    .sunny {
-        background: linear-gradient(to top, #ffb347, #ffcc33);
-    }
+@keyframes twinkle {
+    from { opacity: 0.3; }
+    to { opacity: 0.8; }
+}
 
-    /* ===== CARD ===== */
-    .card {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        backdrop-filter: blur(12px);
-        background: rgba(0,0,0,0.25);
-        padding: 30px 40px;
-        border-radius: 20px;
-        text-align: center;
-        min-width: 260px;
-    }
+/* =========================
+   NOW CARD (FOCAL UI)
+========================= */
+.card {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 36px 44px;
+    border-radius: 22px;
 
-    .temp {
-        font-size: 64px;
-        font-weight: bold;
-        margin: 10px 0;
-    }
+    background: rgba(10, 12, 18, 0.55);
+    backdrop-filter: blur(18px);
 
-    .icon {
-        font-size: 48px;
-    }
+    box-shadow:
+        0 0 80px rgba(120,160,255,0.08),
+        inset 0 0 0 1px rgba(255,255,255,0.05);
 
-    /* ===== CONTROLS ===== */
-    .controls {
-        position: fixed;
-        bottom: 20px;
-        left: 20px;
-        display: flex;
-        gap: 30px;
-    }
+    text-align: center;
+    min-width: 260px;
+}
 
-    .panel {
-        background: rgba(0,0,0,0.4);
-        padding: 10px;
-        border-radius: 10px;
-    }
+.temp {
+    font-size: 64px;
+    font-weight: 600;
+    letter-spacing: -2px;
+}
 
-    label {
-        display: block;
-        font-size: 13px;
-        margin: 4px 0;
-        cursor: pointer;
-    }
+.desc {
+    opacity: 0.75;
+    margin-top: 6px;
+    letter-spacing: 1px;
+}
+
+.icon {
+    font-size: 44px;
+    margin-bottom: 8px;
+}
+
+/* =========================
+   CONTROLS
+========================= */
+.controls {
+    position: fixed;
+    bottom: 18px;
+    left: 18px;
+    display: flex;
+    gap: 18px;
+}
+
+.panel {
+    background: rgba(0,0,0,0.4);
+    padding: 10px 12px;
+    border-radius: 12px;
+    font-size: 13px;
+}
+
+label {
+    display: block;
+    opacity: 0.8;
+    cursor: pointer;
+    margin: 3px 0;
+}
+
+label:hover {
+    opacity: 1;
+}
 </style>
 </head>
 
 <body>
 
-<div id="bg" class="bg sunny"></div>
-<div id="overlay" class="animated-overlay"></div>
+<div id="sky"></div>
+<div id="haze"></div>
+
+<div id="layer" class="layer"></div>
 
 <div class="card">
-    <div class="icon" id="icon">☀️</div>
-    <div class="temp" id="temp">24°</div>
-    <div id="desc">Sunny</div>
+    <div class="icon" id="icon">☁️</div>
+    <div class="temp" id="temp">21°</div>
+    <div class="desc" id="desc">Cloudy</div>
 </div>
 
 <div class="controls">
     <div class="panel">
         <strong>Time</strong>
-        <label><input type="radio" name="time" value="sunny" checked> Day</label>
+        <label><input type="radio" name="time" value="day" checked> Day</label>
         <label><input type="radio" name="time" value="night"> Night</label>
     </div>
 
     <div class="panel">
-        <strong>Condition</strong>
-        <label><input type="radio" name="cond" value="sunny" checked> Sunny</label>
-        <label><input type="radio" name="cond" value="rain"> Rain</label>
-        <label><input type="radio" name="cond" value="clouds"> Clouds</label>
+        <strong>Weather</strong>
+        <label><input type="radio" name="wx" value="clear"> Clear</label>
+        <label><input type="radio" name="wx" value="clouds" checked> Clouds</label>
+        <label><input type="radio" name="wx" value="rain"> Rain</label>
     </div>
 </div>
 
 <script>
-const bg = document.getElementById("bg");
-const overlay = document.getElementById("overlay");
+const sky = document.getElementById("sky");
+const layer = document.getElementById("layer");
 const icon = document.getElementById("icon");
-const desc = document.getElementById("desc");
 const temp = document.getElementById("temp");
+const desc = document.getElementById("desc");
 
-function update() {
-    const time = document.querySelector('input[name="time"]:checked').value;
-    const cond = document.querySelector('input[name="cond"]:checked').value;
+function setSky(time, wx) {
 
-    overlay.className = "animated-overlay";
+    layer.className = "layer";
 
-    // reset overlay
-    overlay.innerHTML = "";
-
-    // time background base
-    if (time === "night") {
-        bg.className = "bg night";
+    /* =========================
+       SKY GRADIENTS (CORE FEEL)
+    ========================== */
+    if (time === "day") {
+        sky.style.background = `
+            radial-gradient(circle at 30% 20%, rgba(120,160,255,0.15), transparent 60%),
+            linear-gradient(#0b1220, #05070d)
+        `;
     } else {
-        bg.className = "bg sunny";
+        sky.style.background = `
+            radial-gradient(circle at 50% 30%, rgba(120,120,255,0.10), transparent 60%),
+            linear-gradient(#03040a, #000000)
+        `;
     }
 
-    // condition overlay + icon
-    if (cond === "rain") {
-        overlay.classList.add("rain");
-        icon.textContent = "🌧️";
-        desc.textContent = "Rainy";
-        temp.textContent = "19°";
+    /* =========================
+       WEATHER OVERLAY
+    ========================== */
+    if (wx === "rain") {
+        layer.classList.add("rain");
+        icon.textContent = "🌧";
+        desc.textContent = "Rain";
+        temp.textContent = time === "night" ? "14°" : "17°";
     }
 
-    if (cond === "clouds") {
-        overlay.classList.add("clouds");
+    else if (wx === "clouds") {
+        layer.classList.add("clouds");
         icon.textContent = "☁️";
-        desc.textContent = "Cloudy";
-        temp.textContent = "21°";
+        desc.textContent = "Overcast";
+        temp.textContent = time === "night" ? "12°" : "18°";
     }
 
-    if (cond === "sunny") {
-        icon.textContent = "☀️";
-        desc.textContent = "Sunny";
-        temp.textContent = time === "night" ? "18°" : "24°";
+    else {
+        icon.textContent = "🌙";
+        desc.textContent = "Clear";
+        temp.textContent = time === "night" ? "10°" : "22°";
+    }
+
+    /* stars only at night + clear-ish */
+    if (time === "night" && wx !== "rain") {
+        layer.classList.add("stars");
     }
 }
 
 document.querySelectorAll("input").forEach(i => {
-    i.addEventListener("change", update);
+    i.addEventListener("change", () => {
+        const time = document.querySelector('input[name="time"]:checked').value;
+        const wx = document.querySelector('input[name="wx"]:checked').value;
+        setSky(time, wx);
+    });
 });
 
-update();
+setSky("day", "clouds");
 </script>
 
 </body>
