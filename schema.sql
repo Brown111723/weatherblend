@@ -66,3 +66,21 @@ CREATE TABLE IF NOT EXISTS weights_cache (
   json        TEXT NOT NULL,      -- full computed result (weights + stats + horizon)
   computed_at TEXT NOT NULL       -- datetime('now') at compute time
 );
+
+-- ────────────────────────────────────────────────────────────────────────
+-- bom_hourly : BOM's published HOURLY forecast, archived as it is issued.
+-- BOM's API is future-only, so we keep each target hour (first-write-wins) and
+-- serve past hours back to the client so the BOM row shows what BOM forecast
+-- for that hour the previous day. 21-day retention; Worker CREATEs it on first
+-- use, so applying this file is optional.
+-- ────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS bom_hourly (
+  station   TEXT NOT NULL,   -- BOM WMO station id
+  target_ts TEXT NOT NULL,   -- the forecast hour (YYYY-MM-DDTHH:MM, local)
+  temp REAL,
+  rain REAL,
+  wind REAL,
+  dir  REAL,
+  wc   REAL,                 -- weathercode (WMO)
+  PRIMARY KEY (station, target_ts)
+);

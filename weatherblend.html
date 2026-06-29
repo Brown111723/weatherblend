@@ -243,7 +243,7 @@ body{padding-bottom:64px;}
 .tog-item:hover .tog-btn:not(.disabled){border-color:var(--border2);opacity:1;}
 .tog-label{font-size:9px;color:var(--text-dim);text-align:center;white-space:nowrap;}
 .tog-item .tog-btn.enabled ~ .tog-label{color:var(--text-muted);}
-.config-icons-row{display:grid;grid-template-columns:repeat(auto-fill,54px);gap:10px 6px;align-items:start;justify-content:start;}
+.config-icons-row{display:grid;grid-template-columns:repeat(auto-fill,54px);gap:10px 6px;align-items:start;justify-content:start;width:100%;}
 .tog-item{width:54px;}
 .tog-label{overflow:hidden;text-overflow:ellipsis;max-width:54px;}
 .panel-label{font-size:13px;color:var(--text-dim);font-weight:700;letter-spacing:1px;text-transform:uppercase;}
@@ -856,8 +856,7 @@ function setActualSource(s){
   document.querySelectorAll('#asrc-seg .seg-btn').forEach(b=>b.classList.toggle('on',b.dataset.src===s));
   if(actualSources){
     selectActual();
-    applyWeights();                            // recompute weights for the selected source + method
-    if(Object.keys(state.data).length){ try{buildForecastRainCache();buildHiLoCache();}catch(e){} renderCurrentBar(); renderTable(); }
+    _recalcAndRender();
   }
 }
 // Full weight recompute + consistent re-render of every surface.
@@ -866,6 +865,8 @@ function _recalcAndRender(){
   applyWeights();
   try{ buildForecastRainCache(); buildHiLoCache(); }catch(e){}
   renderCurrentBar(); renderTable();
+  try{ buildSourcesPanel(); }catch(e){}                          // refresh model weight badges
+  try{ if(!document.getElementById('acc-overlay').classList.contains('hidden')) renderAccuracyPanel(); }catch(e){}
 }
 function setWeightMethod(m){
   if(m!=='current'&&m!=='daily'&&m!=='blend')return;
@@ -2409,6 +2410,42 @@ function alignToGrid(src, refData){
   return out;
 }
 
+// BOM's API is future-only. We archive each issue's hourly forecast to D1 (via
+// /track/sync) and back-fill past hours from D1 (via /track/bomhourly), so the
+// BOM row shows what BOM forecast for past hours. 21-day retention server-side.
+let _bomFreshHourly=null;     // this load's freshly-fetched BOM hourly (for the D1 POST)
+function bomHourlyForSync(){
+  const h=_bomFreshHourly; if(!h||!h.time) return [];
+  const out=[];
+  h.time.forEach((t,i)=>{
+    const temp=h.temperature_2m?.[i];
+    if(temp==null && h.precipitation?.[i]==null && h.windspeed_10m?.[i]==null) return;
+    out.push({ts:t, temp, rain:h.precipitation?.[i], wind:h.windspeed_10m?.[i], dir:h.winddirection_10m?.[i], wc:h.weathercode?.[i]});
+  });
+  return out;
+}
+async function backfillBomHourlyFromD1(){
+  try{
+    const station=actualData?._bom?.wmo; const bf=state.data['bom_forecast'];
+    if(!station||!bf?.hourly||!bomWorkerConfigured())return;
+    const r=await fetch(`${BOM_WORKER_URL}/track/bomhourly?station=${encodeURIComponent(station)}`,{signal:AbortSignal.timeout(15000)});
+    if(!r.ok)return; const j=await r.json(); const rows=(j&&j.rows)||[];
+    if(!rows.length){ dbg('BOM hourly D1: no stored rows yet'); return; }
+    const map={}; rows.forEach(x=>map[x.ts]=x);
+    const H=bf.hourly; let filled=0;
+    H.time.forEach((t,i)=>{
+      if(H.temperature_2m[i]==null && map[t]){
+        const c=map[t];
+        if(c.temp!=null){H.temperature_2m[i]=c.temp;filled++;}
+        if(c.rain!=null)H.precipitation[i]=c.rain;
+        if(c.wind!=null)H.windspeed_10m[i]=c.wind;
+        if(c.dir!=null&&H.winddirection_10m)H.winddirection_10m[i]=c.dir;
+        if(c.wc!=null&&H.weathercode)H.weathercode[i]=c.wc;
+      }
+    });
+    dbg(`BOM hourly D1: back-filled ${filled} past hrs from ${rows.length} stored`);
+  }catch(e){ dbg('BOM hourly D1 back-fill failed: '+(e.message||e.name)); }
+}
 async function fetchBomForecast(m){
   state.status[m.key]='load'; updatePills();
   try{
@@ -2423,13 +2460,12 @@ async function fetchBomForecast(m){
     const j=await r.json();
     let parsed=parseBomForecast(j.data, locationOffsetSec);
     if(!parsed||!parsed.hourly.time.length)throw new Error('no forecast data');
-    // Align BOM's future-only series onto the reference model's grid so the table
-    // places each hour in the right column (otherwise it starts at the first cell).
+    _bomFreshHourly={time:[...parsed.hourly.time],temperature_2m:[...parsed.hourly.temperature_2m],precipitation:[...parsed.hourly.precipitation],windspeed_10m:[...parsed.hourly.windspeed_10m],winddirection_10m:[...parsed.hourly.winddirection_10m],weathercode:[...parsed.hourly.weathercode]};
     const refModel=MODELS.find(mm=>!mm.bomFc && state.data[mm.key]);
     const bomStart=parsed.hourly.time[0];
-    if(refModel)parsed=alignToGrid(parsed, state.data[refModel.key]);
+    if(refModel)parsed=alignToGrid(parsed, state.data[refModel.key]);   // past hours back-filled later from D1
     state.data[m.key]=parsed; state.status[m.key]='ok';
-    dbg(`BOM forecast: ✓ ${j.location?.name||name} (${j.geohash||'?'}) — starts ${bomStart}, aligned to grid`);
+    dbg(`BOM forecast: ✓ ${j.location?.name||name} (${j.geohash||'?'}) — starts ${bomStart}`);
   }catch(e){
     dbg('❌ BOM forecast failed: '+(e.message||e.name));
     state.status[m.key]='fail'; autoHidden.add(m.key);
@@ -2614,6 +2650,10 @@ async function fetchActualsAndComputeWeights(){
     if(bom) dbg('actuals: BOM '+(bom.stationName||'')+' + Open-Meteo · source='+actualSource);
     else dbg('actuals: Open-Meteo past (no BOM) · source='+actualSource);
 
+    // 2b) Back-fill the BOM forecast row's PAST hours from D1 (BOM's API is
+    //     future-only). Must happen before weights so BOM earns real history.
+    await backfillBomHourlyFromD1();
+
     // 3) Per-metric weights via the active method, scored against the selected source.
     applyWeights();
   }catch(e){
@@ -2680,13 +2720,14 @@ async function syncAndLoadAccuracy(){
   const forecasts=[];
   if(state.data['bom_forecast']){ dates.forEach(d=>{const a=modelDay('bom_forecast',d); if(a)forecasts.push({target:d,model:'bom_forecast',...a});}); }
   const actuals=bomDailyActuals();
+  const bomHourly=bomHourlyForSync();
   const b=actualData?._bom||{};
   const meta={lat:b.lat??state.lat, lon:b.lon??state.lon, state:b.state||'', name:b.stationName||''};
 
   try{
     await fetch(`${BOM_WORKER_URL}/track/sync`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({station,issued:today,forecasts,actuals,meta})});
-    dbg(`accuracy: synced ${forecasts.length} BOM-forecast rows, ${actuals.length} actuals`);
+      body:JSON.stringify({station,issued:today,forecasts,actuals,bomHourly,meta})});
+    dbg(`accuracy: synced ${forecasts.length} BOM-forecast rows, ${actuals.length} actuals, ${bomHourly.length} BOM hourly`);
   }catch(e){ dbg('accuracy sync POST failed: '+e.message); }
 
   try{
@@ -2946,18 +2987,29 @@ function computeMetricWeightsDaily(truth, daysX){
       });
     });
   });
-  // mean of per-day RMSEs per model/metric
-  const mdr={}; am.forEach(m=>{mdr[m.key]={};METS.forEach(([s])=>{
+  // mean of per-day RMSEs per model/metric, plus day/hour counts for scorability
+  const mdr={}, cnt={}; am.forEach(m=>{mdr[m.key]={};cnt[m.key]={};METS.forEach(([s])=>{
     const days=Object.values(acc[m.key][s]).filter(b=>b.n>0);
     mdr[m.key][s]=days.length?days.reduce((a,b)=>a+Math.sqrt(b.se/b.n),0)/days.length:null;
+    cnt[m.key][s]={days:days.length, hours:days.reduce((a,b)=>a+b.n,0)};
   });});
+  const minDays=Math.min(X,2);          // need ≥2 days of overlap (or X if X<2)
   METS.forEach(([s])=>{
     const raw={}, sc=[];
-    am.forEach(m=>{ const r=mdr[m.key][s]; if(r!=null){ raw[m.key]=1/Math.max(0.01,r); sc.push(m.key);} });
-    const scMean=sc.length?sc.reduce((a,k)=>a+raw[k],0)/sc.length:1;
-    am.forEach(m=>{ if(raw[m.key]==null)raw[m.key]=scMean; });
-    const sum=am.reduce((a,m)=>a+raw[m.key],0)||1;
-    am.forEach(m=>out[s][m.key]=raw[m.key]/sum);
+    am.forEach(m=>{
+      const c=cnt[m.key][s], r=mdr[m.key][s];
+      if(r!=null && c.days>=minDays && c.hours>=12){ raw[m.key]=1/Math.max(0.01,r); sc.push(m.key); }
+    });
+    if(sc.length){
+      // under-data models (e.g. BOM before it has history) get the MEDIAN scorable weight
+      const sorted=sc.map(k=>raw[k]).sort((a,b)=>a-b);
+      const med=sorted.length%2?sorted[(sorted.length-1)/2]:(sorted[sorted.length/2-1]+sorted[sorted.length/2])/2;
+      am.forEach(m=>{ if(raw[m.key]==null)raw[m.key]=med; });
+      const sum=am.reduce((a,m)=>a+raw[m.key],0)||1;
+      am.forEach(m=>out[s][m.key]=raw[m.key]/sum);
+    } else {
+      am.forEach(m=>out[s][m.key]=1/am.length);                                // nobody scorable → equal
+    }
   });
   return out;
 }
