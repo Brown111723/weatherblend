@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather Dynamic Showcase</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;600&display=swap');
+        
+        :root {
+            --card-bg: rgba(18, 25, 39, 0.8);
+            --font-family: 'Inter', sans-serif;
+            --accent-blue: #4facfe;
+            --accent-yellow: #f6d365;
+            --accent-purple: #a18cd1;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body, html {
+            height: 100%;
+            overflow: hidden;
+            font-family: var(--font-family);
+            color: white;
+            background: #000;
+        }
+
+        /* --- Backgrounds --- */
+        #bg-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            transition: background 2s ease-in-out;
+        }
+
+        .time-1am, .time-10pm { background: linear-gradient(135deg, #020111 10%, #191621 100%); }
+        .time-6am { background: linear-gradient(135deg, #4a5d8a 0%, #f8b195 100%); }
+        .time-1pm { background: linear-gradient(135deg, #209cff 0%, #68e0cf 100%); }
+        .time-6pm { background: linear-gradient(135deg, #2c3e50 0%, #fd746c 100%); }
+
+        /* Rain */
+        #rain-container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+        .rain-drop {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.3);
+            width: 1px;
+            height: 15px;
+            animation: fall linear infinite;
+        }
+        @keyframes fall { to { transform: translateY(100vh); } }
+
+        /* Stars */
+        #star-container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            transition: opacity 2s;
+        }
+        .is-night #star-container { opacity: 1; }
+        .star {
+            position: absolute;
+            background: white;
+            border-radius: 50%;
+            animation: twinkle var(--d) infinite ease-in-out;
+        }
+        @keyframes twinkle { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+
+        /* Clouds */
+        .cloud-layer {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            pointer-events: none;
+        }
+        .cloud {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.15);
+            filter: blur(50px);
+            border-radius: 50%;
+            transition: opacity 2s;
+            opacity: 0;
+        }
+        .condition-cloudy .cloud, .condition-partly-cloudy .cloud, .condition-rain .cloud, .condition-heavy-rain .cloud {
+            opacity: 1;
+        }
+        .condition-heavy-rain .cloud { background: rgba(0, 0, 0, 0.3); }
+
+        /* Lightning */
+        .lightning {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: #fff;
+            opacity: 0;
+            z-index: 2;
+        }
+        .condition-heavy-rain .lightning { animation: flash 8s infinite; }
+        @keyframes flash { 0%, 95%, 100% { opacity: 0; } 96% { opacity: 0.4; } 97% { opacity: 0; } 98% { opacity: 0.6; } 99% { opacity: 0; } }
+
+        /* --- UI Components --- */
+        .main-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            padding: 20px;
+        }
+
+        /* Now Card with Cutout Effect */
+        .now-card-wrapper {
+            position: relative;
+            width: 100%;
+            max-width: 420px;
+            isolation: isolate; /* Create new stacking context */
+        }
+
+        .now-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border-radius: 32px;
+            padding: 35px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .location {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .temp-section {
+            display: flex;
+            align-items: center;
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        /* --- THE TRANSPARENCY TRICK --- */
+        /* We use a fixed background that matches the body's background. 
+           This is the most reliable way to simulate "cutout" transparency in CSS 
+           while keeping the card's blur effect. */
+        .cutout {
+            background: linear-gradient(135deg, #209cff 0%, #68e0cf 100%) fixed;
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            transition: background 2s ease-in-out;
+        }
+
+        .temp-val {
+            font-size: 95px;
+            font-weight: 200;
+            line-height: 1;
+            letter-spacing: -4px;
+        }
+
+        .weather-icon-cutout {
+            width: 90px;
+            height: 90px;
+            background: linear-gradient(135deg, #209cff 0%, #68e0cf 100%) fixed;
+            -webkit-mask-size: contain;
+            -webkit-mask-repeat: no-repeat;
+            -webkit-mask-position: center;
+            mask-size: contain;
+            mask-repeat: no-repeat;
+            mask-position: center;
+            transition: background 2s ease-in-out;
+        }
+
+        .feels-like {
+            font-size: 18px;
+            color: rgba(255, 255, 255, 0.4);
+            margin-top: 8px;
+        }
+
+        /* Stats Grid - Screenshot Accurate Colors */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            padding-top: 25px;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.4);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .icon-precip { color: #4facfe; }
+        .icon-wind { color: #f6d365; }
+        .icon-humid { color: #a18cd1; }
+
+        /* Controls */
+        .controls-panel {
+            margin-top: 40px;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 25px;
+            border-radius: 24px;
+            backdrop-filter: blur(10px);
+            display: flex;
+            gap: 40px;
+            max-width: 95vw;
+            overflow-x: auto;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .control-group h3 {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.3);
+            margin-bottom: 15px;
+            letter-spacing: 2px;
+        }
+
+        .radio-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .radio-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.7);
+            transition: color 0.2s;
+        }
+
+        .radio-item:hover { color: white; }
+        .radio-item input { accent-color: var(--accent-blue); }
+
+        /* SVG Mask Paths */
+        .mask-sun { -webkit-mask-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="black"><path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58c-.39-.39-1.03-.39-1.41 0s-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41L5.99 4.58zm12.37 12.37c-.39-.39-1.03-.39-1.41 0s-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41l-1.06-1.06zm1.06-10.96c.39-.39.39-1.03 0-1.41s-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06zM7.05 18.36c.39-.39.39-1.03 0-1.41s-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06z"/></svg>'); }
+        .mask-moon { -webkit-mask-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="black"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-2.98 0-5.4-2.42-5.4-5.4 0-1.81.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/></svg>'); }
+        .mask-cloud { -webkit-mask-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="black"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg>'); }
+        .mask-rain { -webkit-mask-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="black"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM12 18c-.55 0-1-.45-1-1v-2c0-.55.45-1 1-1s1 .45 1 1v2c0 .55-.45 1-1 1zm4-1c-.55 0-1-.45-1-1v-2c0-.55.45-1 1-1s1 .45 1 1v2c0 .55-.45 1-1 1zm-8 0c-.55 0-1-.45-1-1v-2c0-.55.45-1 1-1s1 .45 1 1v2c0 .55-.45 1-1 1z"/></svg>'); }
+        .mask-bolt { -webkit-mask-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="black"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>'); }
+    </style>
+</head>
+<body>
+
+    <div id="bg-container" class="time-1pm condition-clear">
+        <div id="star-container"></div>
+        <div id="rain-container"></div>
+        <div class="cloud-layer">
+            <div class="cloud" style="width: 600px; height: 300px; top: -50px; left: -100px;"></div>
+            <div class="cloud" style="width: 800px; height: 400px; top: 100px; right: -200px;"></div>
+            <div class="cloud" style="width: 500px; height: 250px; bottom: -50px; left: 20%; "></div>
+        </div>
+        <div class="lightning"></div>
+    </div>
+
+    <div class="main-container">
+        <div class="now-card-wrapper">
+            <div class="now-card">
+                <div class="card-header">
+                    <span>NOW</span>
+                    <div class="location">
+                        DUBBO, AU 
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+                    </div>
+                </div>
+
+                <div class="temp-section">
+                    <div id="weather-icon" class="weather-icon-cutout mask-sun"></div>
+                    <div>
+                        <div id="temp-display" class="temp-val cutout">24.5°</div>
+                        <div class="feels-like">Feels like <span id="feels-like-val">22.1°</span></div>
+                    </div>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-label">Rain</span>
+                        <div class="stat-value"><span class="icon-precip">●</span> <span id="precip-val">0.0 mm</span></div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Wind</span>
+                        <div class="stat-value"><span class="icon-wind">≈</span> <span id="wind-val">12 km/h E</span></div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Humidity</span>
+                        <div class="stat-value"><span class="icon-humid">☁</span> <span id="humid-val">45%</span></div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Cloud Cover</span>
+                        <div class="stat-value"><span>◌</span> <span id="cloud-val">10%</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls-panel">
+            <div class="control-group">
+                <h3>TIME OF DAY</h3>
+                <div class="radio-list">
+                    <label class="radio-item"><input type="radio" name="time" value="1am" onchange="updateWeather()"> 1 AM Night</label>
+                    <label class="radio-item"><input type="radio" name="time" value="6am" onchange="updateWeather()"> 6 AM Sunrise</label>
+                    <label class="radio-item"><input type="radio" name="time" value="1pm" checked onchange="updateWeather()"> 1 PM Noon</label>
+                    <label class="radio-item"><input type="radio" name="time" value="6pm" onchange="updateWeather()"> 6 PM Sunset</label>
+                    <label class="radio-item"><input type="radio" name="time" value="10pm" onchange="updateWeather()"> 10 PM Night</label>
+                </div>
+            </div>
+            <div class="control-group">
+                <h3>CONDITIONS</h3>
+                <div class="radio-list">
+                    <label class="radio-item"><input type="radio" name="condition" value="clear" checked onchange="updateWeather()"> Clear Sky</label>
+                    <label class="radio-item"><input type="radio" name="condition" value="partly-cloudy" onchange="updateWeather()"> Partly Cloudy</label>
+                    <label class="radio-item"><input type="radio" name="condition" value="cloudy" onchange="updateWeather()"> Overcast</label>
+                    <label class="radio-item"><input type="radio" name="condition" value="rain" onchange="updateWeather()"> Light Rain</label>
+                    <label class="radio-item"><input type="radio" name="condition" value="heavy-rain" onchange="updateWeather()"> Heavy Storm</label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const bgContainer = document.getElementById('bg-container');
+        const cutoutElements = document.querySelectorAll('.cutout, .weather-icon-cutout');
+        const weatherIcon = document.getElementById('weather-icon');
+        const tempDisplay = document.getElementById('temp-display');
+        const feelsLikeVal = document.getElementById('feels-like-val');
+        const precipVal = document.getElementById('precip-val');
+        const windVal = document.getElementById('wind-val');
+        const humidVal = document.getElementById('humid-val');
+        const cloudVal = document.getElementById('cloud-val');
+
+        const weatherData = {
+            'clear': { icon: 'mask-sun', nightIcon: 'mask-moon', temp: 24, precip: '0.0 mm', wind: '12 km/h E', humid: '45%', clouds: '5%' },
+            'partly-cloudy': { icon: 'mask-cloud', nightIcon: 'mask-cloud', temp: 21, precip: '0.0 mm', wind: '15 km/h NE', humid: '55%', clouds: '40%' },
+            'cloudy': { icon: 'mask-cloud', nightIcon: 'mask-cloud', temp: 18, precip: '0.1 mm', wind: '10 km/h W', humid: '70%', clouds: '90%' },
+            'rain': { icon: 'mask-rain', nightIcon: 'mask-rain', temp: 15, precip: '4.5 mm', wind: '20 km/h S', humid: '85%', clouds: '100%' },
+            'heavy-rain': { icon: 'mask-bolt', nightIcon: 'mask-bolt', temp: 12, precip: '12.0 mm', wind: '35 km/h SW', humid: '95%', clouds: '100%' }
+        };
+
+        const timeGradients = {
+            '1am': 'linear-gradient(135deg, #020111 10%, #191621 100%)',
+            '6am': 'linear-gradient(135deg, #4a5d8a 0%, #f8b195 100%)',
+            '1pm': 'linear-gradient(135deg, #209cff 0%, #68e0cf 100%)',
+            '6pm': 'linear-gradient(135deg, #2c3e50 0%, #fd746c 100%)',
+            '10pm': 'linear-gradient(135deg, #020111 10%, #191621 100%)'
+        };
+
+        function updateWeather() {
+            const time = document.querySelector('input[name="time"]:checked').value;
+            const condition = document.querySelector('input[name="condition"]:checked').value;
+            const isNight = time === '1am' || time === '10pm';
+
+            // Update Background
+            bgContainer.className = `time-${time} condition-${condition}`;
+            document.body.className = isNight ? 'is-night' : 'is-day';
+
+            // Update Cutout Gradients
+            const gradient = timeGradients[time];
+            cutoutElements.forEach(el => {
+                el.style.background = gradient + ' fixed';
+                if (el.classList.contains('cutout')) {
+                    el.style.webkitBackgroundClip = 'text';
+                }
+            });
+
+            // Update Card Content
+            const data = weatherData[condition];
+            const displayIcon = isNight && data.nightIcon ? data.nightIcon : data.icon;
+            
+            weatherIcon.className = `weather-icon-cutout ${displayIcon}`;
+            tempDisplay.innerText = `${data.temp}.5°`;
+            feelsLikeVal.innerText = `${data.temp - 2}.1°`;
+            precipVal.innerText = data.precip;
+            windVal.innerText = data.wind;
+            humidVal.innerText = data.humid;
+            cloudVal.innerText = data.clouds;
+        }
+
+        function initBackgrounds() {
+            // Stars
+            const starContainer = document.getElementById('star-container');
+            for (let i = 0; i < 150; i++) {
+                const star = document.createElement('div');
+                star.className = 'star';
+                star.style.left = Math.random() * 100 + 'vw';
+                star.style.top = Math.random() * 100 + 'vh';
+                const size = Math.random() * 2 + 1;
+                star.style.width = size + 'px';
+                star.style.height = size + 'px';
+                star.style.setProperty('--d', (Math.random() * 3 + 2) + 's');
+                starContainer.appendChild(star);
+            }
+
+            // Rain
+            const rainContainer = document.getElementById('rain-container');
+            for (let i = 0; i < 100; i++) {
+                const drop = document.createElement('div');
+                drop.className = 'rain-drop';
+                drop.style.left = Math.random() * 100 + 'vw';
+                drop.style.animationDuration = (Math.random() * 0.5 + 0.5) + 's';
+                drop.style.animationDelay = Math.random() * 2 + 's';
+                rainContainer.appendChild(drop);
+            }
+        }
+
+        initBackgrounds();
+        updateWeather();
+    </script>
+</body>
+</html>
