@@ -1,0 +1,11 @@
+html,body{margin:0;height:100%;overflow:hidden;font-family:Arial;background:#123}#bg{position:fixed;inset:0;transition:1s}
+body.day.clear #bg{background:linear-gradient(#4aa3ff,#bfe7ff)}
+body.night.clear #bg{background:linear-gradient(#020b25,#11234f)}
+body.day.rain #bg{background:linear-gradient(#4b5b6b,#8899aa)}
+body.night.rain #bg{background:linear-gradient(#111,#334)}
+#bg:before{content:'';position:absolute;inset:-20%;background:radial-gradient(circle,rgba(255,255,255,.2),transparent 40%);animation:move 20s linear infinite}
+@keyframes move{from{transform:translateX(-10%)}to{transform:translateX(10%)}}
+.controls{position:absolute;left:20px;top:20px;background:#0006;padding:10px;color:#fff;border-radius:10px;max-height:90%;overflow:auto}
+.card{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:30px;border-radius:24px;background:rgba(255,255,255,.12);backdrop-filter:blur(14px);color:#fff;text-align:center}
+.temp{font-size:96px;font-weight:300;color:transparent;-webkit-background-clip:text;background-clip:text;background:inherit;text-shadow:0 0 8px rgba(255,255,255,.5)}
+.icon{font-size:64px}
