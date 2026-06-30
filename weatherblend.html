@@ -81,7 +81,7 @@ header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;alig
 .wx-glyph .wx-disc{stroke:rgba(255,255,255,.4);stroke-width:1.1;}
 .wx-glyph .wx-hl{fill:rgba(255,255,255,.5);}
 .wx-glyph .wx-cloudbody .wx-hl{fill:rgba(255,255,255,.4);}
-.wx-rays{stroke:rgba(255,226,150,.6);stroke-width:2.4;stroke-linecap:round;transform-box:fill-box;transform-origin:center;animation:wx-spin 22s linear infinite;}
+.wx-rays{stroke:rgba(251,191,36,.72);stroke-width:2.4;stroke-linecap:round;transform-box:fill-box;transform-origin:center;animation:wx-spin 22s linear infinite;}
 .wx-star{fill:rgba(255,255,255,.92);transform-box:fill-box;transform-origin:center;animation:wx-twinkle 2.6s ease-in-out infinite;}
 .wx-rain{stroke:rgba(126,193,245,.95);stroke-width:2.1;stroke-linecap:round;transform-box:fill-box;animation:wx-rain 1.15s linear infinite;}
 .wx-snow{fill:rgba(255,255,255,.95);transform-box:fill-box;transform-origin:center;animation:wx-snow 2.6s ease-in-out infinite;}
@@ -102,6 +102,7 @@ header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;alig
 .cc-now-rain{font-size:27px;font-weight:600;letter-spacing:-.5px;line-height:1;}
 .cc-now-sub{font-size:13px;font-weight:600;display:flex;align-items:center;gap:5px;}
 .cc-now-rainfig{font-size:18px;}
+.hb-prob{font-size:10.5px;color:var(--text-dim);font-weight:500;}
 .cns-i{display:inline-flex;}
 .cns-i svg{width:14px;height:14px;}
 .cc-now-stats{display:flex;gap:10px;margin-top:12px;padding-top:11px;border-top:1px solid var(--border);}
@@ -491,8 +492,8 @@ body{padding-bottom:64px;}
       <stop offset="1" stop-color="#aebfdc" stop-opacity=".16"/>
     </linearGradient>
     <linearGradient id="wxSun" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffe9b0" stop-opacity=".6"/>
-      <stop offset="1" stop-color="#ffce72" stop-opacity=".2"/>
+      <stop offset="0" stop-color="#ffe6a0" stop-opacity=".62"/>
+      <stop offset="1" stop-color="#fbbf24" stop-opacity=".28"/>
     </linearGradient>
     <radialGradient id="wxMoon" cx="38%" cy="34%" r="72%">
       <stop offset="0" stop-color="#ffffff" stop-opacity=".36"/>
@@ -536,14 +537,15 @@ body{padding-bottom:64px;}
     <h3>What is it?</h3>
     <p>WeatherBlend fetches forecasts from multiple global weather models simultaneously and averages them together. Research shows multi-model averages are consistently more accurate than any single model.</p>
 
+    <h3>The cards view</h3>
+    <p>The big <strong>now card</strong> shows current conditions for the selected day: an animated glass icon, temperature (with feels-like and the day's high/low), rain, wind and cloud. Swipe left/right between days or tap ◀ ▶. Below it, four <strong>sparklines</strong> (temp, rain, wind, cloud) trace the whole day — solid where observed, dashed where forecast, with sunrise/sunset markers and a red "now" line. On today you can <strong>drag the now line</strong> to scrub the card to any hour.</p>
+    <p>The <strong>metric cards</strong> and <strong>hourly strip</strong> always reconcile with the table — the same blended (or observed) value appears everywhere.</p>
+
     <h3>Timeframes</h3>
-    <p><strong>1hr</strong> — next 48 hours, one column per hour.<br>
-    <strong>3hr</strong> — next 8 days, one column every 3 hours.<br>
-    <strong>8hr</strong> — next 10 days, one column every 8 hours.<br>
-    <strong>Daily</strong> — 10-day summary with max/min temp, total rain, max wind.</p>
+    <p><strong>1hr</strong> — hour by hour. <strong>3hr</strong> / <strong>8hr</strong> — coarser steps further out. Switch with the time control in the Table view.</p>
 
     <h3>Reading the table</h3>
-    <p>Each section heading row <em>is</em> the average. Open ⚙ Config and enable Sources to see individual model rows below it. Columns shaded slightly lighter are daytime hours. A vertical amber line marks the start of each new day.</p>
+    <p>Each section heading row <em>is</em> the blended average. Open ☰ → Models &amp; sources and enable <strong>Sources</strong> to see individual model rows below it, each tagged with its current accuracy weight. The <strong>✓ Actual</strong> row shows real observations for past hours (from your chosen source). The <strong>Chance</strong> row under Rain gives the per-hour chance of rain. Daytime columns are shaded lighter; a red column marks the current hour.</p>
 
     <h3>Colour coding</h3>
     <p><strong style="color:#86efac">Temperature</strong></p>
@@ -582,12 +584,24 @@ body{padding-bottom:64px;}
     </div>
     <p style="margin-top:10px;font-size:12px">Forecasts via <a href="https://open-meteo.com" target="_blank" style="color:var(--accent)">Open-Meteo</a> + <a href="https://www.bom.gov.au" target="_blank" style="color:var(--accent)">BOM</a>. Past "actual" data and model weighting use BOM's nearest-station observations. BOM data is fetched through a Cloudflare Worker. Refreshes automatically every hour.</p>
 
-    <h3>Location</h3>
-    <p>WeatherBlend tries browser GPS first. If denied, it falls back to IP-based location which may show your ISP city. Tap 📍 and type your city name for accurate location.</p>
+    <h3>Menu (☰)</h3>
+    <p><strong>Show:</strong> which metrics appear (Temp / Rain / Wind / Cloud). <strong>Options:</strong> Weighted blend, Vertical table, Actual rows, Predicted line, Confidence chip, Debug. <strong>Models:</strong> enable/disable individual sources — disabled models leave the blend. Any change recalculates everything.</p>
 
-    <h3>Config panel (⚙)</h3>
-    <p><strong>Display:</strong> toggle Temp, Rain, Wind sections and Sources rows on/off.<br>
-    <strong>Models:</strong> enable or disable individual forecast sources. Disabled models are excluded from the average.</p>
+    <h3>Accuracy &amp; weighting</h3>
+    <p>Models are blended by how accurate they've recently been, scored against real observations. <strong>Actual source</strong> sets the ground truth: <em>BOM</em> (station obs), <em>Open-Meteo</em> (re-analysis) or <em>Blend</em>. <strong>Weight method</strong>:</p>
+    <p><strong>Recency</strong> — recency-weighted error over a learning window (plus server-learned weights for BOM).<br>
+    <strong>Per-day</strong> — scores each model's error per day over the last X days (1–7), then averages those days.<br>
+    <strong>Blend</strong> — the mean of the two.</p>
+    <p>A model needs a little history before it can be scored; until then it gets a neutral (median) weight.</p>
+
+    <h3>Confidence</h3>
+    <p>The chip on the now card is a plain-English read on <em>how much the models agree</em>. When they all predict much the same thing, confidence is <strong style="color:#34d399">High</strong>; when they diverge it falls to <strong style="color:#fbbf24">Medium</strong> or <strong style="color:#fb7185">Low</strong>. It blends agreement across temp, rain, wind and cloud (temp and rain count most) and eases down for days further ahead. It measures <em>agreement, not certainty</em> — high means the models are consistent, not that they're guaranteed right.</p>
+
+    <h3>Rain chance</h3>
+    <p>The <strong>% chance</strong> beside rainfall on the hourly cards, in the Rain table's <strong>Chance</strong> row, and under the Rain card's total is the share of models — weighted by accuracy — that predict measurable rain. Per hour that means ≥0.1 mm; for the whole day ≥0.2 mm total (and 100% once rain has actually been observed today).</p>
+
+    <h3>Location</h3>
+    <p>Tap 📍 to search any city (GPS first, IP fallback). Viewing a place in another timezone opens the cards and hourly strip on <em>that</em> location's current time.</p>
 
     <button class="help-close" onclick="hideHelp()">Close</button>
   </div>
@@ -1504,13 +1518,15 @@ function buildTodayBoxes(){
   const dot=on=>on?'<span class="obs-dot" title="BOM observation">●</span>':'';
   const t=_ccBox('cc-temp','Temp','#86efac',`<div class="cc-main">${_T(temp)}${dot(comp?.obsTemp)}</div><div class="cc-sub">Feels ${_T(feels)}</div><div class="cc-sub">↑ ${_T(hi)}　↓ ${_T(lo)}</div>`);
   const rainRemain=comp?.rainRemainToday??Math.max(0,rainToday-(actualRain||0));
+  const _dayChance=rainProbDay(localTodayStr());
+  const _chanceLine=_dayChance!=null?`<div class="cc-sub" style="color:#60a5fa;font-weight:600">${_dayChance}% chance</div>`:'';
   let rainBody;
   if(actualRain!=null){
     const totDisp=(actualRain+(rainRemain||0)).toFixed(1), aDisp=actualRain.toFixed(1);
     const restDisp=Math.max(0,parseFloat(totDisp)-parseFloat(aDisp)).toFixed(1);  // forced so A+Rest=Total
-    rainBody=`<div class="cc-main">${totDisp} mm</div><div class="cc-sub">Actual ${aDisp} mm</div><div class="cc-sub">Rest of day ${restDisp} mm</div>`;
+    rainBody=`<div class="cc-main">${totDisp} mm</div>${_chanceLine}<div class="cc-sub">Actual ${aDisp} mm</div><div class="cc-sub">Rest of day ${restDisp} mm</div>`;
   }else{
-    rainBody=`<div class="cc-main">${rainToday.toFixed(1)} mm</div><div class="cc-sub">Day total</div><div class="cc-sub">${rainToday<0.2?'Dry day expected':'Expected today'}</div>`;
+    rainBody=`<div class="cc-main">${rainToday.toFixed(1)} mm</div>${_chanceLine}<div class="cc-sub">${rainToday<0.2?'Dry day expected':'Expected today'}</div>`;
   }
   const r=_ccBox('','Rain','#90caf9',rainBody);
   const w=_ccBox('','Wind','#d9f99d',`<div class="cc-main">${wind!=null?Math.round(wind)+' km/h':'—'}${dot(comp?.obsWind)}</div><div class="cc-sub">${arrow} ${dir}</div><div class="cc-sub">↑ ${windHi!=null?Math.round(windHi):'—'}　↓ ${windLo!=null?Math.round(windLo):'—'} km/h</div>`);
@@ -1545,10 +1561,12 @@ function buildDayBoxes(dateStr){
 
   // RAIN
   const rActual = past && s.actualRain!=null;
+  const _dayChance=!past?rainProbDay(dateStr):null;
+  const _chanceLine=_dayChance!=null?`<div class="cc-sub" style="color:#60a5fa;font-weight:600">${_dayChance}% chance</div>`:'';
   const rBody = past
     ? `<div class="cc-main">${(rActual?s.actualRain:s.rain).toFixed(1)} mm</div>`+
       `<div class="cc-sub">${rActual?'Forecast '+s.rain.toFixed(1)+' mm':rainSynopsis(s.rain,null)}</div>`
-    : `<div class="cc-main">${s.rain.toFixed(1)} mm</div>`+
+    : `<div class="cc-main">${s.rain.toFixed(1)} mm</div>`+_chanceLine+
       `<div class="cc-sub">${rainSynopsis(s.rain,null)}</div>`;
   const r=_ccBox('','Rain','#90caf9',rBody);
 
@@ -1823,7 +1841,7 @@ function _scrubIcon(p,idx){
   const phase=sunPhaseAt(iso); return weatherGlyph(code,phase==='night');
 }
 function _scrubMainHTML(d){
-  const big=`<div class="cc-now-big" style="color:${tempColor(d.temp)}">${d.temp!=null?Math.round(d.temp)+'°':'—'}</div>`;
+  const big=`<div class="cc-now-big" style="color:${tempColor(d.temp)}">${d.temp!=null?tempDisp(d.temp)+'°':'—'}</div>`;
   const tempBlock=secVisible.temp?`<div class="cc-now-temp">${big}<div class="cc-now-feels">${d.timeLabel}</div></div>`:'';
   const rws=[];
   if(secVisible.rain) rws.push(`<div class="cc-now-sub cc-now-rainfig" style="color:#60a5fa"><span class="cns-i">${MI_RAIN}</span>${d.rain!=null?d.rain.toFixed(1)+' mm':'—'}</div>`);
@@ -1882,6 +1900,41 @@ function _scrubStart(e){
   document.addEventListener('pointercancel',_scrubEnd);
 }
 document.addEventListener('pointerdown',_scrubStart);
+// ── Rain probability (weighted model agreement on measurable rain) ─────────
+// Per hour: the weight-share of active models predicting >=0.1 mm. Per day: the
+// weight-share predicting >=0.2 mm total (or 100% once rain is actually seen).
+function rainProbIdx(idx){
+  const models=activeEnabled(); if(!models.length)return null;
+  let wsum=0,wrain=0;
+  models.forEach(m=>{
+    const v=state.data[m.key]?.hourly?.precipitation?.[idx];
+    if(v==null||isNaN(v))return;
+    const w=(metricWeights.rain&&metricWeights.rain[m.key]!=null)?metricWeights.rain[m.key]:1/models.length;
+    wsum+=w; if(v>=0.1)wrain+=w;
+  });
+  return wsum>0?Math.round(100*wrain/wsum):null;
+}
+function rainProb(iso){
+  const ref=refHourly(); if(!ref?.time)return null;
+  const i=ref.time.indexOf(iso); return i<0?null:rainProbIdx(i);
+}
+function rainProbDay(dateStr){
+  const models=activeEnabled(); if(!models.length)return null;
+  if(dateStr===localTodayStr() && actualData?.hourly?.time){
+    let act=0; actualData.hourly.time.forEach((t,i)=>{ if(t.slice(0,10)===dateStr){const v=actualData.hourly.precipitation?.[i]; if(v!=null)act+=v;} });
+    if(act>=0.2)return 100;
+  }
+  let wsum=0,wrain=0;
+  models.forEach(m=>{
+    const H=state.data[m.key]?.hourly; if(!H?.time)return;
+    let sum=0,has=false;
+    H.time.forEach((t,i)=>{ if(t.slice(0,10)===dateStr){const v=H.precipitation?.[i]; if(v!=null&&!isNaN(v)){sum+=v;has=true;}} });
+    if(!has)return;
+    const w=(metricWeights.rain&&metricWeights.rain[m.key]!=null)?metricWeights.rain[m.key]:1/models.length;
+    wsum+=w; if(sum>=0.2)wrain+=w;
+  });
+  return wsum>0?Math.round(100*wrain/wsum):null;
+}
 // ── Forecast confidence ───────────────────────────────────────────────────
 // Confidence = how tightly the active models agree for a day (low inter-model
 // spread → high confidence), per metric, blended and decayed by lead time.
@@ -1924,7 +1977,7 @@ function confidenceChipHTML(dateStr){
   const bars=[1,2,3].map(n=>`<span class="cc-conf-bar" style="height:${3+n*2}px;background:${lvl>=n?c.color:'rgba(255,255,255,.16)'}"></span>`).join('');
   const mlabel={temp:'temp',rain:'rain',wind:'wind',cloud:'cloud'};
   const parts=Object.keys(c.per).filter(k=>c.per[k]!=null&&secVisible[k]).map(k=>`${mlabel[k]} ${Math.round(c.per[k]*100)}%`).join(' · ');
-  return `<div class="cc-conf" title="Model agreement: ${parts}">
+  return `<div class="cc-conf" title="How closely the models agree (not a guarantee of accuracy) — ${parts}">
     <div class="cc-conf-bars">${bars}</div>
     <span class="cc-conf-lab">${c.label} confidence</span>
     <span class="cc-conf-pct" style="color:${c.color}">${c.pct}%</span>
@@ -2214,12 +2267,14 @@ function buildHourTile(iso){
   const hr=fmtAmPm(new Date(iso));
   const T=d.temp!=null?d.temp.toFixed(1)+'°':'–';
   const R=d.rain!=null?(d.rain<0.05?'0':d.rain.toFixed(1)):'–';
+  const Pp=!d.past?rainProb(iso):null;
+  const Rdisp=R+((Pp!=null&&Pp>0)?` <span class="hb-prob">(${Pp}%)</span>`:'');
   const W=d.wind!=null?Math.round(d.wind):'–';
   const C=d.cloud!=null?Math.round(d.cloud)+'%':'–';
   const now=_nowHourIso(hourBarStep())===iso;
   const rows=[
     secVisible.temp?`<div class="hb-m hb-t">${MI_TEMP}<span>${T}</span></div>`:'',
-    secVisible.rain?`<div class="hb-m hb-r">${MI_RAIN}<span>${R}</span></div>`:'',
+    secVisible.rain?`<div class="hb-m hb-r">${MI_RAIN}<span>${Rdisp}</span></div>`:'',
     secVisible.wind?`<div class="hb-m hb-w">${MI_WIND}<span>${W}</span></div>`:'',
     secVisible.cloud?`<div class="hb-m hb-c">${MI_CLOUD}<span>${C}</span></div>`:''
   ].join('');
@@ -3501,7 +3556,7 @@ function renderVerticalHourly(){
   document.getElementById('table-wrap')?.classList.add('vertical-mode');
   const firstKey=MODELS.find(m=>state.data[m.key])?.key;if(!firstKey)return;
   const ref=state.data[firstKey].hourly;
-  const now=new Date();
+  const now=locNowDate();
   const step=state.view==='1h'?1:state.view==='3h'?3:8;
   const tenDaysAgo=new Date(now.getTime()-10*24*3600*1000);
   let si=ref.time.findIndex(t=>new Date(t)>=tenDaysAgo);if(si<0)si=0;
@@ -3545,7 +3600,7 @@ function renderVerticalDaily(){
   const onlyEnabled=activeEnabled();
   const firstKey=onlyEnabled[0]?.key||allActive[0].key;
   const ref=state.data[firstKey].daily;
-  const now=new Date();
+  const now=locNowDate();
   const todayStr=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
   let si=ref.time.findIndex(t=>t>=todayStr);if(si<0)si=0;
   const pastSi=Math.max(0,si-7);
@@ -3737,7 +3792,7 @@ function renderHourly(){
   document.getElementById('table-wrap')?.classList.remove('vertical-mode');
   const firstKey=MODELS.find(m=>state.data[m.key])?.key;if(!firstKey)return;
   const ref=state.data[firstKey].hourly;
-  const now=new Date();
+  const now=locNowDate();
   // Start from 7 days ago so past actual data is visible; scroll right for forecast
   const step=state.view==='1h'?1:state.view==='3h'?3:8;
   // Find index 7 days ago (or start of data)
@@ -3809,6 +3864,12 @@ function renderHourly(){
   const avgRainCells=avgRain.map((v,ci)=>{const cls=rainCls(v);const txt=v==null?'—':v<0.05?'<span class="empty">0</span>':v.toFixed(1);
     return injectColCls(`<td class="${cls}">${txt}</td>`,ndCls[ci]);
   }).join('');
+  const rainProbCells=indices.map((i,ci)=>{
+    const p=rainProbIdx(i); const nc=ci===nowCi?'now-col':'';
+    const txt=p==null?'<span class="empty">–</span>':p+'%';
+    const op=p==null?0.5:(0.4+p/100*0.6);
+    return injectColCls(`<td class="${nc}" style="color:#60a5fa;opacity:${op.toFixed(2)};font-weight:600">${txt}</td>`,ndCls[ci]);
+  }).join('');
 
   const iconKey=onlyEnabled[0]?.key||allActive[0]?.key;
   // Blend cloud & precip per column once, then derive the icon from them so the
@@ -3866,6 +3927,7 @@ function renderHourly(){
     `)}
     ${secGroup('rain',`
       <tr class="sec-head-rain">${secHeadLabel('rain','Rain')}${avgRainCells}</tr>
+      <tr class="data-row rain-prob-row"><td class="row-label" style="font-size:13px;color:#60a5fa">Chance</td>${rainProbCells}</tr>
       ${rainModelRows}
       ${actualRow1('precipitation',v=>v<0.05?'<span class="empty">0</span>':v.toFixed(1),rainCls,'#90caf9')}
       <tr class="spacer"><td colspan="${C}"></td></tr>
@@ -3891,7 +3953,7 @@ function renderDaily(){
   const onlyEnabled=activeEnabled();
   const firstKey=onlyEnabled[0]?.key||allActive[0].key;
   const ref=state.data[firstKey].daily;
-  const now=new Date();
+  const now=locNowDate();
   const todayStr=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
 
   // Include past 7 days + next 10 (daily data includes past_days=7 from model fetch)
