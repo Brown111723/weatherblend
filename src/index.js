@@ -252,23 +252,11 @@ async function trackSync(request, env) {
   }
 }
 
-// Shared insert: BOM-forecast rows only (first-write-wins) + actuals (upsert) + prune.
-// The 7 Open-Meteo models are no longer stored — their historical forecasts are
-// pulled on demand from Open-Meteo's Previous Runs API at weight-compute time.
-// Only BOM's published forecast (not in Open-Meteo) is archived here.
+// Shared insert: BOM actuals (upsert) + prune. The 7 Open-Meteo models'
+// historical forecasts are pulled on demand from Open-Meteo's Previous Runs API
+// at weight-compute time, so nothing forecast-related is stored here anymore.
 async function writeCapture(env, station, issued, forecasts, actuals) {
   const stmts = [];
-  const fcSql = env.DB.prepare(
-    "INSERT OR IGNORE INTO forecasts (station,issued,target,model,tmax,tmin,rain,wind,cloud) VALUES (?,?,?,?,?,?,?,?,?)"
-  );
-  for (const f of (forecasts || [])) {
-    const target = String(f.target || "").trim();
-    const model  = String(f.model  || "").trim();
-    if (model !== "bom_forecast") continue;          // only BOM forecast is archived
-    if (!DATE_RE.test(target)) continue;
-    stmts.push(fcSql.bind(station, issued, target, model,
-      numOrNull(f.tmax), numOrNull(f.tmin), numOrNull(f.rain), numOrNull(f.wind), numOrNull(f.cloud)));
-  }
   const acSql = env.DB.prepare(
     "INSERT INTO actuals (station,target,tmax,tmin,rain,wind,cloud,source) VALUES (?,?,?,?,?,?,?,?) " +
     "ON CONFLICT(station,target) DO UPDATE SET tmax=excluded.tmax,tmin=excluded.tmin,rain=excluded.rain," +
@@ -405,19 +393,6 @@ function era5ToDaily(j) {
   return out;
 }
 
-async function bomForecastMap(env, station, days) {
-  const rows = ((await env.DB.prepare(
-    "SELECT target,tmax,tmin,rain,wind,cloud, CAST(round(julianday(target)-julianday(issued)) AS INTEGER) AS h " +
-    "FROM forecasts WHERE station=?1 AND model='bom_forecast' AND issued >= date('now',?2)"
-  ).bind(station, `-${days + 7} days`).all()).results) || [];
-  const out = {};
-  for (const r of rows) {
-    const n = r.h; if (n < 1 || n > 7) continue;
-    let day = out[r.target]; if (!day) { day = {}; out[r.target] = day; }
-    if (!day[n]) day[n] = { tmax: r.tmax, tmin: r.tmin, rain: r.rain, wind: r.wind, cloud: r.cloud };
-  }
-  return out;
-}
 async function bomActualsMap(env, station, days) {
   const rows = ((await env.DB.prepare(
     "SELECT target,tmax,tmin,rain,wind,cloud FROM actuals WHERE station=?1 AND target >= date('now',?2)"
@@ -497,10 +472,9 @@ async function fetchPrevBatched(lat, lon, days) {
 }
 async function computeWeights(env, lat, lon, station, days) {
   if (env.DB) { try { await env.DB.prepare(CACHE_DDL).run(); } catch {} }
-  const [prevResults, era, bomFc, bomAc] = await Promise.all([
+  const [prevResults, era, bomAc] = await Promise.all([
     fetchPrevBatched(lat, lon, days),
     fetchEra5(lat, lon, days),
-    (env.DB && station) ? bomForecastMap(env, station, days) : Promise.resolve({}),
     (env.DB && station) ? bomActualsMap(env, station, days)  : Promise.resolve({})
   ]);
   const actual = mergeActuals(bomAc, era);
@@ -508,8 +482,7 @@ async function computeWeights(env, lat, lon, station, days) {
   const fc = {};
   const modelsOK = [];
   PREV_MODELS.forEach((m, i) => { const j = prevResults[i]; const ok = !!(j && j.hourly); fc[m] = ok ? aggregatePrev(j.hourly) : {}; if (ok) modelsOK.push(m); });
-  fc["bom_forecast"] = bomFc;
-  const MODELS_ALL = [...PREV_MODELS, "bom_forecast"];
+  const MODELS_ALL = PREV_MODELS;
   const diag = { modelsOK, modelsFailed: PREV_MODELS.filter(m => !modelsOK.includes(m)), eraDays: Object.keys(era).length, bomActualDays: Object.keys(bomAc).length };
 
   const MET = ["tmax", "tmin", "rain", "wind", "cloud"];
