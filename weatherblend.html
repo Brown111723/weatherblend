@@ -83,14 +83,14 @@ header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;alig
 .wx-glyph .wx-cloudbody .wx-hl{fill:rgba(255,255,255,.4);}
 .wx-rays{stroke:rgba(255,226,150,.6);stroke-width:2.4;stroke-linecap:round;transform-box:fill-box;transform-origin:center;animation:wx-spin 22s linear infinite;}
 .wx-star{fill:rgba(255,255,255,.92);transform-box:fill-box;transform-origin:center;animation:wx-twinkle 2.6s ease-in-out infinite;}
-.wx-rain{stroke:rgba(192,216,247,.85);stroke-width:1.8;stroke-linecap:round;transform-box:fill-box;animation:wx-rain 1.1s linear infinite;}
-.wx-snow{fill:rgba(255,255,255,.92);transform-box:fill-box;transform-origin:center;animation:wx-snow 3s linear infinite;}
+.wx-rain{stroke:rgba(126,193,245,.95);stroke-width:2.1;stroke-linecap:round;transform-box:fill-box;animation:wx-rain 1.15s linear infinite;}
+.wx-snow{fill:rgba(255,255,255,.95);transform-box:fill-box;transform-origin:center;animation:wx-snow 2.6s ease-in-out infinite;}
 .wx-bolt{fill:#ffd84d;filter:drop-shadow(0 0 3px rgba(255,216,77,.85));transform-box:fill-box;transform-origin:center;animation:wx-flash 3.4s ease-in-out infinite;}
 .wx-mist{stroke:rgba(220,230,245,.5);stroke-width:2.2;stroke-linecap:round;transform-box:fill-box;transform-origin:center;animation:wx-mist 3.6s ease-in-out infinite;}
 @keyframes wx-spin{to{transform:rotate(360deg);}}
 @keyframes wx-twinkle{0%,100%{opacity:.22;transform:scale(.65);}50%{opacity:1;transform:scale(1.15);}}
-@keyframes wx-rain{0%{transform:translateY(-7px);opacity:0;}18%{opacity:1;}82%{opacity:1;}100%{transform:translateY(15px);opacity:0;}}
-@keyframes wx-snow{0%{transform:translate(0,-6px) rotate(0);opacity:0;}18%{opacity:1;}50%{transform:translate(3px,5px) rotate(180deg);}82%{opacity:1;}100%{transform:translate(-2px,15px) rotate(360deg);opacity:0;}}
+@keyframes wx-rain{0%{transform:translateY(-3px);opacity:0;}22%{opacity:1;}78%{opacity:1;}100%{transform:translateY(9px);opacity:0;}}
+@keyframes wx-snow{0%{transform:translate(0,-2px);opacity:0;}22%{opacity:1;}50%{transform:translate(2px,4px);}78%{opacity:1;}100%{transform:translate(-2px,11px);opacity:0;}}
 @keyframes wx-flash{0%,54%,100%{opacity:.12;}58%{opacity:1;}64%{opacity:.3;}70%{opacity:1;}76%{opacity:.2;}}
 @keyframes wx-mist{0%,100%{transform:translateX(-3px);opacity:.3;}50%{transform:translateX(3px);opacity:.7;}}
 @media (prefers-reduced-motion:reduce){.wx-rays,.wx-star,.wx-rain,.wx-snow,.wx-bolt,.wx-mist{animation:none;}}
@@ -105,6 +105,12 @@ header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;alig
 .cns-i{display:inline-flex;}
 .cns-i svg{width:14px;height:14px;}
 .cc-now-stats{display:flex;gap:10px;margin-top:12px;padding-top:11px;border-top:1px solid var(--border);}
+.cc-conf{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:11px;border-top:1px solid var(--border);}
+.cc-conf-bars{display:flex;align-items:flex-end;gap:2px;height:9px;}
+.cc-conf-bar{width:3px;border-radius:1px;display:inline-block;}
+.cc-conf-lab{font-size:12.5px;color:var(--text-muted);font-weight:600;}
+.cc-conf-pct{font-size:12.5px;font-weight:700;margin-left:auto;}
+.cc-conf + .now-chart{border-top:none;margin-top:0;padding-top:9px;}
 .now-chart{margin-top:13px;padding-top:12px;border-top:1px solid var(--border);}
 .nc-rows{position:relative;}
 .nc-scrubbable{touch-action:pan-y;cursor:ew-resize;}
@@ -481,8 +487,8 @@ body{padding-bottom:64px;}
 <div id="carousels-section">
   <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
     <linearGradient id="wxGlass" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#eaf2ff" stop-opacity=".34"/>
-      <stop offset="1" stop-color="#9fb6d6" stop-opacity=".07"/>
+      <stop offset="0" stop-color="#eef4ff" stop-opacity=".46"/>
+      <stop offset="1" stop-color="#aebfdc" stop-opacity=".16"/>
     </linearGradient>
     <linearGradient id="wxSun" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ffe9b0" stop-opacity=".6"/>
@@ -703,6 +709,7 @@ let learnDays = 35;                // accuracy learning window (days), configura
 let weightMethod = 'current';      // 'current' | 'daily' | 'blend'
 let weightDays = 3;                // daily-method window in days (1-7)
 let showPredLine = false;          // overlay forecast curve on past hours in sparklines
+let showConfidence = true;         // show model-agreement confidence chip on the now/day card
 let actualData = null;             // BOM observation actuals for the past days
 let manualLocationOverride = false; // set when user picks a city by hand this session
 let locationOffsetSec = null;      // UTC offset (sec) of the location — aligns BOM forecast times
@@ -759,6 +766,7 @@ function buildSourcesPanel(){
     ti("tog-vert",e(verticalLayout),"⇅","toggleVertical(document.getElementById('tog-vert'))","Vertical")+
     ti("tog-actual",e(showActuals),"✓","toggleActuals(document.getElementById('tog-actual'))","Actual")+
     ti("tog-pred",e(showPredLine),"📈","togglePredLine(document.getElementById('tog-pred'))","Predicted line")+
+    ti("tog-conf",e(showConfidence),"🎯","toggleConfidence(document.getElementById('tog-conf'))","Confidence")+
     ti("tog-debug",e(showDebug),"🐞","toggleDebug(document.getElementById('tog-debug'))","Debug")+
     `</div></div>`+
     `<div class="config-row">`+
@@ -911,6 +919,11 @@ function togglePredLine(btn){
   if(btn){btn.classList.toggle('enabled',showPredLine);btn.classList.toggle('disabled',!showPredLine);}
   savePrefs(); _recalcAndRender();
 }
+function toggleConfidence(btn){
+  showConfidence=!showConfidence;
+  if(btn){btn.classList.toggle('enabled',showConfidence);btn.classList.toggle('disabled',!showConfidence);}
+  savePrefs(); _recalcAndRender();
+}
 function toggleDebug(btn){
   showDebug=!showDebug;
   if(btn){btn.classList.toggle('enabled',showDebug);btn.classList.toggle('disabled',!showDebug);}
@@ -1029,7 +1042,7 @@ function loadSavedLocation(){
 function savePrefs(){
   try{
     localStorage.setItem('wb_prefs',JSON.stringify({
-      showDetail,useWeightedAvg,verticalLayout,showDebug,showActuals,actualSource,learnDays,weightMethod,weightDays,showPredLine,
+      showDetail,useWeightedAvg,verticalLayout,showDebug,showActuals,actualSource,learnDays,weightMethod,weightDays,showPredLine,showConfidence,
       secVisible:{...secVisible},
       secDetail:{...secDetail},
       enabled:[...enabled],
@@ -1051,6 +1064,7 @@ function loadPrefs(){
     if(p.weightDays!==undefined&&p.weightDays>=1&&p.weightDays<=7)weightDays=p.weightDays;
     if(p.learnDays!==undefined&&p.learnDays>=1&&p.learnDays<=90)learnDays=p.learnDays;
     if(p.showPredLine!==undefined)showPredLine=p.showPredLine;
+    if(p.showConfidence!==undefined)showConfidence=p.showConfidence;
     if(p.secVisible)Object.assign(secVisible,p.secVisible);
     if(p.secDetail)Object.assign(secDetail,p.secDetail);
     if(p.enabled){enabled.clear();p.enabled.forEach(k=>{if(MODELS.find(m=>m.key===k))enabled.add(k);});}
@@ -1266,6 +1280,11 @@ async function fetchAllModels(){
     dbg('actuals/weights ready'+(actualData?(' — '+actualData.source+' '+(actualData.stationName||'')):' — no actuals'));
   }catch(e){ dbg('❌ actuals/weights error: '+e.message); }
   setStatus('ok',`${ok}/${MODELS.length} models · ${t}${failed.length?' · unavail: '+failed.join(', '):''}`);
+  // On a genuine location change (or first load), reset the carousel to the
+  // location's OWN current day so "now" lands correctly across timezones —
+  // mirroring the hourly strip scrolling to the location's current hour.
+  const _ck=`${state.lat!=null?state.lat.toFixed(3):'x'},${state.lon!=null?state.lon.toFixed(3):'x'}`;
+  if(_ck!==_lastCoordsKey){ selDate=localTodayStr(); _lastCoordsKey=_ck; }
   try{ renderCurrentBar(); renderTable(); firstRenderDone=true; dbg('✓ rendered (weighted, with actuals)'); }
   catch(e){ dbg('❌ render error: '+e.message); }
 
@@ -1398,6 +1417,7 @@ function computeCurrentFromHourly(){
 
 // Selected day in the carousel (date string); null → today
 let selDate=null;
+let _lastCoordsKey=null;   // detect genuine location changes (vs refresh) to reset the day
 // "Now" in the SELECTED LOCATION's timezone. Open-Meteo returns wall-clock times
 // (timezone=auto) which JS parses as device-local; rebuild the location's wall
 // time the same way so comparisons line up even for a city in another timezone.
@@ -1603,20 +1623,19 @@ function _moonG(){
     `<ellipse class="wx-hl" cx="26.5" cy="26" rx="4.2" ry="2.8"/>`;
 }
 function _cloudG(variant){
-  const id='wxc'+(++_wxSeq); let inner='';
+  const id='wxc'+(++_wxSeq); let below='', inside='';
   if(variant==='rain'){
-    inner=[26,32,38,44,30,40].map((x,i)=>`<line class="wx-rain" x1="${x}" y1="20" x2="${(x-1.5)}" y2="27" style="animation-delay:${(i*0.22).toFixed(2)}s"/>`).join('');
+    below=[27.5,35,42.5].map((x,i)=>`<line class="wx-rain" x1="${x}" y1="46" x2="${x}" y2="50.5" style="animation-delay:${(i*0.36).toFixed(2)}s"/>`).join('');
   }else if(variant==='snow'){
-    inner=[[26,22,'0s'],[33,20,'.5s'],[40,23,'1s'],[45,21,'1.4s'],[30,26,'.8s'],[38,27,'1.6s']].map(f=>`<circle class="wx-snow" cx="${f[0]}" cy="${f[1]}" r="1.7" style="animation-delay:${f[2]}"/>`).join('');
+    below=[27.5,35,42.5].map((x,i)=>`<circle class="wx-snow" cx="${x}" cy="47" r="1.9" style="animation-delay:${(i*0.5).toFixed(2)}s"/>`).join('');
   }else if(variant==='storm'){
-    inner=`<path class="wx-bolt" d="M35 18l-7 13h5l-3 10 11-15h-6l3-8z"/>`;
+    inside=`<path class="wx-bolt" d="M35 43l-7 12h5l-3 9 10-14h-6l4-7z"/>`;
   }else if(variant==='fog'){
-    inner=[33,38,42].map((y,i)=>`<line class="wx-mist" x1="20" y1="${y}" x2="49" y2="${y}" style="animation-delay:${(i*0.5).toFixed(1)}s"/>`).join('');
+    below=[47,51].map((y,i)=>`<line class="wx-mist" x1="20" y1="${y}" x2="49" y2="${y}" style="animation-delay:${(i*0.6).toFixed(1)}s"/>`).join('');
   }
-  return `<defs><clipPath id="${id}">${_WX_CLOUD}</clipPath></defs>`+
-    `<g class="wx-cloudbody" fill="url(#wxGlass)">${_WX_CLOUD}</g>`+
-    (inner?`<g clip-path="url(#${id})">${inner}</g>`:'')+
-    `<ellipse class="wx-hl" cx="36" cy="22.5" rx="8" ry="3"/>`;
+  return `<g class="wx-cloudbody" fill="url(#wxGlass)">${_WX_CLOUD}</g>`+
+    `<ellipse class="wx-hl" cx="36" cy="22.5" rx="8" ry="3"/>`+
+    (inside||'')+ below;
 }
 function _glyphSVG(inner){ return `<svg class="wx-glyph" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`; }
 function weatherGlyph(code,night){
@@ -1863,6 +1882,54 @@ function _scrubStart(e){
   document.addEventListener('pointercancel',_scrubEnd);
 }
 document.addEventListener('pointerdown',_scrubStart);
+// ── Forecast confidence ───────────────────────────────────────────────────
+// Confidence = how tightly the active models agree for a day (low inter-model
+// spread → high confidence), per metric, blended and decayed by lead time.
+function computeConfidence(dateStr){
+  const ref=refHourly(); if(!ref?.time)return null;
+  const models=activeEnabled(); if(models.length<2)return null;     // need ≥2 to measure agreement
+  const today=localTodayStr();
+  const FIELDS=[['temp','temperature_2m',6,0.38],['rain','precipitation',4,0.30],['cloud','cloudcover',38,0.17],['wind','windspeed_10m',16,0.15]];
+  const acc={}; FIELDS.forEach(f=>acc[f[0]]={sum:0,n:0});
+  ref.time.forEach((t,i)=>{
+    if(t.slice(0,10)!==dateStr)return;
+    FIELDS.forEach(([key,field])=>{
+      const vals=models.map(m=>state.data[m.key]?.hourly?.[field]?.[i]).filter(v=>v!=null&&!isNaN(v));
+      if(vals.length<2)return;
+      const mean=vals.reduce((a,b)=>a+b,0)/vals.length;
+      const sd=Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0)/vals.length);
+      acc[key].sum+=sd; acc[key].n++;
+    });
+  });
+  const per={}; let ov=0,wsum=0;
+  FIELDS.forEach(([key,field,scale,w])=>{
+    if(!acc[key].n){per[key]=null;return;}
+    const sd=acc[key].sum/acc[key].n;
+    const conf=Math.max(0,Math.min(1,1-sd/scale));
+    per[key]=conf; ov+=conf*w; wsum+=w;
+  });
+  if(!wsum)return null;
+  let overall=ov/wsum;
+  const d=Math.round((new Date(dateStr+'T12:00')-new Date(today+'T12:00'))/86400000);
+  if(d>0) overall*=Math.max(0.55,1-d*0.06);                          // further out → less certain
+  const pct=Math.round(overall*100);
+  const label=pct>=72?'High':pct>=48?'Medium':'Low';
+  const color=pct>=72?'#34d399':pct>=48?'#fbbf24':'#fb7185';
+  return {pct,label,color,per};
+}
+function confidenceChipHTML(dateStr){
+  if(!showConfidence)return '';
+  const c=computeConfidence(dateStr); if(!c)return '';
+  const lvl=c.pct>=72?3:c.pct>=48?2:1;
+  const bars=[1,2,3].map(n=>`<span class="cc-conf-bar" style="height:${3+n*2}px;background:${lvl>=n?c.color:'rgba(255,255,255,.16)'}"></span>`).join('');
+  const mlabel={temp:'temp',rain:'rain',wind:'wind',cloud:'cloud'};
+  const parts=Object.keys(c.per).filter(k=>c.per[k]!=null&&secVisible[k]).map(k=>`${mlabel[k]} ${Math.round(c.per[k]*100)}%`).join(' · ');
+  return `<div class="cc-conf" title="Model agreement: ${parts}">
+    <div class="cc-conf-bars">${bars}</div>
+    <span class="cc-conf-lab">${c.label} confidence</span>
+    <span class="cc-conf-pct" style="color:${c.color}">${c.pct}%</span>
+  </div>`;
+}
 function condCard(o){
   const isT=o.today, past=!isT&&o.past;
   let big='', sub2='';
@@ -1897,6 +1964,7 @@ function condCard(o){
       ${tempBlock}
       ${side}
     </div>
+    ${o.dateStr?confidenceChipHTML(o.dateStr):''}
     ${o.dateStr?nowChartHTML(o.dateStr):''}
   </div>`;
 }
@@ -2577,9 +2645,20 @@ function parseBomObs(json, stn){
     if(u&&u.length>=12)ts=Date.UTC(+u.slice(0,4),+u.slice(4,6)-1,+u.slice(6,8),+u.slice(8,10),+u.slice(10,12),0);
     const h12=((+hr)%12)||12, ap=(+hr)<12?'am':'pm';
     if(ts!=null&&(latest==null||ts>=latest.ts)){
-      latest={ ts, label:`${h12}:${raw.slice(10,12)} ${ap}`, temp:tempV, wind:windV, cloud:cloudPct, humid:(rh!=null&&!isNaN(rh))?rh:null };
+      latest={ ts, label:`${h12}:${raw.slice(10,12)} ${ap}`, temp:tempV, wind:windV, cloud:cloudPct, humid:(rh!=null&&!isNaN(rh))?rh:null, traceCum:parseBomRain(o.rain_trace) };
     }
   }
+  // If BOM hasn't posted the current hour's on-the-hour observation yet (it lands
+  // ~8 min after the hour), carry the most recent sub-hourly reading forward so
+  // the current hour isn't blank — e.g. at 10:05 use the 9:30 reading as 10:00.
+  try{
+    const n=locNowDate(), pp=x=>String(x).padStart(2,'0');
+    const nowKey=`${n.getFullYear()}-${pp(n.getMonth()+1)}-${pp(n.getDate())}T${pp(n.getHours())}:00`;
+    if(latest && !(nowKey in byHour) && (Date.now()-latest.ts)<=75*60*1000){
+      byHour[nowKey]={ temp:latest.temp, traceCum:latest.traceCum, cloud:latest.cloud, wind:latest.wind, _carried:true };
+      dbg(`BOM: ${nowKey} not posted yet — carried ${latest.label} reading into current hour`);
+    }
+  }catch(e){}
   const keys=Object.keys(byHour).sort();
   const hourly={time:[],temperature_2m:[],precipitation:[],cloudcover:[],windspeed_10m:[]};
   // rain_trace is cumulative since 9am local; derive per-hour mm (reset when it drops)
@@ -2587,10 +2666,11 @@ function parseBomObs(json, stn){
   for(const k of keys){
     const r=byHour[k];
     let inc;
-    if(prevCum==null) inc=0;
+    if(r.traceCum==null) inc=0;                         // no rain reading (e.g. carried temp-only)
+    else if(prevCum==null) inc=0;
     else if(r.traceCum<prevCum) inc=r.traceCum;        // 9am reset -> fresh accumulation
     else inc=r.traceCum-prevCum;
-    prevCum=r.traceCum;
+    if(r.traceCum!=null) prevCum=r.traceCum;
     hourly.time.push(k);
     hourly.temperature_2m.push(r.temp);
     hourly.precipitation.push(Math.max(0,inc));
