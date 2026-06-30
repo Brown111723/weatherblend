@@ -24,20 +24,20 @@ body{background:var(--bg);color:var(--text-primary);font-family:system-ui,-apple
 /* ── Header ── */
 .topbar{position:sticky;top:0;z-index:100;}
 header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;background:linear-gradient(180deg,#161d29,#121722);}
+header{padding:10px 15px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:11px;background:linear-gradient(180deg,#161d29,#121722);}
 .logo{font-size:21px;font-weight:700;letter-spacing:-.4px;white-space:nowrap;}
-.hdr-logo{display:inline-flex;width:28px;height:28px;flex-shrink:0;margin-right:1px;}
+.hdr-logo{display:inline-flex;width:30px;height:30px;flex-shrink:0;}
 .hdr-logo svg{width:100%;height:100%;display:block;}
 .logo span{background:linear-gradient(90deg,#4d8df0,#7dd3fc);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
 .loc-btn{display:flex;align-items:center;gap:5px;padding:5px 12px;background:var(--border);border-radius:16px;font-size:14px;color:var(--text-muted);cursor:pointer;border:none;transition:background .15s;max-width:46vw;}
 .loc-btn:hover{background:var(--border2);}
-.loc-name{color:var(--text-primary);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.hdr-btn{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text-muted);cursor:pointer;font-size:18px;transition:all .15s;flex-shrink:0;}
+.hdr-btn{display:flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:11px;border:1px solid var(--border);background:transparent;color:var(--text-muted);cursor:pointer;transition:all .15s;flex-shrink:0;}
 .hdr-btn:hover{background:var(--border2);color:var(--text-primary);}
 .hdr-btn.active{background:var(--accent);border-color:var(--accent);color:#fff;}
-.hdr-loc{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px;min-width:0;cursor:pointer;}
-.hdr-loc .loc-name{font-size:15px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46vw;line-height:1.15;}
-.loc-sub{display:flex;align-items:center;gap:4px;}
-.loc-sub .loc-detail{font-size:11.5px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40vw;}
+.hdr-loc{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:1px;background:none;border:none;padding:0;cursor:pointer;text-align:left;color:inherit;}
+.hdr-loc .loc-name{font-size:17px;font-weight:700;letter-spacing:-.2px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;line-height:1.18;}
+.loc-sub{display:flex;align-items:center;gap:3px;min-width:0;max-width:100%;}
+.loc-sub .loc-detail{font-size:11.5px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .loc-pin{color:var(--accent);flex-shrink:0;}
 /* Slide-in drawer */
 .drawer-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;}
@@ -45,6 +45,9 @@ header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;alig
 .drawer{position:absolute;left:0;top:0;bottom:0;width:280px;max-width:82vw;background:var(--surface);border-right:1px solid var(--border2);box-shadow:6px 0 30px rgba(0,0,0,.5);padding:16px;display:flex;flex-direction:column;gap:12px;transform:translateX(-100%);transition:transform .22s ease;overflow-y:auto;}
 .drawer.open{transform:translateX(0);}
 .drawer-head{display:flex;align-items:center;justify-content:space-between;}
+.dh-brand{display:flex;align-items:center;gap:9px;min-width:0;}
+.dh-logo{width:26px;height:26px;display:inline-flex;flex-shrink:0;}
+.dh-logo svg{width:100%;height:100%;display:block;}
 .dh-title{font-size:20px;font-weight:700;letter-spacing:-.3px;}
 .dh-title span{background:linear-gradient(90deg,#4d8df0,#7dd3fc);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
 .drawer-close{width:32px;height:32px;border-radius:8px;border:1px solid var(--border2);background:var(--surface2);color:var(--text-muted);font-size:20px;line-height:1;cursor:pointer;}
@@ -56,10 +59,10 @@ header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;alig
 .drawer-item:hover{border-color:var(--accent);background:rgba(96,165,250,.08);}
 .drawer-item svg{color:var(--text-muted);flex-shrink:0;}
 /* Sticky date bar */
-.datebar{position:relative;display:flex;align-items:center;justify-content:space-between;padding:9px 22px;background:var(--bg);border-bottom:1px solid var(--border);}
-.date-nav{background:none;border:none;padding:6px;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;transition:color .15s,transform .1s;}
-.date-nav:hover{color:var(--text-primary);}
-.date-nav:active{transform:scale(.85);}
+.datebar{position:relative;display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:var(--bg);border-bottom:1px solid var(--border);}
+.date-nav{display:flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:50%;background:none;border:none;color:var(--text-dim);cursor:pointer;transition:color .15s,background .15s,transform .1s;}
+.date-nav:hover{color:var(--text-primary);background:var(--border);}
+.date-nav:active{transform:scale(.88);}
 .cur-date{cursor:pointer;}
 .hdr-right{display:flex;align-items:center;gap:8px;}
 
@@ -111,9 +114,9 @@ header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;alig
 .cc-orb-glyph{width:62px;height:62px;display:block;isolation:isolate;filter:drop-shadow(0 2px 7px rgba(0,0,0,.4));}
 .wb-orb{width:100%;height:100%;display:block;overflow:visible;}
 .wb-orb .wbo{mix-blend-mode:screen;}
-.wb-orb .wbs-i{transform-box:fill-box;transform-origin:center;animation:wbOrb 4.6s ease-in-out infinite;}
+.wb-orb .wbc{transform-box:fill-box;transform-origin:center;animation:wbOrb 4.6s ease-in-out infinite;}
 @keyframes wbOrb{0%,100%{transform:scale(1);}50%{transform:scale(1.06);}}
-@media(prefers-reduced-motion:reduce){.wb-orb .wbs-i{animation:none;}}
+@media(prefers-reduced-motion:reduce){.wb-orb .wbc{animation:none;}}
 .cns-i{display:inline-flex;}
 .cns-i svg{width:14px;height:14px;}
 .cc-now-stats{display:flex;gap:10px;margin-top:12px;padding-top:11px;border-top:1px solid var(--border);}
@@ -171,12 +174,11 @@ header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;alig
   .cc-box.cc-cond{grid-column:1 / -1;}
 }
 .toolbar .loc-wrap{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px;}
-.cur-date{display:flex;flex-direction:column;align-items:center;gap:0;line-height:1.1;min-width:150px;}
-.cur-date-main{font-size:21px;font-weight:300;letter-spacing:.2px;color:var(--text-primary);white-space:nowrap;}
-.cur-date-main .cdm-d{font-weight:700;letter-spacing:-.3px;}
-.cur-date-rel{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:1.4px;color:var(--text-dim);margin-top:1px;}
-.cur-date.not-today .cur-date-main{color:#fbbf24;}
-.cur-date.not-today .cur-date-rel{color:#fbbf24;}
+.cur-date{display:flex;flex-direction:column;align-items:center;gap:4px;line-height:1;min-width:150px;cursor:pointer;}
+.cd-rel{font-size:9.5px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;padding:2.5px 11px;border-radius:999px;background:rgba(96,165,250,.15);color:#93c5fd;}
+.cd-date{font-size:18px;font-weight:600;letter-spacing:.2px;color:var(--text-primary);white-space:nowrap;}
+.cur-date.not-today .cd-rel{background:rgba(251,191,36,.16);color:#fbbf24;}
+.cur-date.not-today .cd-date{color:#fde68a;}
 .today-btn{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;border:1px solid var(--border2);background:var(--surface2);color:var(--text-muted);cursor:pointer;transition:opacity .15s,color .15s;}
 .today-btn:hover{color:var(--text-primary);}
 .today-btn.dim{opacity:.4;}
@@ -457,22 +459,21 @@ body{padding-bottom:64px;}
 
 <div class="topbar">
 <header>
+  <span class="hdr-logo" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="32" r="12" fill="#A8E63E"/><circle cx="32" cy="20" r="12" fill="#7EE8A5"/><circle cx="44" cy="32" r="12" fill="#5FA4FF"/><circle cx="32" cy="44" r="12" fill="#C8A6FF"/></svg></span>
+  <button class="hdr-loc" onclick="promptLocation()" aria-label="Change location" title="Change location">
+    <span class="loc-name" id="loc-name">Detecting…</span>
+    <span class="loc-sub"><svg class="loc-pin" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11z"/><circle cx="12" cy="10" r="2.4"/></svg><span class="loc-detail" id="loc-detail"></span></span>
+  </button>
   <button class="hdr-btn ham-btn" onclick="toggleDrawer()" aria-label="Menu" title="Menu">
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
   </button>
-  <span class="hdr-logo" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="32" r="12" fill="#A8E63E"/><circle cx="32" cy="20" r="12" fill="#7EE8A5"/><circle cx="44" cy="32" r="12" fill="#5FA4FF"/><circle cx="32" cy="44" r="12" fill="#C8A6FF"/></svg></span>
-  <div class="logo">Weather<span>Blend</span></div>
-  <div class="hdr-loc" onclick="promptLocation()" role="button" tabindex="0" title="Change location">
-    <div class="loc-name" id="loc-name">Detecting…</div>
-    <div class="loc-sub"><span class="loc-detail" id="loc-detail"></span><svg class="loc-pin" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11z"/><circle cx="12" cy="10" r="2.4"/></svg></div>
-  </div>
 </header>
 
 <!-- Slide-in menu -->
 <div class="drawer-overlay hidden" id="drawer-overlay" onclick="if(event.target===this)closeDrawer()">
   <aside class="drawer" id="drawer">
     <div class="drawer-head">
-      <span class="dh-title">Weather<span>Blend</span></span>
+      <span class="dh-brand"><span class="dh-logo"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="32" r="12" fill="#A8E63E"/><circle cx="32" cy="20" r="12" fill="#7EE8A5"/><circle cx="44" cy="32" r="12" fill="#5FA4FF"/><circle cx="32" cy="44" r="12" fill="#C8A6FF"/></svg></span><span class="dh-title">Weather<span>Blend</span></span></span>
       <button class="drawer-close" onclick="closeDrawer()" aria-label="Close">×</button>
     </div>
     <div class="drawer-label">Options</div>
@@ -492,9 +493,9 @@ body{padding-bottom:64px;}
 
 <!-- Sticky date bar with day navigation -->
 <div class="datebar" id="datebar">
-  <button class="date-nav" onclick="stepDay(-1)" aria-label="Previous day"><svg viewBox="0 0 10 12" width="15" height="18"><polygon points="9,0 9,12 0,6" fill="currentColor"/></svg></button>
+  <button class="date-nav" onclick="stepDay(-1)" aria-label="Previous day"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 5 8 12 15 19"/></svg></button>
   <div class="cur-date" id="curr-date" onclick="goToToday()" title="Jump to today">–</div>
-  <button class="date-nav" onclick="stepDay(1)" aria-label="Next day"><svg viewBox="0 0 10 12" width="15" height="18"><polygon points="1,0 1,12 10,6" fill="currentColor"/></svg></button>
+  <button class="date-nav" onclick="stepDay(1)" aria-label="Next day"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 5 16 12 9 19"/></svg></button>
 </div>
 </div><!-- /topbar -->
 
@@ -1628,8 +1629,8 @@ function sceneFromCode(c){
   return 'clear';
 }
 // ── WeatherBlend dynamic glyph ────────────────────────────────────────────
-// Four metric shapes in the favicon's quatrefoil layout (sun · drop · swirl ·
-// cloud-lobes). Each shape grows and brightens with its metric's strength —
+// Four circles in the favicon's quatrefoil layout (sun · drop · swirl · cloud
+// positions). Each circle grows and brightens with its metric's strength —
 // temp & wind scaled to the local 14-day high/low, cloud a plain 0–100%, rain
 // on a log scale. The strongest metric gets a soft glow.
 function _clamp01(x){return Math.max(0,Math.min(1,x));}
@@ -1655,10 +1656,6 @@ function glyphRange(){
   _glyphRange={tlo,thi,wlo:0,whi,rmax};
   return _glyphRange;
 }
-// Unit shape paths (centred on 0,0, ~radius 1), generated once.
-const SUN_PATH=(()=>{const R=1,r=0.78,N=12,p=(a,rad)=>[(Math.cos(a)*rad).toFixed(3),(Math.sin(a)*rad).toFixed(3)];let d='';for(let k=0;k<N;k++){const a0=k/N*2*Math.PI,a1=(k+0.5)/N*2*Math.PI,a2=(k+1)/N*2*Math.PI;const v0=p(a0,r),o=p(a1,R),v2=p(a2,r);if(!k)d+=`M${v0[0]} ${v0[1]} `;d+=`Q${o[0]} ${o[1]} ${v2[0]} ${v2[1]} `;}return d+'Z';})();
-const DROP_PATH='M0 -1 C0.5 -0.3 0.62 0.08 0.62 0.35 A0.62 0.62 0 1 1 -0.62 0.35 C-0.62 0.08 -0.5 -0.3 0 -1 Z';
-const SPIRAL_PATH=(()=>{const turns=2.15,steps=72;let d='';for(let i=0;i<=steps;i++){const t=i/steps,ang=t*turns*2*Math.PI,rad=t;const x=(Math.cos(ang)*rad).toFixed(3),y=(Math.sin(ang)*rad).toFixed(3);d+=(i?'L':'M')+x+' '+y+' ';}return d.trim();})();
 function weatherGlyph(temp,rain,wind,cloud){
   const rg=glyphRange();
   const nm=(v,lo,hi)=>(v==null||hi<=lo)?0:_clamp01((v-lo)/(hi-lo));
@@ -1667,17 +1664,13 @@ function weatherGlyph(temp,rain,wind,cloud){
   const cS=_clamp01((cloud||0)/100);
   const str={temp:tS,rain:rS,wind:wS,cloud:cS};
   let strong=null,sv=0.6; Object.keys(str).forEach(k=>{ if(str[k]>sv){sv=str[k];strong=k;} });
-  const sz=s=>(7.4+s*6).toFixed(2), op=s=>(0.34+s*0.6).toFixed(2);
+  const R=s=>(7+s*6).toFixed(1), O=s=>(0.34+s*0.6).toFixed(2);
   const COL={temp:'#7EE8A5',rain:'#5FA4FF',wind:'#A8E63E',cloud:'#C8A6FF'};
   const POS={temp:[32,20],rain:[44,32],wind:[20,32],cloud:[32,44]};
-  const glow=k=> strong===k?`filter:drop-shadow(0 0 3px ${COL[k]});`:'';
   const DLY={temp:0,rain:.55,wind:1.1,cloud:1.65};
-  const G=(k,inner)=>`<g class="wbs" style="opacity:${op(str[k])};${glow(k)}" transform="translate(${POS[k][0]} ${POS[k][1]}) scale(${sz(str[k])})"><g class="wbs-i" style="animation-delay:${DLY[k]}s">${inner}</g></g>`;
-  const sun=G('temp',`<path d="${SUN_PATH}" fill="${COL.temp}"/>`);
-  const drop=G('rain',`<path d="${DROP_PATH}" fill="${COL.rain}"/>`);
-  const windG=G('wind',`<path d="${SPIRAL_PATH}" fill="none" stroke="${COL.wind}" stroke-width="0.22" stroke-linecap="round" stroke-linejoin="round"/>`);
-  const cloudG=G('cloud',`<circle cx="0.5" cy="0.5" r="0.62" fill="${COL.cloud}"/><circle cx="-0.5" cy="0.5" r="0.62" fill="${COL.cloud}"/><circle cx="0.5" cy="-0.5" r="0.62" fill="${COL.cloud}"/><circle cx="-0.5" cy="-0.5" r="0.62" fill="${COL.cloud}"/>`);
-  const svg=`<svg class="wb-orb" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><g class="wbo">${cloudG}${sun}${windG}${drop}</g></svg>`;
+  const glow=k=> strong===k?`filter:drop-shadow(0 0 3px ${COL[k]});`:'';
+  const C=k=>`<circle class="wbc" style="animation-delay:${DLY[k]}s;${glow(k)}" cx="${POS[k][0]}" cy="${POS[k][1]}" r="${R(str[k])}" fill="${COL[k]}" opacity="${O(str[k])}"/>`;
+  const svg=`<svg class="wb-orb" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><g class="wbo">${C('wind')}${C('temp')}${C('rain')}${C('cloud')}</g></svg>`;
   return `<div class="cc-now-icon cc-orb-glyph">${svg}</div>`;
 }
 function nowNarrative(o){
@@ -2051,9 +2044,9 @@ function updateDateUI(){
   const dateEl=document.getElementById('curr-date');
   if(dateEl&&selDate){
     const d=new Date(selDate+'T12:00:00');
-    const wk=d.toLocaleDateString('en-AU',{weekday:'long'});
-    const mon=d.toLocaleDateString('en-AU',{month:'long'});
-    dateEl.innerHTML=`<div class="cur-date-main">${wk} <span class="cdm-d">${d.getDate()}</span> ${mon}</div><div class="cur-date-rel">${relDayLabel(selDate,today)}</div>`;
+    const wk=d.toLocaleDateString('en-AU',{weekday:'short'});
+    const mon=d.toLocaleDateString('en-AU',{month:'short'});
+    dateEl.innerHTML=`<span class="cd-rel">${relDayLabel(selDate,today)}</span><span class="cd-date">${wk} ${d.getDate()} ${mon}</span>`;
     dateEl.classList.toggle('not-today',selDate!==today);
   }
   const tb=document.getElementById('today-btn');
