@@ -1,0 +1,29 @@
+/* ════════════════════════════════════════════════════════════════════
+   WeatherBlend — Spacing & layout
+   Compact, mobile-first rhythm. Padding tends to sit around 10–16px,
+   not a strict 4/8 grid — values match the product exactly.
+   ════════════════════════════════════════════════════════════════════ */
+:root{
+  --wb-space-1:3px;
+  --wb-space-2:6px;
+  --wb-space-3:8px;
+  --wb-space-4:10px;
+  --wb-space-5:12px;
+  --wb-space-6:14px;
+  --wb-space-7:16px;
+  --wb-space-8:20px;
+  --wb-space-9:28px;
+
+  /* card / control interior padding */
+  --wb-pad-card:12px 13px;   /* metric cards */
+  --wb-pad-panel:14px 16px;  /* condition card / panels */
+  --wb-pad-modal:28px;       /* modals */
+
+  /* fixed chrome heights */
+  --wb-header-h:59px;
+  --wb-bottomnav-h:64px;
+
+  /* max widths */
+  --wb-modal-max:540px;
+  --wb-drawer-w:280px;
+}

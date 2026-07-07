@@ -1,0 +1,18 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Status & confidence" subtitle="The red 'now' marker, plus High / Medium / Low agreement" -->
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><link rel="stylesheet" href="../styles.css">
+<style>
+  html,body{margin:0;background:var(--wb-bg);font-family:var(--wb-font-sans);color:var(--wb-text);}
+  .wrap{padding:20px;display:flex;gap:12px;flex-wrap:wrap;}
+  .sw{flex:1;min-width:96px;display:flex;flex-direction:column;gap:7px;}
+  .chip{height:48px;border-radius:var(--wb-radius-md);}
+  .n{font-size:11.5px;font-weight:700;}
+  .v{font-size:10px;color:var(--wb-text-dim);font-family:var(--wb-font-mono);}
+</style></head>
+<body><div class="wrap">
+  <div class="sw"><div class="chip" style="background:var(--wb-now)"></div><div class="n">Now</div><div class="v">--wb-now · #f87171</div></div>
+  <div class="sw"><div class="chip" style="background:var(--wb-conf-high)"></div><div class="n" style="color:var(--wb-conf-high)">High</div><div class="v">--wb-conf-high</div></div>
+  <div class="sw"><div class="chip" style="background:var(--wb-conf-mid)"></div><div class="n" style="color:var(--wb-conf-mid)">Medium</div><div class="v">--wb-conf-mid</div></div>
+  <div class="sw"><div class="chip" style="background:var(--wb-conf-low)"></div><div class="n" style="color:var(--wb-conf-low)">Low</div><div class="v">--wb-conf-low</div></div>
+  <div class="sw"><div class="chip" style="background:var(--wb-sun)"></div><div class="n" style="color:var(--wb-sun)">Sun</div><div class="v">--wb-sun · rise/set</div></div>
+</div></body></html>

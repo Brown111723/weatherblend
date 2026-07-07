@@ -1,0 +1,32 @@
+<!-- @dsCard group="Colors" viewport="700x160" name="Heat scales" subtitle="Value ramps for the forecast table — encode magnitude, not identity" -->
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><link rel="stylesheet" href="../styles.css">
+<style>
+  html,body{margin:0;background:var(--wb-bg);font-family:var(--wb-font-mono);color:var(--wb-text);}
+  .wrap{padding:18px 20px;display:flex;flex-direction:column;gap:10px;}
+  .rowline{display:flex;align-items:center;gap:10px;}
+  .cap{width:52px;font-family:var(--wb-font-sans);font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
+  .cell{flex:1;text-align:center;padding:7px 4px;font-size:12px;border-radius:4px;}
+</style></head>
+<body><div class="wrap">
+  <div class="rowline"><div class="cap" style="color:var(--q-temp)">Temp</div>
+    <div class="cell" style="background:var(--heat-temp-cold);color:var(--heat-temp-cold-fg)">3°</div>
+    <div class="cell" style="background:var(--heat-temp-cool);color:var(--heat-temp-cool-fg)">9°</div>
+    <div class="cell" style="background:var(--heat-temp-mild);color:var(--heat-temp-mild-fg)">18°</div>
+    <div class="cell" style="background:var(--heat-temp-warm);color:var(--heat-temp-warm-fg)">26°</div>
+    <div class="cell" style="background:var(--heat-temp-hot);color:var(--heat-temp-hot-fg)">34°</div>
+  </div>
+  <div class="rowline"><div class="cap" style="color:var(--q-rain)">Rain</div>
+    <div class="cell" style="background:var(--heat-rain-1);color:var(--heat-rain-1-fg)">0.2</div>
+    <div class="cell" style="background:var(--heat-rain-2);color:var(--heat-rain-2-fg)">0.6</div>
+    <div class="cell" style="background:var(--heat-rain-3);color:var(--heat-rain-3-fg)">1.4</div>
+    <div class="cell" style="background:var(--heat-rain-4);color:var(--heat-rain-4-fg)">6.0</div>
+  </div>
+  <div class="rowline"><div class="cap" style="color:var(--q-wind)">Wind</div>
+    <div class="cell" style="background:var(--heat-wind-calm);color:var(--heat-wind-calm-fg)">6</div>
+    <div class="cell" style="background:var(--heat-wind-light);color:var(--heat-wind-light-fg)">15</div>
+    <div class="cell" style="background:var(--heat-wind-mod);color:var(--heat-wind-mod-fg)">28</div>
+    <div class="cell" style="background:var(--heat-wind-strong);color:var(--heat-wind-strong-fg)">45</div>
+    <div class="cell" style="background:var(--heat-wind-storm);color:var(--heat-wind-storm-fg)">60</div>
+  </div>
+</div></body></html>

@@ -1,0 +1,18 @@
+<!-- @dsCard group="Spacing" viewport="700x160" name="Radii" subtitle="Rounded but not pill-y — 8px chips up to 16px modals" -->
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><link rel="stylesheet" href="../styles.css">
+<style>
+  html,body{margin:0;background:var(--wb-bg);color:var(--wb-text);font-family:var(--wb-font-sans);}
+  .wrap{padding:22px;display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;}
+  .u{display:flex;flex-direction:column;align-items:center;gap:8px;}
+  .box{width:64px;height:52px;background:var(--wb-surface-2);border:1px solid var(--wb-border-2);}
+  .v{font-size:10px;color:var(--wb-text-dim);font-family:var(--wb-font-mono);text-align:center;}
+</style></head>
+<body><div class="wrap">
+  <div class="u"><div class="box" style="border-radius:var(--wb-radius-sm)"></div><div class="v">sm · 8</div></div>
+  <div class="u"><div class="box" style="border-radius:var(--wb-radius-md)"></div><div class="v">md · 10</div></div>
+  <div class="u"><div class="box" style="border-radius:var(--wb-radius-lg)"></div><div class="v">lg · 12</div></div>
+  <div class="u"><div class="box" style="border-radius:var(--wb-radius-xl)"></div><div class="v">xl · 14</div></div>
+  <div class="u"><div class="box" style="border-radius:var(--wb-radius-2xl)"></div><div class="v">2xl · 16</div></div>
+  <div class="u"><div class="box" style="border-radius:var(--wb-radius-round);width:52px"></div><div class="v">round</div></div>
+</div></body></html>

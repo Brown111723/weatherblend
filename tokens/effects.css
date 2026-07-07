@@ -1,0 +1,47 @@
+/* ════════════════════════════════════════════════════════════════════
+   WeatherBlend — Radii, shadows, blur, motion
+   Rounded but not pill-y. Glassmorphism appears only on the metric
+   boxes over the gradient hero (backdrop-blur + translucent fill).
+   Motion is quiet: short 0.15s color/border transitions, a gentle
+   scale press, and one slow 4.6s breathing loop on the brand orb.
+   ════════════════════════════════════════════════════════════════════ */
+:root{
+  /* ── Corner radii ── */
+  --wb-radius-sm:8px;    /* small buttons, chips, close × */
+  --wb-radius-md:10px;   /* buttons, list items, inputs */
+  --wb-radius-lg:12px;   /* panels, day tiles, nav buttons */
+  --wb-radius-xl:14px;   /* metric cards */
+  --wb-radius-2xl:16px;  /* modals */
+  --wb-radius-pill:999px;
+  --wb-radius-round:50%; /* icon buttons, orb circles, model dots */
+
+  /* ── Borders ── */
+  --wb-border-w:1px;     /* @kind other */
+  --wb-accent-top:2px;   /* @kind other */
+
+  /* ── Shadows (soft, high-spread, near-black — for a dark UI) ── */
+  --wb-shadow-panel:0 12px 34px rgba(0,0,0,.55);   /* popovers/config */
+  --wb-shadow-modal:6px 0 30px rgba(0,0,0,.5);     /* drawer */
+  --wb-shadow-orb:0 2px 7px rgba(0,0,0,.4);        /* orb drop shadow */
+  --wb-shadow-glow-now:0 0 10px rgba(248,113,113,.55); /* now line */
+
+  /* ── Translucency & blur (glass metric boxes) ── */
+  --wb-glass-fill:rgba(18,26,40,0.46);
+  --wb-glass-border:rgba(255,255,255,.09);
+  --wb-blur:blur(3px);   /* @kind other */
+
+  /* hero gradient behind the condition card */
+  --wb-hero-grad:radial-gradient(135% 150% at 16% -12%,#1c2535 0%,#141a26 55%,#10141d 100%); /* @kind color */
+  /* header bar gradient */
+  --wb-header-grad:linear-gradient(180deg,#161d29,#121722); /* @kind color */
+
+  /* ── Motion ── */
+  --wb-ease:cubic-bezier(.4,0,.2,1); /* @kind other */
+  --wb-dur-fast:.15s;   /* @kind other */
+  --wb-dur-drawer:.22s; /* @kind other */
+  --wb-press-scale:.96; /* @kind other */
+}
+
+@media(prefers-reduced-motion:no-preference){
+  @keyframes wbOrbBreathe{0%,100%{transform:scale(1);}50%{transform:scale(1.06);}}
+}

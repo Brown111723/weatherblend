@@ -1,0 +1,52 @@
+/* ════════════════════════════════════════════════════════════════════
+   WeatherBlend — Typography
+   Two system stacks. No webfonts ship with the product — it uses the OS
+   UI font for chrome and a monospace for the dense forecast table so
+   digits align in columns. Tight negative tracking on big numbers.
+   ════════════════════════════════════════════════════════════════════ */
+:root{
+  /* ── Families ── */
+  --wb-font-sans:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; /* @kind font */
+  --wb-font-mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace; /* @kind font */
+
+  /* ── Base ── */
+  --wb-text-base:18px;         /* body default */
+  --wb-leading:1.5;
+
+  /* ── Type scale (observed sizes in the product) ── */
+  --wb-fs-hero:54px;    /* the "now" temperature — weight 275, tracking -2.5px */
+  --wb-fs-display:26px; /* secondary big figures */
+  --wb-fs-title:20px;   /* modal / drawer titles */
+  --wb-fs-metric:25px;  /* metric-card main value — weight 700 */
+  --wb-fs-lg:18px;
+  --wb-fs-md:15px;
+  --wb-fs-body:14px;
+  --wb-fs-sm:13px;
+  --wb-fs-xs:12px;
+  --wb-fs-2xs:11px;     /* labels, weight badges */
+  --wb-fs-micro:9.5px;  /* eyebrow pills, axis ticks */
+
+  /* ── Weights ── */
+  --wb-fw-thin:275; /* @kind font */
+  --wb-fw-light:300;    /* @kind font */
+  --wb-fw-normal:400;   /* @kind font */
+  --wb-fw-medium:500;   /* @kind font */
+  --wb-fw-semibold:600; /* @kind font */
+  --wb-fw-bold:700;     /* @kind font */
+
+  /* ── Tracking ── */
+  --wb-tracking-hero:-2.5px;   /* the giant temperature */
+  --wb-tracking-tight:-0.5px;  /* metric values */
+  --wb-tracking-eyebrow:1.5px; /* uppercase micro labels */
+  --wb-tracking-label:1.1px;   /* uppercase card titles */
+}
+
+/* Eyebrow / section-label convention: uppercase, letter-spaced, dim */
+.wb-eyebrow{
+  font-family:var(--wb-font-sans);
+  font-size:var(--wb-fs-2xs);
+  font-weight:var(--wb-fw-bold);
+  letter-spacing:var(--wb-tracking-eyebrow);
+  text-transform:uppercase;
+  color:var(--wb-text-dim);
+}

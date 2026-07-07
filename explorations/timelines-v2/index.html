@@ -1,0 +1,141 @@
+<!-- @dsCard group="Explorations" viewport="430x900" name="Continuous timelines v2" subtitle="One zoomable stream — week and day are the same dataset at two scales" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WeatherBlend — Continuous timelines v2</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:#05070b;height:100%;}
+  #root{height:100%;}
+  a{color:var(--wb-accent);} a:hover{color:var(--wb-accent-press);}
+  .phone{position:relative;width:100%;max-width:430px;min-height:100vh;margin:0 auto;background:var(--wb-bg);color:var(--wb-text);font-family:var(--wb-font-sans);display:flex;flex-direction:column;overflow:hidden;}
+  ::-webkit-scrollbar{width:9px;height:9px;}
+  ::-webkit-scrollbar-thumb{background:#2b3647;border-radius:6px;border:2px solid var(--wb-bg);}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<script>
+// Fake forecast data. Shapes mirror the real app (per-day hourly, blended).
+(function () {
+  function dayHourly(seed) {
+    const temp = [], rain = [], wind = [], cloud = [];
+    for (let h = 0; h < 24; h++) {
+      const t = seed.base + seed.amp * Math.sin(((h - 9) / 24) * Math.PI * 2 - Math.PI / 2);
+      temp.push(+(t).toFixed(1));
+      const r = seed.rainHours.includes(h) ? seed.rainAmt * (0.6 + Math.random() * 0.8) : (Math.random() < 0.08 ? 0.1 : 0);
+      rain.push(+r.toFixed(1));
+      wind.push(Math.round(seed.windBase + seed.windAmp * Math.abs(Math.sin(h / 5)) + (Math.random() * 4 - 2)));
+      cloud.push(Math.max(0, Math.min(100, Math.round(seed.cloudBase + seed.cloudAmp * Math.sin(h / 6 + 1) + (Math.random() * 14 - 7)))));
+    }
+    return { temp, rain, wind, cloud };
+  }
+
+  const SEEDS = [
+    { dow: 'Mon', code: 3, base: 15, amp: 5, rainHours: [], rainAmt: 0, windBase: 10, windAmp: 12, cloudBase: 55, cloudAmp: 30 },
+    { dow: 'Tue', code: 61, base: 13, amp: 4, rainHours: [7, 8, 9, 14, 15], rainAmt: 0.9, windBase: 16, windAmp: 16, cloudBase: 80, cloudAmp: 15 },
+    { dow: 'Wed', code: 2, base: 18, amp: 7, rainHours: [16], rainAmt: 0.3, windBase: 9, windAmp: 10, cloudBase: 35, cloudAmp: 30 },
+    { dow: 'Thu', code: 0, base: 21, amp: 8, rainHours: [], rainAmt: 0, windBase: 7, windAmp: 8, cloudBase: 12, cloudAmp: 15 },
+    { dow: 'Fri', code: 80, base: 17, amp: 6, rainHours: [11, 12, 13, 17, 18], rainAmt: 1.6, windBase: 22, windAmp: 18, cloudBase: 78, cloudAmp: 18 },
+    { dow: 'Sat', code: 1, base: 19, amp: 7, rainHours: [], rainAmt: 0, windBase: 11, windAmp: 12, cloudBase: 28, cloudAmp: 25 },
+    { dow: 'Sun', code: 45, base: 14, amp: 4, rainHours: [6, 7], rainAmt: 0.2, windBase: 6, windAmp: 6, cloudBase: 70, cloudAmp: 20 },
+  ];
+
+  const days = SEEDS.map((s, i) => {
+    const hourly = dayHourly(s);
+    const hi = Math.max(...hourly.temp), lo = Math.min(...hourly.temp);
+    const rainSum = +hourly.rain.reduce((a, b) => a + b, 0).toFixed(1);
+    const windHi = Math.max(...hourly.wind), windLo = Math.min(...hourly.wind);
+    const cloudHi = Math.max(...hourly.cloud), cloudLo = Math.min(...hourly.cloud);
+    return {
+      idx: i, dow: s.dow, code: s.code, hourly,
+      hi, lo, rainSum, windHi, windLo, cloudHi, cloudLo,
+      cloudMean: Math.round(hourly.cloud.reduce((a, b) => a + b, 0) / 24),
+      windDir: ['NE', 'N', 'NE', 'E', 'NW', 'NE', 'SE'][i],
+      rise: 0.28, set: 0.80,
+      past: i < 1,
+      conf: { temp: 78 + i % 3 * 5, rain: 55 + i % 4 * 8, wind: 62, cloud: 70 },
+    };
+  });
+
+  window.WB_DATA = { days, location: { name: 'Orange NSW', detail: 'AU · 148.4°E 33.3°S', nowHour: 13 } };
+})();
+</script>
+<script>
+// Flatten to continuous 168h streams + per-hour spread, gusts, feels-like,
+// and secondary metrics (UV, humidity, pressure, visibility, dew point, AQI).
+(function () {
+  const D = window.WB_DATA;
+  const T = [], R = [], W = [], C = [], SPREAD = [], GUST = [], FEELS = [];
+  const uv = [], hum = [], pres = [], vis = [], dew = [], aqi = [];
+  let minT = Infinity;
+  D.days.forEach((d) => { minT = Math.min(minT, d.lo); });
+  D.days.forEach((d, di) => {
+    const chaos = d.rainSum > 2 ? 1.9 : d.rainSum > 0.3 ? 1.3 : 1;
+    for (let h = 0; h < 24; h++) {
+      const t = d.hourly.temp[h], r = d.hourly.rain[h], w = d.hourly.wind[h], c = d.hourly.cloud[h];
+      const H = di * 24 + h;
+      T.push(t); R.push(r); W.push(w); C.push(c);
+      SPREAD.push(Math.min(1, (0.10 + di * 0.055) * chaos));
+      GUST.push(Math.round(w * (1.25 + 0.45 * Math.abs(Math.sin(H * 0.7)))));
+      FEELS.push(+(t - w * 0.11).toFixed(1));
+      const day = Math.max(0, Math.sin(((h - 6) / 12) * Math.PI));
+      uv.push(+(day * 7 * (1 - c / 160)).toFixed(1));
+      const hm = Math.max(38, Math.min(96, Math.round(92 - (t - minT) * 3.1 + (r > 0 ? 8 : 0))));
+      hum.push(hm);
+      pres.push(+(1013 + 6 * Math.sin(H / 38) - d.rainSum * 0.8).toFixed(1));
+      vis.push(+Math.max(1.5, Math.min(10, 10 - r * 4 - (c > 82 ? 1.6 : 0))).toFixed(1));
+      dew.push(+(t - (100 - hm) / 5).toFixed(1));
+      aqi.push(Math.round(Math.max(6, Math.min(55, 18 + 10 * Math.sin(H / 30 + 2) + (15 - w) * 0.4))));
+    }
+  });
+  const NOW = 1 * 24 + D.location.nowHour;
+  window.WB_STREAMS = {
+    temp: T, rain: R, wind: W, cloud: C, spread: SPREAD, gust: GUST, feels: FEELS,
+    secondary: { uv, hum, pres, vis, dew, aqi },
+    NOW, HOURS: T.length,
+  };
+})();
+</script>
+<script>
+// Shared drawing helpers.
+(function () {
+  const COL = { temp: '#7EE8A5', rain: '#5FA4FF', wind: '#A8E63E', cloud: '#C8A6FF' };
+  const easeIO = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+  function smoothPath(pts) {
+    if (!pts.length) return '';
+    let d = 'M ' + pts[0][0].toFixed(1) + ' ' + pts[0][1].toFixed(1);
+    for (let i = 1; i < pts.length; i++) {
+      const x0 = pts[i - 1][0], y0 = pts[i - 1][1], x1 = pts[i][0], y1 = pts[i][1];
+      const mx = (x0 + x1) / 2;
+      d += ' C ' + mx.toFixed(1) + ' ' + y0.toFixed(1) + ', ' + mx.toFixed(1) + ' ' + y1.toFixed(1) + ', ' + x1.toFixed(1) + ' ' + y1.toFixed(1);
+    }
+    return d;
+  }
+  // Daylight luminance at absolute hour h → 0.30 (deep night) … 1 (day).
+  function lum(h) {
+    const D = window.WB_DATA;
+    const di = Math.max(0, Math.min(6, Math.floor(h / 24)));
+    const d = D.days[di];
+    const rise = di * 24 + d.rise * 23, set = di * 24 + d.set * 23, RMP = 1.6;
+    const ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+    const up = ss(rise - RMP, rise + RMP, h), down = 1 - ss(set - RMP, set + RMP, h);
+    return 0.30 + 0.70 * Math.min(up, down);
+  }
+  const fmtHr = (h) => { const hh = ((Math.round(h) % 24) + 24) % 24; return hh === 0 ? '12a' : hh < 12 ? hh + 'a' : hh === 12 ? '12p' : (hh - 12) + 'p'; };
+  window.WB_UI = { COL, easeIO, smoothPath, lum, fmtHr };
+})();
+</script>
+<script type="text/babel" src="week.jsx"></script>
+<script type="text/babel" src="streams.jsx"></script>
+<script type="text/babel" src="panel.jsx"></script>
+<script type="text/babel" src="app.jsx"></script>
+</body>
+</html>

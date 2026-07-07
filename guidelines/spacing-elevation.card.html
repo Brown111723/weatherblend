@@ -1,0 +1,17 @@
+<!-- @dsCard group="Spacing" viewport="700x180" name="Elevation & glass" subtitle="Soft high-spread shadows and the glass metric box over the hero gradient" -->
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><link rel="stylesheet" href="../styles.css">
+<style>
+  html,body{margin:0;background:var(--wb-bg);color:var(--wb-text);font-family:var(--wb-font-sans);}
+  .wrap{padding:24px;display:flex;gap:20px;flex-wrap:wrap;align-items:center;}
+  .card{background:var(--wb-surface);border:1px solid var(--wb-border);border-radius:var(--wb-radius-lg);padding:16px 18px;font-size:12px;}
+  .panel{box-shadow:var(--wb-shadow-panel);}
+  .hero{background:var(--wb-hero-grad);border-radius:var(--wb-radius-lg);padding:18px;}
+  .glass{background:var(--wb-glass-fill);border:1px solid var(--wb-glass-border);border-top:2px solid var(--q-temp);border-radius:var(--wb-radius-xl);padding:14px 16px;backdrop-filter:blur(3px);font-size:12px;}
+  .cap{font-size:9.5px;color:var(--wb-text-dim);font-family:var(--wb-font-mono);margin-top:8px;}
+</style></head>
+<body><div class="wrap">
+  <div><div class="card">Surface card<br><span style="color:var(--wb-text-dim)">1px border · no shadow</span></div><div class="cap">--wb-surface</div></div>
+  <div><div class="card panel">Popover / config<br><span style="color:var(--wb-text-dim)">soft 34px shadow</span></div><div class="cap">--wb-shadow-panel</div></div>
+  <div class="hero"><div class="glass">Glass metric box<br><span style="color:var(--wb-text-dim)">blur + quatrefoil top</span></div><div class="cap">--wb-glass-fill + --wb-hero-grad</div></div>
+</div></body></html>

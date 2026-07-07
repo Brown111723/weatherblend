@@ -1,0 +1,18 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Quatrefoil metric palette" subtitle="The brand's core — four hues that mean temp / rain / wind / cloud everywhere" -->
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><link rel="stylesheet" href="../styles.css">
+<style>
+  html,body{margin:0;background:var(--wb-bg);font-family:var(--wb-font-sans);color:var(--wb-text);}
+  .wrap{padding:20px;display:flex;gap:14px;}
+  .sw{flex:1;display:flex;flex-direction:column;gap:8px;}
+  .chip{height:56px;border-radius:var(--wb-radius-lg);}
+  .n{font-size:12.5px;font-weight:700;}
+  .v{font-size:11px;color:var(--wb-text-dim);font-family:var(--wb-font-mono);}
+  .m{font-size:11px;color:var(--wb-text-muted);}
+</style></head>
+<body><div class="wrap">
+  <div class="sw"><div class="chip" style="background:var(--q-temp)"></div><div class="n" style="color:var(--q-temp)">Temp · mint</div><div class="v">--q-temp · #7EE8A5</div></div>
+  <div class="sw"><div class="chip" style="background:var(--q-rain)"></div><div class="n" style="color:var(--q-rain)">Rain · blue</div><div class="v">--q-rain · #5FA4FF</div></div>
+  <div class="sw"><div class="chip" style="background:var(--q-wind)"></div><div class="n" style="color:var(--q-wind)">Wind · lime</div><div class="v">--q-wind · #A8E63E</div></div>
+  <div class="sw"><div class="chip" style="background:var(--q-cloud)"></div><div class="n" style="color:var(--q-cloud)">Cloud · purple</div><div class="v">--q-cloud · #C8A6FF</div></div>
+</div></body></html>

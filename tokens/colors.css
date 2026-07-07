@@ -1,0 +1,58 @@
+/* ════════════════════════════════════════════════════════════════════
+   WeatherBlend — Colors
+   Dark-first UI. The "quatrefoil" metric palette is the brand's core
+   identity: four hues that mean temp / rain / wind / cloud everywhere.
+   Values copied verbatim from the product (styles.css / app.js).
+   ════════════════════════════════════════════════════════════════════ */
+:root{
+  /* ── Surfaces (dark, cool, near-black navy) ── */
+  --wb-bg:#0c0f15;        /* app canvas */
+  --wb-surface:#141922;   /* raised panels, drawers, modals */
+  --wb-surface-2:#1a2130; /* nested controls, chips, inputs */
+
+  /* ── Borders / hairlines ── */
+  --wb-border:#1f2733;    /* default hairline */
+  --wb-border-2:#2b3647;  /* emphasized / interactive border */
+
+  /* ── Text ── */
+  --wb-text:#f4f7fd;      /* primary */
+  --wb-text-muted:#93a6c0;/* secondary / labels */
+  --wb-text-dim:#5f6f82;  /* tertiary / captions, disabled */
+
+  /* ── Accent (interactive blue — distinct from the rain hue) ── */
+  --wb-accent:#4d8df0;
+  --wb-accent-press:#2563eb;
+  --wb-accent-soft:rgba(96,165,250,.13);  /* selected/hover wash */
+  --wb-accent-text:#93c5fd;                /* accent-on-dark text  */
+
+  /* ════ QUATREFOIL — the metric palette (single source of truth) ════ */
+  --q-temp:#7EE8A5;   /* mint   — temperature */
+  --q-rain:#5FA4FF;   /* blue   — rain / precip */
+  --q-wind:#A8E63E;   /* lime   — wind */
+  --q-cloud:#C8A6FF;  /* purple — cloud */
+
+  /* ── State / status ── */
+  --wb-now:#f87171;   /* the "now" line — red, only for present moment */
+  --wb-ok:#22c55e;
+  --wb-warn:#f59e0b;
+  --wb-err:#ef4444;
+
+  /* confidence read-out */
+  --wb-conf-high:#34d399;
+  --wb-conf-mid:#fbbf24;
+  --wb-conf-low:#fb7185;
+
+  /* ── Day-shading (used in the forecast table & carousels) ── */
+  --wb-day-bg:color-mix(in srgb,var(--wb-bg) 91%,#3a5a86 9%);
+  --wb-day-line:rgba(255,200,50,0.20);
+  --wb-sun:#e7a755;   /* sunrise/sunset markers */
+
+  /* ── The 7 weather-model source colors (fixed per model) ── */
+  --wb-model-gfs:#2563eb;    /* NOAA · USA */
+  --wb-model-ecmwf:#059669;  /* ECMWF · EU */
+  --wb-model-icon:#16a34a;   /* DWD · Germany */
+  --wb-model-gem:#7c3aed;    /* Env. Canada */
+  --wb-model-ukmo:#dc2626;   /* Met Office · UK */
+  --wb-model-cma:#d97706;    /* CMA · China */
+  --wb-model-jma:#6366f1;    /* JMA · Japan */
+}

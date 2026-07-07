@@ -1,0 +1,26 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Text & accent" subtitle="Three text tiers on dark, plus the interactive accent blue" -->
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><link rel="stylesheet" href="../styles.css">
+<style>
+  html,body{margin:0;background:var(--wb-bg);font-family:var(--wb-font-sans);}
+  .wrap{padding:22px;display:flex;gap:40px;align-items:center;flex-wrap:wrap;}
+  .txt div{margin:2px 0;}
+  .p{color:var(--wb-text);font-size:20px;font-weight:600;}
+  .m{color:var(--wb-text-muted);font-size:16px;}
+  .d{color:var(--wb-text-dim);font-size:13px;}
+  .v{font-family:var(--wb-font-mono);font-size:10.5px;color:var(--wb-text-dim);}
+  .ac{display:flex;flex-direction:column;gap:8px;}
+  .chip{width:150px;height:44px;border-radius:var(--wb-radius-md);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:13px;}
+</style></head>
+<body><div class="wrap">
+  <div class="txt">
+    <div class="p">Primary — f4f7fd</div>
+    <div class="m">Muted — 93a6c0</div>
+    <div class="d">Dim — 5f6f82</div>
+  </div>
+  <div class="ac">
+    <div class="chip" style="background:var(--wb-accent)">Accent · #4d8df0</div>
+    <div class="chip" style="background:var(--wb-accent-press)">Press · #2563eb</div>
+    <div class="v">--wb-accent · --wb-accent-press</div>
+  </div>
+</div></body></html>

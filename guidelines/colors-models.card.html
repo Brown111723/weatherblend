@@ -1,0 +1,20 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Model source colors" subtitle="A fixed identity hue per global weather model" -->
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><link rel="stylesheet" href="../styles.css">
+<style>
+  html,body{margin:0;background:var(--wb-bg);font-family:var(--wb-font-sans);color:var(--wb-text);}
+  .wrap{padding:22px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;}
+  .m{display:flex;flex-direction:column;align-items:center;gap:6px;}
+  .dot{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;}
+  .n{font-size:11px;font-weight:600;}
+  .d{font-size:9.5px;color:var(--wb-text-dim);}
+</style></head>
+<body><div class="wrap">
+  <div class="m"><div class="dot" style="background:var(--wb-model-gfs)">G</div><div class="n">GFS</div><div class="d">NOAA</div></div>
+  <div class="m"><div class="dot" style="background:var(--wb-model-ecmwf)">E</div><div class="n">ECMWF</div><div class="d">Europe</div></div>
+  <div class="m"><div class="dot" style="background:var(--wb-model-icon)">I</div><div class="n">ICON</div><div class="d">Germany</div></div>
+  <div class="m"><div class="dot" style="background:var(--wb-model-gem)">C</div><div class="n">GEM</div><div class="d">Canada</div></div>
+  <div class="m"><div class="dot" style="background:var(--wb-model-ukmo)">U</div><div class="n">UKMO</div><div class="d">UK</div></div>
+  <div class="m"><div class="dot" style="background:var(--wb-model-cma)">X</div><div class="n">CMA</div><div class="d">China</div></div>
+  <div class="m"><div class="dot" style="background:var(--wb-model-jma)">J</div><div class="n">JMA</div><div class="d">Japan</div></div>
+</div></body></html>

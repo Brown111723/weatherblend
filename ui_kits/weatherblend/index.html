@@ -1,0 +1,424 @@
+<!-- @dsCard group="WeatherBlend" viewport="430x740" name="WeatherBlend app" subtitle="The multi-model forecast PWA — cards, table, sources & search" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WeatherBlend</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:#05070b;height:100%;}
+  #root{height:100%;}
+  a{color:var(--wb-accent);} a:hover{color:var(--wb-accent-press);}
+  .phone{position:relative;width:100%;max-width:430px;min-height:100vh;margin:0 auto;background:var(--wb-bg);color:var(--wb-text);font-family:var(--wb-font-sans);display:flex;flex-direction:column;overflow:hidden;}
+  .chev{width:34px;height:34px;border-radius:50%;background:none;border:none;color:var(--wb-text-dim);font-size:22px;cursor:pointer;line-height:1;}
+  .chev:hover{color:var(--wb-text);background:rgba(255,255,255,.06);}
+  ::-webkit-scrollbar{width:9px;height:9px;}
+  ::-webkit-scrollbar-thumb{background:#2b3647;border-radius:6px;border:2px solid var(--wb-bg);}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<script>
+// Fake forecast data for the WeatherBlend UI-kit recreation.
+// Shapes mirror the real app (hourly + daily summaries per model blend).
+(function () {
+  const HOURS = Array.from({ length: 24 }, (_, h) => h);
+
+  // A day's hourly temp/rain/wind/cloud (blended). Smooth diurnal curves.
+  function dayHourly(seed) {
+    const temp = [], rain = [], wind = [], cloud = [];
+    for (let h = 0; h < 24; h++) {
+      const t = seed.base + seed.amp * Math.sin(((h - 9) / 24) * Math.PI * 2 - Math.PI / 2);
+      temp.push(+(t).toFixed(1));
+      const r = seed.rainHours.includes(h) ? seed.rainAmt * (0.6 + Math.random() * 0.8) : (Math.random() < 0.08 ? 0.1 : 0);
+      rain.push(+r.toFixed(1));
+      wind.push(Math.round(seed.windBase + seed.windAmp * Math.abs(Math.sin(h / 5)) + (Math.random() * 4 - 2)));
+      cloud.push(Math.max(0, Math.min(100, Math.round(seed.cloudBase + seed.cloudAmp * Math.sin(h / 6 + 1) + (Math.random() * 14 - 7)))));
+    }
+    return { temp, rain, wind, cloud };
+  }
+
+  const SEEDS = [
+    { dow: 'Mon', code: 3, base: 15, amp: 5, rainHours: [], rainAmt: 0, windBase: 10, windAmp: 12, cloudBase: 55, cloudAmp: 30 },
+    { dow: 'Tue', code: 61, base: 13, amp: 4, rainHours: [7, 8, 9, 14, 15], rainAmt: 0.9, windBase: 16, windAmp: 16, cloudBase: 80, cloudAmp: 15 },
+    { dow: 'Wed', code: 2, base: 18, amp: 7, rainHours: [16], rainAmt: 0.3, windBase: 9, windAmp: 10, cloudBase: 35, cloudAmp: 30 },
+    { dow: 'Thu', code: 0, base: 21, amp: 8, rainHours: [], rainAmt: 0, windBase: 7, windAmp: 8, cloudBase: 12, cloudAmp: 15 },
+    { dow: 'Fri', code: 80, base: 17, amp: 6, rainHours: [11, 12, 13, 17, 18], rainAmt: 1.6, windBase: 22, windAmp: 18, cloudBase: 78, cloudAmp: 18 },
+    { dow: 'Sat', code: 1, base: 19, amp: 7, rainHours: [], rainAmt: 0, windBase: 11, windAmp: 12, cloudBase: 28, cloudAmp: 25 },
+    { dow: 'Sun', code: 45, base: 14, amp: 4, rainHours: [6, 7], rainAmt: 0.2, windBase: 6, windAmp: 6, cloudBase: 70, cloudAmp: 20 },
+  ];
+
+  const days = SEEDS.map((s, i) => {
+    const hourly = dayHourly(s);
+    const hi = Math.max(...hourly.temp), lo = Math.min(...hourly.temp);
+    const rainSum = +hourly.rain.reduce((a, b) => a + b, 0).toFixed(1);
+    const windHi = Math.max(...hourly.wind), windLo = Math.min(...hourly.wind);
+    const cloudMean = Math.round(hourly.cloud.reduce((a, b) => a + b, 0) / 24);
+    return {
+      idx: i, dow: s.dow, code: s.code, hourly,
+      hi, lo, rainSum, windHi, windLo, cloudMean,
+      windDir: 'NE',
+      rise: 0.28, set: 0.80,
+      past: i < 1,
+      conf: { temp: 78 + i % 3 * 5, rain: 55 + i % 4 * 8, wind: 62, cloud: 70 },
+    };
+  });
+
+  const models = [
+    { key: 'gfs', w: 0.20 }, { key: 'ecmwf', w: 0.26 }, { key: 'icon', w: 0.16 },
+    { key: 'gem', w: 0.13 }, { key: 'ukmo', w: 0.11 }, { key: 'cma', w: 0.08 }, { key: 'jma', w: 0.06 },
+  ];
+
+  window.WB_DATA = { days, models, hours: HOURS, location: { name: 'Orange NSW', detail: 'AU · 148.4°E 33.3°S', nowHour: 13 } };
+})();
+
+</script>
+<script type="text/babel">
+// CardsView — the main "Cards" view: condition card (orb + hero temp +
+// side metrics + hourly sparklines), the four metric cards, and the
+// horizontal fingerprint day strip.
+const { WeatherOrb, Sparkline, MetricCard, MetricIcon, DayTile, ConfidenceTag } = window.WeatherBlendDesignSystem_0cb5aa;
+
+function tempColor(v) { return v < 5 ? '#93c5fd' : v < 12 ? '#bfdbfe' : v < 22 ? '#86efac' : v < 30 ? '#fcd34d' : '#fca5a5'; }
+
+function SideMetric({ metric, children }) {
+  return (
+    <div style={{ fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5, color: `var(--q-${metric})` }}>
+      <span style={{ display: 'inline-flex' }}><MetricIcon metric={metric} size={14} /></span>{children}
+    </div>
+  );
+}
+
+function SparkRow({ metric, values, hi, lo, split, ticks }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, height: 44 }}>
+      <span style={{ flex: '0 0 18px', display: 'flex', justifyContent: 'center', color: `var(--q-${metric})` }}><MetricIcon metric={metric} size={16} /></span>
+      <div style={{ flex: 1, minWidth: 0 }}><Sparkline values={values} metric={metric} split={split} ticks={ticks} zeroBase={metric === 'rain' || metric === 'wind'} /></div>
+      <div style={{ flex: '0 0 34px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 44, fontSize: 10, fontWeight: 700, color: 'var(--wb-text-dim)', textAlign: 'right', padding: '2px 0' }}>
+        <span>{hi}</span><span style={{ color: 'var(--wb-text-muted)', fontWeight: 600 }}>{lo}</span>
+      </div>
+    </div>
+  );
+}
+
+function CardsView({ day, isToday, nowFrac }) {
+  const h = day.hourly;
+  const split = isToday ? nowFrac : 1;
+  const ticks = [{ frac: day.rise, kind: 'rise' }, { frac: day.set, kind: 'set' }];
+  const feels = Math.round(day.hi - 2);
+  const curT = isToday ? Math.round(h.temp[13]) : day.hi;
+  const curW = isToday ? h.wind[13] : day.windHi;
+  const curC = isToday ? h.cloud[13] : day.cloudMean;
+  const curR = day.rainSum;
+
+  return (
+    <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Condition card */}
+      <div style={{ position: 'relative', background: 'var(--wb-glass-fill)', border: '1px solid var(--wb-glass-border)', borderRadius: 'var(--wb-radius-xl)', padding: '14px 16px', backdropFilter: 'blur(3px)' }}>
+        {/* date header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 13 }}>
+          <button className="chev">‹</button>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', padding: '2.5px 12px', borderRadius: 999, background: isToday ? 'var(--wb-accent-soft)' : 'rgba(251,191,36,.16)', color: isToday ? '#93c5fd' : '#fbbf24' }}>{isToday ? 'Today' : day.dow}</span>
+            <span style={{ fontSize: 18, fontWeight: 600, color: isToday ? 'var(--wb-text)' : '#fde68a' }}>{day.dow} · {['Mar 3', 'Mar 4', 'Mar 5', 'Mar 6', 'Mar 7', 'Mar 8', 'Mar 9'][day.idx]}</span>
+          </div>
+          <button className="chev">›</button>
+        </div>
+        {/* main row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
+          <WeatherOrb temp={curT} rain={curR} wind={curW} cloud={curC} size={64} />
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <div style={{ fontSize: 54, fontWeight: 275, letterSpacing: -2.5, lineHeight: 1, color: tempColor(curT) }}>{curT}°{!isToday && <span style={{ fontSize: 26, fontWeight: 300, color: 'var(--wb-text-muted)', marginLeft: 8, letterSpacing: -1 }}>{Math.round(day.lo)}°</span>}</div>
+            {isToday && <div style={{ fontSize: 13, color: 'var(--wb-text-muted)', marginTop: 3 }}>Feels like {feels}°</div>}
+          </div>
+          <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+            <SideMetric metric="rain"><span style={{ fontSize: 19 }}>{curR.toFixed(1)} mm</span></SideMetric>
+            <SideMetric metric="wind">{curW} km/h NE</SideMetric>
+            <SideMetric metric="cloud">{curC}%</SideMetric>
+          </div>
+        </div>
+        {/* sparklines */}
+        <div style={{ marginTop: 14, paddingTop: 13, borderTop: '1px solid var(--wb-border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <SparkRow metric="temp" values={h.temp} hi={Math.round(day.hi) + '°'} lo={Math.round(day.lo) + '°'} split={split} ticks={ticks} />
+          <SparkRow metric="rain" values={h.rain} hi={Math.max(...h.rain).toFixed(1)} lo={'0'} split={split} ticks={ticks} />
+          <SparkRow metric="wind" values={h.wind} hi={day.windHi} lo={day.windLo} split={split} ticks={ticks} />
+          <SparkRow metric="cloud" values={h.cloud} hi={Math.max(...h.cloud) + '%'} lo={Math.min(...h.cloud) + '%'} split={split} ticks={ticks} />
+        </div>
+      </div>
+
+      {/* metric cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        <MetricCard glass metric="temp" title="Temp" value={curT + '°'} confidence={day.conf.temp} subs={['Feels ' + feels + '°', '↑ ' + Math.round(day.hi) + '°　↓ ' + Math.round(day.lo) + '°']} />
+        <MetricCard glass metric="rain" title="Rain" value={curR.toFixed(1) + ' mm'} confidence={day.conf.rain} subs={['Day total', curR < 0.2 ? 'Dry day expected' : 'Expected today']} />
+        <MetricCard glass metric="wind" title="Wind" value={curW + ' km/h'} confidence={day.conf.wind} subs={['↗ NE', '↑ ' + day.windHi + '　↓ ' + day.windLo + ' km/h']} />
+        <MetricCard glass metric="cloud" title="Cloud" value={curC + '%'} confidence={day.conf.cloud} subs={['↑ ' + Math.max(...h.cloud) + '%　↓ ' + Math.min(...h.cloud) + '%', curC > 70 ? 'Overcast' : curC > 35 ? 'Broken cloud' : 'Mostly clear']} />
+      </div>
+    </div>
+  );
+}
+window.CardsView = CardsView;
+
+</script>
+<script type="text/babel">
+// TableView — the dense forecast heat-map table. Hourly columns for the
+// selected day; each metric is a section whose heading row is the blended
+// value. Cells are coloured by magnitude (the data-viz heat scales).
+const { ModelBadge, MetricIcon } = window.WeatherBlendDesignSystem_0cb5aa;
+
+function tempCell(v) {
+  if (v < 5) return ['var(--heat-temp-cold)', 'var(--heat-temp-cold-fg)'];
+  if (v < 12) return ['var(--heat-temp-cool)', 'var(--heat-temp-cool-fg)'];
+  if (v < 22) return ['var(--heat-temp-mild)', 'var(--heat-temp-mild-fg)'];
+  if (v < 30) return ['var(--heat-temp-warm)', 'var(--heat-temp-warm-fg)'];
+  return ['var(--heat-temp-hot)', 'var(--heat-temp-hot-fg)'];
+}
+function rainCell(v) {
+  if (v < 0.05) return ['transparent', 'var(--wb-text-dim)'];
+  if (v < 0.5) return ['var(--heat-rain-1)', 'var(--heat-rain-1-fg)'];
+  if (v < 1) return ['var(--heat-rain-2)', 'var(--heat-rain-2-fg)'];
+  if (v < 5) return ['var(--heat-rain-3)', 'var(--heat-rain-3-fg)'];
+  return ['var(--heat-rain-4)', 'var(--heat-rain-4-fg)'];
+}
+function windCell(v) {
+  if (v < 10) return ['var(--heat-wind-calm)', 'var(--heat-wind-calm-fg)'];
+  if (v < 20) return ['var(--heat-wind-light)', 'var(--heat-wind-light-fg)'];
+  if (v < 35) return ['var(--heat-wind-mod)', 'var(--heat-wind-mod-fg)'];
+  if (v < 55) return ['var(--heat-wind-strong)', 'var(--heat-wind-strong-fg)'];
+  return ['var(--heat-wind-storm)', 'var(--heat-wind-storm-fg)'];
+}
+function cloudCell(v) {
+  if (v < 12) return ['transparent', 'var(--heat-cloud-0-fg)'];
+  if (v < 40) return ['var(--heat-cloud-1)', 'var(--heat-cloud-1-fg)'];
+  if (v < 70) return ['var(--heat-cloud-2)', 'var(--heat-cloud-2-fg)'];
+  if (v < 90) return ['var(--heat-cloud-3)', 'var(--heat-cloud-3-fg)'];
+  return ['var(--heat-cloud-5)', 'var(--heat-cloud-5-fg)'];
+}
+
+function fmtHr(h) { const ap = h < 12 ? 'a' : 'p'; const h12 = h % 12 || 12; return h12 + ap; }
+
+function TableView({ day, isToday, nowHour, showSources }) {
+  const h = day.hourly;
+  const cols = window.WB_DATA.hours.filter((x) => x % 2 === 0); // every 2h to fit
+  const th = { position: 'sticky', top: 0, padding: '10px 6px 8px', fontSize: 13, fontWeight: 500, color: 'var(--wb-text-muted)', textAlign: 'center', background: 'var(--wb-bg)', minWidth: 48, borderBottom: '2px solid var(--wb-border)' };
+  const rl = { position: 'sticky', left: 0, background: 'var(--wb-bg)', textAlign: 'left', paddingLeft: 16, borderRight: '1px solid var(--wb-border)', minWidth: 84, zIndex: 2 };
+
+  const cell = (v, colorFn, fmt) => {
+    const [bg, fg] = colorFn(v);
+    return { background: bg, color: fg, textAlign: 'center', padding: '6px 4px', fontSize: 14 };
+  };
+
+  const Section = ({ metric, label, values, fmt, colorFn }) => (
+    <React.Fragment>
+      <tr>
+        <td style={{ ...rl, fontFamily: 'var(--wb-font-sans)', fontSize: 12, fontWeight: 700, letterSpacing: 1.2, textTransform: 'uppercase', color: `var(--q-${metric})`, padding: '10px 0 8px 16px', borderBottom: '2px solid var(--wb-border-2)' }}>{label}</td>
+        {cols.map((c) => (
+          <td key={c} style={{ ...cell(values[c], colorFn), fontWeight: 600, borderBottom: '2px solid var(--wb-border-2)', color: c === nowHour && isToday ? 'var(--wb-now)' : cell(values[c], colorFn).color }}>{fmt(values[c])}</td>
+        ))}
+      </tr>
+      {showSources && window.WB_DATA.models.slice(0, 3).map((m) => (
+        <tr key={m.key}>
+          <td style={{ ...rl }}><ModelBadge model={m.key} weight={m.w} size={18} /></td>
+          {cols.map((c) => {
+            const jitter = metric === 'rain' ? Math.max(0, values[c] + (Math.random() - 0.5) * 0.6) : values[c] + Math.round((Math.random() - 0.5) * 4);
+            return <td key={c} style={cell(jitter, colorFn)}>{fmt(jitter)}</td>;
+          })}
+        </tr>
+      ))}
+    </React.Fragment>
+  );
+
+  return (
+    <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '100%', paddingBottom: 60 }}>
+      <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontFamily: 'var(--wb-font-mono)' }}>
+        <thead>
+          <tr>
+            <th style={{ ...th, ...rl, zIndex: 3, fontFamily: 'var(--wb-font-sans)', fontSize: 12 }}>{day.dow}</th>
+            {cols.map((c) => (
+              <th key={c} style={{ ...th, color: c === nowHour && isToday ? 'var(--wb-now)' : th.color, background: c === nowHour && isToday ? 'rgba(248,113,113,0.08)' : th.background }}>{fmtHr(c)}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <Section metric="temp" label="Temp" values={h.temp} colorFn={tempCell} fmt={(v) => Math.round(v) + '°'} />
+          <Section metric="rain" label="Rain" values={h.rain} colorFn={rainCell} fmt={(v) => (v < 0.05 ? '·' : v.toFixed(1))} />
+          <Section metric="wind" label="Wind" values={h.wind} colorFn={windCell} fmt={(v) => Math.round(v)} />
+          <Section metric="cloud" label="Cloud" values={h.cloud} colorFn={cloudCell} fmt={(v) => Math.round(v) + '%'} />
+        </tbody>
+      </table>
+      <div style={{ padding: '14px 16px', fontSize: 12, color: 'var(--wb-text-dim)', fontFamily: 'var(--wb-font-sans)', lineHeight: 1.5 }}>
+        Each section heading is the blended average. Enable Sources to see the individual models below it, tagged with their current accuracy weight.
+      </div>
+    </div>
+  );
+}
+window.TableView = TableView;
+
+</script>
+<script type="text/babel">
+// SourcesPanel — the "Models & sources" popover: metric Show toggles,
+// Confidence toggles, weight-method segment, and the 7 model toggles.
+const { Toggle, Segment, ModelToggle, MetricIcon } = window.WeatherBlendDesignSystem_0cb5aa;
+
+function SourcesPanel({ show, setShow, conf, setConf, method, setMethod, enabled, setEnabled, sources, setSources }) {
+  const label = { fontSize: 10, color: 'var(--wb-text-dim)', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6, marginTop: 4 };
+  const metrics = ['temp', 'rain', 'wind', 'cloud'];
+  return (
+    <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={label}>Show</div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {metrics.map((m) => (
+          <Toggle key={m} icon={<MetricIcon metric={m} />} label={m[0].toUpperCase() + m.slice(1)} enabled={show[m]} color={`var(--q-${m})`} onClick={(v) => setShow({ ...show, [m]: v })} />
+        ))}
+        <Toggle icon={<span style={{ fontSize: 16 }}>◎</span>} label="Sources" enabled={sources} onClick={setSources} />
+      </div>
+
+      <div style={label}>Confidence</div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {metrics.map((m) => (
+          <Toggle key={m} icon={<MetricIcon metric={m} />} label={m[0].toUpperCase() + m.slice(1)} enabled={conf[m]} color={`var(--q-${m})`} onClick={(v) => setConf({ ...conf, [m]: v })} />
+        ))}
+      </div>
+
+      <div style={label}>Weight method</div>
+      <Segment options={['Recency', 'Per-day', 'Blend']} value={method} onChange={setMethod} />
+
+      <div style={label}>Models</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {window.WB_DATA.models.map((m) => (
+          <ModelToggle key={m.key} model={m.key} enabled={enabled[m.key] !== false} onClick={(v) => setEnabled({ ...enabled, [m.key]: v })} />
+        ))}
+        <ModelToggle model="cma" unavailable />
+      </div>
+    </div>
+  );
+}
+window.SourcesPanel = SourcesPanel;
+
+</script>
+<script type="text/babel">
+const { Logo, IconButton, DayTile, BottomNav, Drawer, Modal, Button } = window.WeatherBlendDesignSystem_0cb5aa;
+const D = window.WB_DATA;
+
+const ic = {
+  menu: <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>,
+  pin: <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11z"/><circle cx="12" cy="10" r="2.4"/></svg>,
+  chart: <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="20" x2="4" y2="13"/><line x1="10" y1="20" x2="10" y2="7"/><line x1="16" y1="20" x2="16" y2="11"/><line x1="21" y1="20" x2="3" y2="20"/></svg>,
+  cog: <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33"/></svg>,
+  help: <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12" y2="17"/></svg>,
+  cards: <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="14" width="11" height="6" rx="1.5"/><line x1="17" y1="15" x2="21" y2="15"/><line x1="17" y1="19" x2="21" y2="19"/></svg>,
+  table: <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="1.5"/><line x1="3" y1="9.5" x2="21" y2="9.5"/><line x1="9" y1="4" x2="9" y2="20"/></svg>,
+  map: <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><line x1="9" y1="4" x2="9" y2="18"/></svg>,
+};
+
+function CitySearch({ onClose, onPick }) {
+  const [q, setQ] = React.useState('');
+  const opts = [['Orange NSW', 'AU · 33.3°S'], ['Orange CA', 'US · 33.8°N'], ['Orangeville', 'CA · 43.9°N'], ['Orange TX', 'US · 30.1°N']].filter((o) => o[0].toLowerCase().includes(q.toLowerCase()) || !q);
+  return (
+    <div onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.8)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: 'var(--wb-surface)', border: '1px solid var(--wb-border-2)', borderRadius: 'var(--wb-radius-2xl)', padding: 24, width: '100%', maxWidth: 380, display: 'flex', flexDirection: 'column', gap: 14, position: 'relative' }}>
+        <button onClick={onClose} style={{ position: 'absolute', top: 12, right: 12, width: 32, height: 32, borderRadius: 8, border: '1px solid var(--wb-border-2)', background: 'var(--wb-surface-2)', color: 'var(--wb-text-muted)', fontSize: 20, cursor: 'pointer' }}>×</button>
+        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Set your location</h3>
+        <p style={{ margin: 0, fontSize: 14, color: 'var(--wb-text-muted)' }}>Start typing a town or city.</p>
+        <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="e.g. Orange" style={{ width: '100%', padding: '12px 16px', background: 'var(--wb-bg)', border: '1px solid var(--wb-border-2)', borderRadius: 10, color: 'var(--wb-text)', fontSize: 16, outline: 'none' }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 220, overflowY: 'auto' }}>
+          {opts.map((o) => (
+            <button key={o[0]} onClick={() => { onPick(o[0]); onClose(); }} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1, textAlign: 'left', padding: '9px 12px', borderRadius: 9, border: '1px solid var(--wb-border)', background: 'var(--wb-surface-2)', cursor: 'pointer' }}>
+              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--wb-text)' }}>{o[0]}</span>
+              <span style={{ fontSize: 12, color: 'var(--wb-text-dim)' }}>{o[1]}</span>
+            </button>
+          ))}
+        </div>
+        <Button variant="secondary" fullWidth>📡 Use my location (GPS)</Button>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [view, setView] = React.useState('cards');
+  const [sel, setSel] = React.useState(1);
+  const [drawer, setDrawer] = React.useState(false);
+  const [help, setHelp] = React.useState(false);
+  const [city, setCity] = React.useState(false);
+  const [panel, setPanel] = React.useState(false);
+  const [loc, setLoc] = React.useState(D.location.name);
+  const [show, setShow] = React.useState({ temp: true, rain: true, wind: true, cloud: true });
+  const [conf, setConf] = React.useState({ temp: true, rain: false, wind: false, cloud: false });
+  const [method, setMethod] = React.useState('Recency');
+  const [enabled, setEnabled] = React.useState({});
+  const [sources, setSources] = React.useState(false);
+
+  const day = D.days[sel];
+  const isToday = sel === 1;
+  const nowFrac = D.location.nowHour / 23;
+
+  return (
+    <div className="phone">
+      {/* header */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 100 }}>
+        <header style={{ padding: '10px 15px', borderBottom: '1px solid var(--wb-border)', display: 'flex', alignItems: 'center', gap: 11, background: 'var(--wb-header-grad)' }}>
+          <Logo size={30} />
+          <button onClick={() => setCity(true)} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left', color: 'inherit' }}>
+            <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: -0.2, color: 'var(--wb-text)' }}>{loc}</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: 'var(--wb-accent)' }}>{ic.pin}<span style={{ fontSize: 11.5, color: 'var(--wb-text-dim)' }}>{D.location.detail}</span></span>
+          </button>
+          <IconButton label="Menu" onClick={() => setDrawer(true)}>{ic.menu}</IconButton>
+        </header>
+        {/* day strip */}
+        <div style={{ display: 'flex', gap: 7, overflowX: 'auto', padding: '10px 16px 14px', background: 'var(--wb-bg)', borderBottom: '1px solid var(--wb-border)' }}>
+          {D.days.map((d) => (
+            <DayTile key={d.idx} dow={d.dow} hi={d.hi} lo={d.lo} rain={d.rainSum} values={d.hourly.temp} selected={d.idx === sel} today={d.idx === 1} past={d.past} onClick={() => setSel(d.idx)} />
+          ))}
+        </div>
+      </div>
+
+      {/* content */}
+      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 70 }}>
+        {view === 'cards' && <window.CardsView day={day} isToday={isToday} nowFrac={nowFrac} />}
+        {view === 'table' && <window.TableView day={day} isToday={isToday} nowHour={D.location.nowHour} showSources={sources} />}
+        {view === 'map' && <div style={{ padding: '80px 20px', textAlign: 'center', color: 'var(--wb-text-muted)', fontSize: 15 }}>🗺️ Map view is coming soon.</div>}
+      </div>
+
+      {/* bottom nav */}
+      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
+        <BottomNav active={view} onChange={setView} items={[{ id: 'cards', label: 'Cards', icon: ic.cards }, { id: 'table', label: 'Table', icon: ic.table }, { id: 'map', label: 'Map', icon: ic.map }]} />
+      </div>
+
+      {/* sources popover */}
+      {panel && (
+        <div style={{ position: 'absolute', top: 54, right: 8, width: 'min(400px, calc(100% - 16px))', maxHeight: '78%', overflowY: 'auto', border: '1px solid var(--wb-border-2)', borderRadius: 'var(--wb-radius-lg)', background: 'var(--wb-surface-2)', zIndex: 200, boxShadow: 'var(--wb-shadow-panel)' }}>
+          <window.SourcesPanel {...{ show, setShow, conf, setConf, method, setMethod, enabled, setEnabled, sources, setSources }} />
+        </div>
+      )}
+
+      {/* overlays */}
+      <Drawer open={drawer} onClose={() => setDrawer(false)} label="Options" items={[
+        { label: 'Forecast accuracy', icon: ic.chart, onClick: () => setHelp(true) },
+        { label: 'Models & sources', icon: ic.cog, onClick: () => setPanel(true) },
+        { label: 'Help & about', icon: ic.help, onClick: () => setHelp(true) },
+      ]} />
+
+      {help && (
+        <Modal title="WeatherBlend" subtitle="Multi-model forecast · all data free, no API key" maxWidth={400} onClose={() => setHelp(false)}
+          footer={<div style={{ marginTop: 20 }}><Button fullWidth onClick={() => setHelp(false)}>Close</Button></div>}>
+          <h3 style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: 'var(--wb-accent)', margin: '0 0 8px' }}>What is it?</h3>
+          <p style={{ margin: '0 0 12px' }}>WeatherBlend fetches forecasts from seven global weather models at once and blends them by recent accuracy — multi-model blends beat any single model.</p>
+          <h3 style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: 'var(--wb-accent)', margin: '0 0 8px' }}>The forecast glyph</h3>
+          <p style={{ margin: 0 }}>Instead of fixed icons, the now card draws one living mark built from the data itself — four circles for temp, wind, rain and cloud, each growing and glowing with its value.</p>
+        </Modal>
+      )}
+
+      {city && <CitySearch onClose={() => setCity(false)} onPick={setLoc} />}
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
