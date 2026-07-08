@@ -5,27 +5,28 @@
 // Replaces the cards UI: overrides renderCurrentBar() to draw one
 // continuous 7-day stream — week overview and hourly detail are the SAME
 // dataset at two zoom levels, linked by an animated lens.
-// All values come from the engine: hourTileData() (observed past /
-// bias-corrected blended forecast), confHourMetric()/confDayMetric()
-// (model agreement) and getSunTimes(). Table + map views untouched.
+// Honors config toggles: Show temp/rain/wind/cloud hides lanes,
+// Confidence toggles the "% agree" figures, model/weighting changes
+// rebuild via _recalcAndRender(). Drag horizontally on the hourly view
+// to scrub any hour (headers follow).
 // ════════════════════════════════════════════════════════════════════════
 
-const TL_W=400, TL_LANE=82, TL_GAP=48, TL_TOP=42, TL_AXIS=34;
-const TL_H=TL_TOP+4*TL_LANE+3*TL_GAP+TL_AXIS;      // 544
+const TL_W=400, TL_LANE=82, TL_GAP=48, TL_TOP=42, TL_AXIS=40;
 const TL_NOW='#f87171', TL_SUN='#fbbf24';
 
 const TL={
   days:[], n:0, idx:[], temp:[], rain:[], wind:[], cloud:[],
   confH:{temp:[],rain:[],wind:[],cloud:[]}, dayConf:{},
+  lanes:[], laneY:{}, H:0,
   suns:[], streamT0:0, nowH:null, tMin:0, tMax:1, rMax:1, wMax:1,
   sel:0, win:{cur:0,from:0,to:0,t0:0,dur:650},
+  scrub:null,
   raf:0, tBase:performance.now(),
   reduced:matchMedia('(prefers-reduced-motion: reduce)').matches,
   sec:null, secKey:null, secOpen:false,
 };
 
 // ── helpers ─────────────────────────────────────────────────────────────
-function tlLaneY(i){return TL_TOP+i*(TL_LANE+TL_GAP);}
 function tlPath(pts){
   if(!pts.length)return'';
   let d='M '+pts[0][0].toFixed(1)+' '+pts[0][1].toFixed(1);
@@ -50,7 +51,8 @@ function tlGust(h){ // variability proxy: local max over ±1h
   return g;
 }
 function tlVal(arr,h){const v=arr[Math.max(0,Math.min(TL.n-1,h))];return v==null?0:v;}
-function tlEsc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+function tlClock(ms){const d=new Date(ms);let h=d.getHours();const m=d.getMinutes();const ap=h<12?'am':'pm';h=h%12||12;return h+':'+String(m).padStart(2,'0')+ap;}
+function tlHourLabel(h){const hh=((Math.round(h)%24)+24)%24;return hh===0?'12am':hh<12?hh+'am':hh===12?'12pm':(hh-12)+'pm';}
 
 // ── build 7-day streams from engine state ───────────────────────────────
 function tlBuild(){
@@ -86,59 +88,83 @@ function tlBuild(){
   TL.suns=[];
   days.forEach(d=>{
     const s=getSunTimes(d); if(!s)return;
-    TL.suns.push({h:(s.riseMs-TL.streamT0)/3600000,kind:'rise'},{h:(s.setMs-TL.streamT0)/3600000,kind:'set'});
+    TL.suns.push({h:(s.riseMs-TL.streamT0)/3600000,kind:'rise',ms:s.riseMs},{h:(s.setMs-TL.streamT0)/3600000,kind:'set',ms:s.setMs});
   });
   const nn=a=>a.filter(v=>v!=null&&!isNaN(v));
   const tv=nn(TL.temp); TL.tMin=(tv.length?Math.min(...tv):0)-1; TL.tMax=(tv.length?Math.max(...tv):20)+1;
   const rv=nn(TL.rain); TL.rMax=Math.max(1.2,(rv.length?Math.max(...rv):0))*1.1;
   const wv=nn(TL.wind); TL.wMax=Math.max(10,(wv.length?Math.max(...wv):0))*1.15;
+  // lane layout honors the config panel's "Show" toggles
+  let lanes=['temp','rain','wind','cloud'].filter(m=>secVisible[m]);
+  if(!lanes.length)lanes=['temp','rain','wind','cloud'];
+  TL.lanes=lanes; TL.laneY={};
+  lanes.forEach((m,i)=>{TL.laneY[m]=TL_TOP+i*(TL_LANE+TL_GAP);});
+  TL.H=TL_TOP+lanes.length*TL_LANE+(lanes.length-1)*TL_GAP+TL_AXIS;
   let si=TL.days.findIndex(o=>o.date===selDate);
   if(si<0){si=Math.max(0,Math.min(TL.days.length-1,ti-start));selDate=TL.days[si].date;}
   TL.sel=si;
   return true;
 }
 
-// stream-hour y for a metric value
-function tlY(m,v,lane){
-  const y0=tlLaneY(lane);
+function tlY(m,v){
+  const y0=TL.laneY[m];
   if(m==='temp')return y0+TL_LANE-((v-TL.tMin)/(TL.tMax-TL.tMin))*TL_LANE;
   if(m==='rain')return y0+TL_LANE-(v/TL.rMax)*TL_LANE;
   return y0+TL_LANE-(v/TL.wMax)*TL_LANE;
 }
 
-// ── WEEK overview (same visual language, zoomed out) ────────────────────
+// ── WEEK overview (same visual language, zoomed out, compact) ───────────
+// lane heights (compact): temp 22, rain 14, wind 18, cloud 9, gaps 6
+const TL_WK_H={temp:22,rain:14,wind:18,cloud:9};
+function tlWkLanes(){
+  let y=3; const out={};
+  TL.lanes.forEach(m=>{out[m]=[y,TL_WK_H[m]];y+=TL_WK_H[m]+6;});
+  return {lanes:out,H:y+2};
+}
 function tlWeekHTML(){
   const nd=TL.days.length, W=TL_W, dayW=W/nd;
-  const yT=4,hT=30, yR=42,hR=20, yW=68,hW=24, yC=98,hC=12, H=114;
+  const {lanes,H}=tlWkLanes();
   const X=h=>((h+0.5)/TL.n)*W;
-  // temp line (2h sample)
-  const pts=[];
-  for(let h=0;h<TL.n;h+=2){const v=TL.temp[h];if(v==null)continue;pts.push([X(h),yT+hT-((v-TL.tMin)/(TL.tMax-TL.tMin))*hT]);}
-  const tempD=tlPath(pts);
-  // rain 3h bins
-  let bars='';
-  const nb=TL.n/3;
-  const binVals=[];
-  for(let b=0;b<nb;b++){let v=0;for(let k=0;k<3;k++)v+=TL.rain[b*3+k]||0;binVals.push(v);}
-  const binMax=Math.max(1.2,...binVals);
-  binVals.forEach((v,b)=>{
-    if(v<=0.05)return;
-    const bh=Math.max(1.6,(v/binMax)*hR);
-    bars+='<rect x="'+((b/nb)*W+1.2).toFixed(1)+'" y="'+(yR+hR-bh).toFixed(1)+'" width="3.4" height="'+bh.toFixed(1)+'" rx="1.7" fill="'+QT.rain+'" opacity="'+(0.45+Math.min(0.45,v/4)).toFixed(2)+'"/>';
-  });
-  // cloud opacity gradient (3h)
+  let inner='';
+  if(lanes.temp){
+    const [yT,hT]=lanes.temp;
+    const pts=[];
+    for(let h=0;h<TL.n;h+=2){const v=TL.temp[h];if(v==null)continue;pts.push([X(h),yT+hT-((v-TL.tMin)/(TL.tMax-TL.tMin))*hT]);}
+    const tempD=tlPath(pts);
+    inner+='<path d="'+tempD+'" fill="none" stroke="'+QT.temp+'" stroke-width="4.5" opacity="0.16" filter="url(#tlWkGlow)"/>'
+      +'<path d="'+tempD+'" fill="none" stroke="'+QT.temp+'" stroke-width="1.3" stroke-linecap="round" opacity="0.9"/>';
+  }
+  if(lanes.rain){
+    const [yR,hR]=lanes.rain;
+    const nb=TL.n/3, binVals=[];
+    for(let b=0;b<nb;b++){let v=0;for(let k=0;k<3;k++)v+=TL.rain[b*3+k]||0;binVals.push(v);}
+    const binMax=Math.max(1.2,...binVals);
+    inner+='<line x1="0" y1="'+(yR+hR)+'" x2="'+W+'" y2="'+(yR+hR)+'" stroke="var(--border,#1c2431)" opacity="0.7"/>';
+    binVals.forEach((v,b)=>{
+      if(v<=0.05)return;
+      const bh=Math.max(1.6,(v/binMax)*hR);
+      inner+='<rect x="'+((b/nb)*W+1.2).toFixed(1)+'" y="'+(yR+hR-bh).toFixed(1)+'" width="3.4" height="'+bh.toFixed(1)+'" rx="1.7" fill="'+QT.rain+'" opacity="'+(0.45+Math.min(0.45,v/4)).toFixed(2)+'"/>';
+    });
+  }
+  if(lanes.wind){
+    const [yW,hW]=lanes.wind, wBase=yW+hW/2;
+    inner+='<line x1="0" y1="'+wBase+'" x2="'+W+'" y2="'+wBase+'" stroke="var(--border,#1c2431)" stroke-dasharray="2 4" opacity="0.5"/>'
+      +'<path id="tl-wk-wind" d="" fill="none" stroke="'+QT.wind+'" stroke-width="1.1" stroke-linecap="round" opacity="0.8"/>';
+  }
+  if(lanes.cloud){
+    const [yC,hC]=lanes.cloud;
+    inner+='<rect x="0" y="'+yC+'" width="'+W+'" height="'+hC+'" rx="'+(hC/2)+'" fill="url(#tlWkCloud)"/>';
+  }
   let cloudStops='';
   for(let h=0;h<TL.n;h+=3){
     const c=TL.cloud[h]; if(c==null)continue;
     cloudStops+='<stop offset="'+((h/(TL.n-1))*100).toFixed(1)+'%" stop-color="'+QT.cloud+'" stop-opacity="'+(0.04+Math.pow(c/100,1.2)*0.8).toFixed(2)+'"/>';
   }
-  // night-dim mask (2h)
   let lumStops='';
   for(let h=0;h<TL.n;h+=2){
     const l=0.5+0.5*((tlLum(h)-0.30)/0.70);
     lumStops+='<stop offset="'+((h/(TL.n-1))*100).toFixed(1)+'%" stop-color="#fff" stop-opacity="'+l.toFixed(2)+'"/>';
   }
-  const wBase=yW+hW/2;
   const nowX=TL.nowH!=null&&TL.nowH>=0&&TL.nowH<=TL.n?(TL.nowH/TL.n)*W:null;
   let divs='';
   for(let i=1;i<nd;i++)divs+='<line x1="'+(i*dayW)+'" y1="0" x2="'+(i*dayW)+'" y2="'+H+'" stroke="var(--border,#1c2431)" stroke-width="1" opacity="0.55"/>';
@@ -157,28 +183,21 @@ function tlWeekHTML(){
     +'</defs>'
     +'<g id="tl-lens-rect" style="transition:transform .55s cubic-bezier(.4,0,.2,1);transform:translateX('+(TL.sel*dayW)+'px)">'
     +'<rect width="'+dayW+'" height="'+H+'" rx="5" fill="rgba(77,141,240,.07)" stroke="rgba(77,141,240,.30)"/></g>'
-    +'<g mask="url(#tlWkMask)"><g mask="url(#tlWkNight)">'
-    +'<path d="'+tempD+'" fill="none" stroke="'+QT.temp+'" stroke-width="4.5" opacity="0.16" filter="url(#tlWkGlow)"/>'
-    +'<path d="'+tempD+'" fill="none" stroke="'+QT.temp+'" stroke-width="1.3" stroke-linecap="round" opacity="0.9"/>'
-    +'<line x1="0" y1="'+(yR+hR)+'" x2="'+W+'" y2="'+(yR+hR)+'" stroke="var(--border,#1c2431)" opacity="0.7"/>'
-    +bars
-    +'<line x1="0" y1="'+wBase+'" x2="'+W+'" y2="'+wBase+'" stroke="var(--border,#1c2431)" stroke-dasharray="2 4" opacity="0.5"/>'
-    +'<path id="tl-wk-wind" d="" fill="none" stroke="'+QT.wind+'" stroke-width="1.1" stroke-linecap="round" opacity="0.8"/>'
-    +'<rect x="0" y="'+yC+'" width="'+W+'" height="'+hC+'" rx="'+(hC/2)+'" fill="url(#tlWkCloud)"/>'
-    +'</g>'
+    +'<g mask="url(#tlWkMask)"><g mask="url(#tlWkNight)">'+inner+'</g>'
     +(nowX!=null?'<rect x="0" y="0" width="'+nowX.toFixed(1)+'" height="'+H+'" fill="#000" opacity="0.45"/>':'')
     +'</g>'
     +divs
     +(nowX!=null?'<line x1="'+nowX.toFixed(1)+'" y1="-2" x2="'+nowX.toFixed(1)+'" y2="'+(H+2)+'" stroke="'+TL_NOW+'" stroke-width="1.2" opacity="0.8"/>':'')
     +'</svg></div>';
 }
-// static week wind fallback + animated update share this
 function tlWkWindD(t){
-  const W=TL_W, yW=68,hW=24, base=yW+hW/2;
+  if(!TL.lanes.includes('wind'))return'';
+  const {lanes}=tlWkLanes();
+  const [yW,hW]=lanes.wind, base=yW+hW/2, W=TL_W;
   let d='';
   for(let px=0;px<=W;px+=3){
     const h=Math.min(TL.n-1,Math.floor((px/W)*TL.n));
-    const amp=0.7+(tlVal(TL.wind,h)/TL.wMax)*5.2;
+    const amp=0.6+Math.pow(tlVal(TL.wind,h)/TL.wMax,1.25)*6;
     const y=base+Math.sin(px*0.16+t*1.6)*amp*0.55+Math.sin(px*0.041-t*0.8)*amp*0.45;
     d+=(px?'L':'M')+px+' '+y.toFixed(1);
   }
@@ -205,70 +224,86 @@ function tlLensUpdate(){
 function tlHourlyHTML(){
   const PX=TL_W/24, TW=TL.days.length*TL_W;
   const X=h=>(h+0.5)*PX;
-  // temp core across whole stream
-  const pts=[];
-  for(let h=0;h<TL.n;h++){const v=TL.temp[h];if(v==null)continue;pts.push([X(h),tlY('temp',v,0)]);}
-  const tempD=tlPath(pts);
-  // per-day uncertainty ribbon (width = model disagreement)
-  let ribbons='';
-  TL.days.forEach((d,di)=>{
-    const conf=TL.dayConf[d.date].temp!=null?TL.dayConf[d.date].temp:75;
-    const seg=[];
-    for(let h=di*24;h<Math.min(TL.n,di*24+25);h++){const v=TL.temp[h];if(v==null)continue;seg.push([X(h),tlY('temp',v,0)]);}
-    if(!seg.length)return;
-    const wRib=(3+(1-conf/100)*16).toFixed(1), wGlow=(10+(1-conf/100)*26).toFixed(1);
-    ribbons+='<path d="'+tlPath(seg)+'" fill="none" stroke="'+QT.temp+'" stroke-width="'+wGlow+'" stroke-linecap="round" class="tl-glow" opacity="0.10" filter="url(#tlSoft)"/>'
-      +'<path d="'+tlPath(seg)+'" fill="none" stroke="'+QT.temp+'" stroke-width="'+wRib+'" stroke-linecap="round" opacity="0.15"/>';
+  let body='';
+  // lane separators (thin line centred in each gap)
+  TL.lanes.forEach((m,i)=>{
+    if(!i)return;
+    const y=TL.laneY[m]-TL_GAP/2-4;
+    body+='<line x1="0" y1="'+y+'" x2="'+TW+'" y2="'+y+'" stroke="var(--border,#1c2431)" stroke-width="1" opacity="0.5"/>';
   });
-  // per-day hi/lo markers on the line itself
-  let hilo='';
-  TL.days.forEach((d,di)=>{
-    let hiH=-1,loH=-1;
-    for(let h=di*24;h<di*24+24;h++){
-      const v=TL.temp[h];if(v==null)continue;
-      if(hiH<0||v>TL.temp[hiH])hiH=h;
-      if(loH<0||v<TL.temp[loH])loH=h;
-    }
-    [[hiH,-9],[loH,16]].forEach(([h,dy])=>{
-      if(h<0)return;
-      const x=X(h),y=tlY('temp',TL.temp[h],0);
-      hilo+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="3" fill="#000" stroke="'+QT.temp+'" stroke-width="1.6"/>'
-        +'<text x="'+x.toFixed(1)+'" y="'+(y+dy).toFixed(1)+'" text-anchor="middle" fill="var(--text-muted,#93a1b8)" font-size="10.5" font-weight="700">'+tempDisp(Math.round(TL.temp[h]))+'°</text>';
+  let masked='';
+  if(TL.lanes.includes('temp')){
+    const pts=[];
+    for(let h=0;h<TL.n;h++){const v=TL.temp[h];if(v==null)continue;pts.push([X(h),tlY('temp',v)]);}
+    const tempD=tlPath(pts);
+    let ribbons='';
+    TL.days.forEach((d,di)=>{
+      const conf=TL.dayConf[d.date].temp!=null?TL.dayConf[d.date].temp:75;
+      const seg=[];
+      for(let h=di*24;h<Math.min(TL.n,di*24+25);h++){const v=TL.temp[h];if(v==null)continue;seg.push([X(h),tlY('temp',v)]);}
+      if(!seg.length)return;
+      const wRib=(3+(1-conf/100)*16).toFixed(1), wGlow=(10+(1-conf/100)*26).toFixed(1);
+      ribbons+='<path d="'+tlPath(seg)+'" fill="none" stroke="'+QT.temp+'" stroke-width="'+wGlow+'" stroke-linecap="round" class="tl-glow" opacity="0.10" filter="url(#tlSoft)"/>'
+        +'<path d="'+tlPath(seg)+'" fill="none" stroke="'+QT.temp+'" stroke-width="'+wRib+'" stroke-linecap="round" opacity="0.15"/>';
     });
-  });
-  // rain bars (+ uncertainty echo when models disagree)
-  const y0r=tlLaneY(1), barW=PX*0.42;
-  let rainEcho='', rainBars='';
-  for(let h=0;h<TL.n;h++){
-    const v=TL.rain[h]; if(v==null||v<0.05)continue;
-    const bh=Math.max(2.5,(v/TL.rMax)*TL_LANE), x=X(h);
-    const conf=TL.confH.rain[h]!=null?TL.confH.rain[h]:70;
-    if(conf<65)rainEcho+='<rect x="'+(x-barW/2-1.5).toFixed(1)+'" y="'+(y0r+TL_LANE-bh-1.5).toFixed(1)+'" width="'+(barW+3).toFixed(1)+'" height="'+(bh+1.5).toFixed(1)+'" rx="'+(barW/2).toFixed(1)+'" fill="'+QT.rain+'" opacity="'+((1-conf/100)*0.5).toFixed(2)+'" filter="url(#tlEcho)"/>';
-    rainBars+='<rect x="'+(x-barW/2).toFixed(1)+'" y="'+(y0r+TL_LANE-bh).toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+bh.toFixed(1)+'" rx="'+(barW/2).toFixed(1)+'" fill="'+QT.rain+'" opacity="'+(0.35+(conf/100)*0.45+Math.min(0.2,v/4)).toFixed(2)+'"/>';
+    let hilo='';
+    TL.days.forEach((d,di)=>{
+      let hiH=-1,loH=-1;
+      for(let h=di*24;h<di*24+24;h++){
+        const v=TL.temp[h];if(v==null)continue;
+        if(hiH<0||v>TL.temp[hiH])hiH=h;
+        if(loH<0||v<TL.temp[loH])loH=h;
+      }
+      [[hiH,-9],[loH,16]].forEach(([h,dy])=>{
+        if(h<0)return;
+        const x=X(h),y=tlY('temp',TL.temp[h]);
+        hilo+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="3" fill="#000" stroke="'+QT.temp+'" stroke-width="1.6"/>'
+          +'<text x="'+x.toFixed(1)+'" y="'+(y+dy).toFixed(1)+'" text-anchor="middle" fill="var(--text-muted,#93a1b8)" font-size="10.5" font-weight="700">'+tempDisp(Math.round(TL.temp[h]))+'°</text>';
+      });
+    });
+    masked+=ribbons+'<path d="'+tempD+'" fill="none" stroke="'+QT.temp+'" stroke-width="2" stroke-linecap="round" opacity="0.95"/>'+hilo;
   }
-  // cloud opacity ribbon (per-hour stops)
-  const y0c=tlLaneY(3);
+  if(TL.lanes.includes('rain')){
+    const y0r=TL.laneY.rain, barW=PX*0.42;
+    let rainEcho='', rainBars='';
+    for(let h=0;h<TL.n;h++){
+      const v=TL.rain[h]; if(v==null||v<0.05)continue;
+      const bh=Math.max(2.5,(v/TL.rMax)*TL_LANE), x=X(h);
+      const conf=TL.confH.rain[h]!=null?TL.confH.rain[h]:70;
+      if(conf<65)rainEcho+='<rect x="'+(x-barW/2-1.5).toFixed(1)+'" y="'+(y0r+TL_LANE-bh-1.5).toFixed(1)+'" width="'+(barW+3).toFixed(1)+'" height="'+(bh+1.5).toFixed(1)+'" rx="'+(barW/2).toFixed(1)+'" fill="'+QT.rain+'" opacity="'+((1-conf/100)*0.5).toFixed(2)+'" filter="url(#tlEcho)"/>';
+      rainBars+='<rect x="'+(x-barW/2).toFixed(1)+'" y="'+(y0r+TL_LANE-bh).toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+bh.toFixed(1)+'" rx="'+(barW/2).toFixed(1)+'" fill="'+QT.rain+'" opacity="'+(0.35+(conf/100)*0.45+Math.min(0.2,v/4)).toFixed(2)+'"/>';
+    }
+    masked+='<line x1="0" y1="'+(y0r+TL_LANE)+'" x2="'+TW+'" y2="'+(y0r+TL_LANE)+'" stroke="var(--border,#1c2431)"/>'+rainEcho+rainBars;
+  }
+  if(TL.lanes.includes('wind')){
+    const wBase=TL.laneY.wind+TL_LANE*0.5;
+    masked+='<line x1="0" y1="'+wBase+'" x2="'+TW+'" y2="'+wBase+'" stroke="var(--border,#1c2431)" stroke-dasharray="2 4" opacity="0.6"/>'
+      +'<path id="tl-wind-glow" d="" fill="none" stroke="'+QT.wind+'" opacity="0.10" filter="url(#tlEcho)"/>'
+      +'<path id="tl-wind-b" d="" fill="none" stroke="'+QT.wind+'" opacity="0.25"/>'
+      +'<path id="tl-wind-a" d="" fill="none" stroke="'+QT.wind+'" stroke-linecap="round" opacity="0.85"/>';
+  }
+  if(TL.lanes.includes('cloud')){
+    const y0c=TL.laneY.cloud;
+    masked+='<rect x="0" y="'+(y0c+TL_LANE*0.30)+'" width="'+TW+'" height="'+(TL_LANE*0.40)+'" rx="'+(TL_LANE*0.20)+'" fill="url(#tlStCloud)"/>';
+  }
   let cloudStops='';
   for(let h=0;h<TL.n;h+=1){
     const c=TL.cloud[h]; if(c==null)continue;
     cloudStops+='<stop offset="'+((X(h)/TW)*100).toFixed(2)+'%" stop-color="'+QT.cloud+'" stop-opacity="'+(0.03+Math.pow(c/100,1.15)*0.85).toFixed(2)+'"/>';
   }
-  // night-dim luminance mask
   let lumStops='';
   for(let h=0;h<TL.n;h+=2)lumStops+='<stop offset="'+((h/(TL.n-1))*100).toFixed(2)+'%" stop-color="#fff" stop-opacity="'+tlLum(h).toFixed(2)+'"/>';
-  // shared axis: 6a/12p/6p per day, dow at boundaries
+  // shared axis: 12pm per day + day names at boundaries (no 6am/6pm)
   let axis='';
-  const axY=TL_H-10;
+  const axY=TL.H-8;
   TL.days.forEach((d,di)=>{
-    [[6,'6am'],[12,'12pm'],[18,'6pm']].forEach(([hh,lb])=>{
-      axis+='<text x="'+(di*TL_W+hh*PX).toFixed(1)+'" y="'+axY+'" text-anchor="middle" fill="var(--text-dim,#5c6a80)" font-size="10" font-weight="600">'+lb+'</text>';
-    });
+    axis+='<text x="'+(di*TL_W+12*PX).toFixed(1)+'" y="'+axY+'" text-anchor="middle" fill="var(--text-dim,#5c6a80)" font-size="10" font-weight="600">12pm</text>';
     if(di>0)axis+='<text x="'+(di*TL_W).toFixed(1)+'" y="'+axY+'" text-anchor="middle" fill="var(--text-muted,#93a1b8)" font-size="10" font-weight="700">'+d.dow.toUpperCase()+'</text>';
   });
-  // sunrise/sunset markers — subtle icons, no time labels
+  // sunrise/sunset icons with their times underneath
   let suns='';
   TL.suns.forEach(s=>{
-    const x=s.h*PX, y=TL_H-TL_AXIS+6;
+    const x=s.h*PX, y=TL.H-32;
     if(x<2||x>TW-2)return;
     const tri=s.kind==='rise'
       ?'M '+(x-2.4)+' '+(y-3)+' L '+x+' '+(y-5.6)+' L '+(x+2.4)+' '+(y-3)
@@ -276,70 +311,63 @@ function tlHourlyHTML(){
     suns+='<g stroke="'+TL_SUN+'" stroke-width="1.3" stroke-linecap="round" fill="none" opacity="0.5">'
       +'<circle cx="'+x.toFixed(1)+'" cy="'+(y+3)+'" r="2.4"/>'
       +'<line x1="'+(x-5).toFixed(1)+'" y1="'+(y+7)+'" x2="'+(x+5).toFixed(1)+'" y2="'+(y+7)+'"/>'
-      +'<path d="'+tri+'"/></g>';
+      +'<path d="'+tri+'"/></g>'
+      +'<text x="'+x.toFixed(1)+'" y="'+axY+'" text-anchor="middle" fill="'+TL_SUN+'" opacity="0.65" font-size="9" font-weight="600">'+tlClock(s.ms)+'</text>';
   });
-  // lane baselines
-  const wBase=tlLaneY(2)+TL_LANE*0.5;
   const nowX=TL.nowH!=null&&TL.nowH>=0&&TL.nowH<=TL.n?TL.nowH*PX:null;
-  // headers (HTML overlays)
-  const NAME={temp:'Temp',rain:'Rain',wind:'Wind',cloud:'Cloud'};
+  // headers: icon + figures only (no metric names)
   const IC={temp:MI_TEMP,rain:MI_RAIN,wind:MI_WIND,cloud:MI_CLOUD};
-  const heads=['temp','rain','wind','cloud'].map((m,i)=>
-    '<div class="tl-head" id="tl-head-'+m+'" style="top:'+(((tlLaneY(i)-34)/TL_H)*100).toFixed(2)+'%">'
+  const heads=TL.lanes.map(m=>
+    '<div class="tl-head" id="tl-head-'+m+'" style="top:'+(((TL.laneY[m]-34)/TL.H)*100).toFixed(2)+'%">'
     +'<span class="tl-ic" style="color:'+QT[m]+'">'+IC[m]+'</span>'
-    +'<span class="tl-name" style="color:'+QT[m]+'">'+NAME[m]+'</span>'
     +'<span class="tl-big" id="tl-big-'+m+'"></span>'
     +'<span class="tl-sub" id="tl-sub-'+m+'"></span>'
     +'<span class="tl-right" id="tl-right-'+m+'"></span></div>').join('');
 
   return '<div class="tl-hourly">'+heads
-    +'<svg id="tl-hourly-svg" viewBox="'+(TL.sel*TL_W)+' 0 '+TL_W+' '+TL_H+'" aria-label="Hourly forecast streams">'
+    +'<svg id="tl-hourly-svg" viewBox="'+(TL.sel*TL_W)+' 0 '+TL_W+' '+TL.H+'" aria-label="Hourly forecast streams">'
     +'<defs>'
     +'<linearGradient id="tlStCloud" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="'+TW+'" y2="0">'+cloudStops+'</linearGradient>'
     +'<linearGradient id="tlStLum" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="'+TW+'" y2="0">'+lumStops+'</linearGradient>'
-    +'<mask id="tlStNight"><rect width="'+TW+'" height="'+TL_H+'" fill="url(#tlStLum)"/></mask>'
+    +'<mask id="tlStNight"><rect width="'+TW+'" height="'+TL.H+'" fill="url(#tlStLum)"/></mask>'
     +'<filter id="tlSoft" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="3"/></filter>'
     +'<filter id="tlEcho" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="2.6"/></filter>'
     +'<filter id="tlNowGlow" x="-300%" y="-5%" width="700%" height="110%"><feGaussianBlur stdDeviation="2.4"/></filter>'
     +'</defs>'
-    +'<g mask="url(#tlStNight)">'
-    +ribbons
-    +'<path d="'+tempD+'" fill="none" stroke="'+QT.temp+'" stroke-width="2" stroke-linecap="round" opacity="0.95"/>'
-    +hilo
-    +'<line x1="0" y1="'+(y0r+TL_LANE)+'" x2="'+TW+'" y2="'+(y0r+TL_LANE)+'" stroke="var(--border,#1c2431)"/>'
-    +rainEcho+rainBars
-    +'<line x1="0" y1="'+wBase+'" x2="'+TW+'" y2="'+wBase+'" stroke="var(--border,#1c2431)" stroke-dasharray="2 4" opacity="0.6"/>'
-    +'<path id="tl-wind-glow" d="" fill="none" stroke="'+QT.wind+'" opacity="0.10" filter="url(#tlEcho)"/>'
-    +'<path id="tl-wind-b" d="" fill="none" stroke="'+QT.wind+'" opacity="0.25"/>'
-    +'<path id="tl-wind-a" d="" fill="none" stroke="'+QT.wind+'" stroke-linecap="round" opacity="0.85"/>'
-    +'<rect x="0" y="'+(y0c+TL_LANE*0.30)+'" width="'+TW+'" height="'+(TL_LANE*0.40)+'" rx="'+(TL_LANE*0.20)+'" fill="url(#tlStCloud)"/>'
-    +(nowX!=null?'<rect x="0" y="0" width="'+nowX.toFixed(1)+'" height="'+(TL_H-TL_AXIS)+'" fill="#000" opacity="0.35"/>':'')
+    +body
+    +'<g mask="url(#tlStNight)">'+masked
+    +(nowX!=null?'<rect x="0" y="0" width="'+nowX.toFixed(1)+'" height="'+(TL.H-TL_AXIS)+'" fill="#000" opacity="0.35"/>':'')
     +'</g>'
     +axis+suns
     +(nowX!=null?
-      '<g><line class="tl-now-glow" x1="'+nowX.toFixed(1)+'" y1="6" x2="'+nowX.toFixed(1)+'" y2="'+(TL_H-TL_AXIS+10)+'" stroke="'+TL_NOW+'" stroke-width="5" opacity="0.3" filter="url(#tlNowGlow)"/>'
-      +'<line x1="'+nowX.toFixed(1)+'" y1="6" x2="'+nowX.toFixed(1)+'" y2="'+(TL_H-TL_AXIS+10)+'" stroke="'+TL_NOW+'" stroke-width="1.3" opacity="0.9"/>'
+      '<g><line class="tl-now-glow" x1="'+nowX.toFixed(1)+'" y1="6" x2="'+nowX.toFixed(1)+'" y2="'+(TL.H-TL_AXIS+8)+'" stroke="'+TL_NOW+'" stroke-width="5" opacity="0.3" filter="url(#tlNowGlow)"/>'
+      +'<line x1="'+nowX.toFixed(1)+'" y1="6" x2="'+nowX.toFixed(1)+'" y2="'+(TL.H-TL_AXIS+8)+'" stroke="'+TL_NOW+'" stroke-width="1.3" opacity="0.9"/>'
       +'<text x="'+nowX.toFixed(1)+'" y="1" text-anchor="middle" dominant-baseline="hanging" fill="'+TL_NOW+'" font-size="8.5" font-weight="800" letter-spacing="1">NOW</text></g>':'')
+    +'<g id="tl-scrub" style="display:none;pointer-events:none">'
+    +'<line id="tl-scrub-line" y1="10" y2="'+(TL.H-TL_AXIS+8)+'" stroke="var(--text-muted,#93a1b8)" stroke-width="1" stroke-dasharray="3 3" opacity="0.9"/>'
+    +'<text id="tl-scrub-t" y="8" text-anchor="middle" fill="var(--text-muted,#93a1b8)" font-size="9" font-weight="700"></text></g>'
     +'</svg></div>';
 }
 // animated wind ripple across the (visible part of the) stream
 function tlWindD(off,t){
-  const PX=TL_W/24, TW=TL.days.length*TL_W, base=tlLaneY(2)+TL_LANE*0.5;
+  if(!TL.lanes.includes('wind'))return'';
+  const PX=TL_W/24, TW=TL.days.length*TL_W, base=TL.laneY.wind+TL_LANE*0.5;
   const vb=TL.win.cur/24*TL_W;
   const lo=Math.max(0,vb-60), hi=Math.min(TW,vb+TL_W+60);
   let d='';
   for(let px=lo;px<=hi;px+=4){
     const h=Math.max(0,Math.min(TL.n-1,Math.floor(px/PX)));
     const sp=tlVal(TL.wind,h), gu=tlGust(h);
-    const amp=1.4+(sp/TL.wMax)*14+((gu-sp)/TL.wMax)*10;
+    const amp=0.8+Math.pow(sp/TL.wMax,1.25)*16+((gu-sp)/TL.wMax)*12;
     const y=base+Math.sin(px*0.10+t*2.3+off)*amp*0.55+Math.sin(px*0.026-t*1.2+off*2.1)*amp*0.45;
     d+=(d?'L':'M')+px.toFixed(0)+' '+y.toFixed(1);
   }
   return d;
 }
 
-// ── headers for the selected day ────────────────────────────────────────
+// ── headers for the selected day (or scrubbed hour) ─────────────────────
 function tlRefHour(){
+  if(TL.scrub!=null)return Math.max(0,Math.min(TL.n-1,Math.floor(TL.scrub)));
   const d=TL.days[TL.sel];
   if(d&&d.isToday&&TL.nowH!=null)return Math.max(TL.sel*24,Math.min(TL.sel*24+23,Math.floor(TL.nowH)));
   return TL.sel*24+13;
@@ -348,37 +376,65 @@ function tlHeads(){
   const d=TL.days[TL.sel]; if(!d)return;
   const h=tlRefHour(), s=TL.sel*24;
   const set=(id,v)=>{const el=document.getElementById(id);if(el)el.innerHTML=v;};
-  // temp: current + feels-like together, above the line
+  const conf=(m)=>(confVisible[m]&&TL.dayConf[d.date][m]!=null)?TL.dayConf[d.date][m]+'% agree':'';
   const t=TL.temp[h];
   let feels=null;
-  if(d.isToday&&cachedCurrent&&cachedCurrent.c&&cachedCurrent.c.apparent_temperature!=null)feels=cachedCurrent.c.apparent_temperature;
+  if(TL.scrub==null&&d.isToday&&cachedCurrent&&cachedCurrent.c&&cachedCurrent.c.apparent_temperature!=null)feels=cachedCurrent.c.apparent_temperature;
   else if(t!=null&&TL.wind[h]!=null)feels=t-TL.wind[h]*0.11;
   set('tl-big-temp',t!=null?tempDisp(Math.round(t))+'°':'—');
   set('tl-sub-temp',feels!=null?'feels '+tempDisp(Math.round(feels))+'°':'');
-  set('tl-right-temp','');
-  // rain: total, remaining (today), agreement
+  set('tl-right-temp',conf('temp'));
   let tot=0,toCome=0;
   for(let k=s;k<s+24;k++){const v=TL.rain[k]||0;tot+=v;if(TL.nowH!=null&&k>=TL.nowH)toCome+=v;}
-  const rc=TL.dayConf[d.date].rain;
   set('tl-big-rain',tot.toFixed(1)+' mm');
   set('tl-sub-rain',d.isToday?toCome.toFixed(1)+' mm to come':(d.past?'observed':'expected'));
-  set('tl-right-rain',rc!=null?rc+'% agree':'');
-  // wind: speed + direction, hi/lo subtle
+  set('tl-right-rain',conf('rain'));
   const w=TL.wind[h];
   let dir='';
   if(TL.idx[h]!=null){const dv=wBlendAt('winddirection_10m',TL.idx[h],horizonOf(d.date));if(dv!=null)dir=dirFull(dv);}
   let wHi=null,wLo=null;
   for(let k=s;k<s+24;k++){const v=TL.wind[k];if(v==null)continue;wHi=wHi==null?v:Math.max(wHi,v);wLo=wLo==null?v:Math.min(wLo,v);}
   set('tl-big-wind',w!=null?Math.round(w)+' km/h':'—');
-  set('tl-sub-wind',dir);
-  set('tl-right-wind',wHi!=null?'&#8593;'+Math.round(wHi)+' &#8595;'+Math.round(wLo):'');
-  // cloud: % + hi/lo
+  set('tl-sub-wind',dir+(wHi!=null?' &#8593;'+Math.round(wHi)+' &#8595;'+Math.round(wLo):''));
+  set('tl-right-wind',conf('wind'));
   const c=TL.cloud[h];
   let cHi=null,cLo=null;
   for(let k=s;k<s+24;k++){const v=TL.cloud[k];if(v==null)continue;cHi=cHi==null?v:Math.max(cHi,v);cLo=cLo==null?v:Math.min(cLo,v);}
   set('tl-big-cloud',c!=null?Math.round(c)+'%':'—');
-  set('tl-sub-cloud','cover');
-  set('tl-right-cloud',cHi!=null?'&#8593;'+Math.round(cHi)+' &#8595;'+Math.round(cLo):'');
+  set('tl-sub-cloud',cHi!=null?'&#8593;'+Math.round(cHi)+' &#8595;'+Math.round(cLo):'');
+  set('tl-right-cloud',conf('cloud'));
+}
+
+// ── scrub: drag horizontally on the hourly view ─────────────────────────
+function tlScrubDraw(){
+  const g=document.getElementById('tl-scrub'); if(!g)return;
+  if(TL.scrub==null){g.style.display='none';return;}
+  const PX=TL_W/24, x=(TL.scrub*PX);
+  g.style.display='';
+  const ln=document.getElementById('tl-scrub-line'), tx=document.getElementById('tl-scrub-t');
+  ln.setAttribute('x1',x.toFixed(1));ln.setAttribute('x2',x.toFixed(1));
+  tx.setAttribute('x',x.toFixed(1));
+  tx.textContent=tlHourLabel(TL.scrub);
+}
+function tlBindScrub(svg){
+  let active=false;
+  const toHour=ev=>{
+    const r=svg.getBoundingClientRect();
+    const frac=Math.max(0,Math.min(1,(ev.clientX-r.left)/r.width));
+    return Math.max(0,Math.min(TL.n-0.01,TL.win.cur+frac*24));
+  };
+  svg.addEventListener('pointerdown',ev=>{
+    active=true;
+    try{svg.setPointerCapture(ev.pointerId);}catch(e){}
+    TL.scrub=toHour(ev); tlScrubDraw(); tlHeads();
+  });
+  svg.addEventListener('pointermove',ev=>{
+    if(!active)return;
+    TL.scrub=toHour(ev); tlScrubDraw(); tlHeads();
+  });
+  const end=()=>{ if(!active)return; active=false; TL.scrub=null; tlScrubDraw(); tlHeads(); };
+  svg.addEventListener('pointerup',end);
+  svg.addEventListener('pointercancel',end);
 }
 
 // ── secondary metrics (expandable, quiet sparklines) ────────────────────
@@ -427,7 +483,7 @@ function tlSecRender(){
   const body=document.getElementById('tl-sec-body'); if(!body)return;
   if(!TL.sec){body.innerHTML='';return;}
   const d=TL.days[TL.sel]; if(!d)return;
-  const refH=tlRefHour()-TL.sel*24;
+  const refH=Math.max(0,Math.min(23,tlRefHour()-TL.sel*24));
   const dayVals=(arr,im)=>{
     const out=[];
     for(let h=0;h<24;h++){
@@ -466,7 +522,7 @@ function tlSelect(i,animate){
   w.from=w.cur; w.to=i*24; w.t0=performance.now();
   if(!animate||TL.reduced){w.cur=w.to;
     const svg=document.getElementById('tl-hourly-svg');
-    if(svg)svg.setAttribute('viewBox',(w.cur/24*TL_W).toFixed(2)+' 0 '+TL_W+' '+TL_H);
+    if(svg)svg.setAttribute('viewBox',(w.cur/24*TL_W).toFixed(2)+' 0 '+TL_W+' '+TL.H);
     tlLensUpdate();
   }
   const lens=document.getElementById('tl-lens-rect');
@@ -482,28 +538,21 @@ function tlLoop(now){
   const w=TL.win;
   let tweening=false;
   if(Math.abs(w.cur-w.to)>0.001){
-    tweening=true;    const p=Math.min(1,(now-w.t0)/w.dur);
+    tweening=true;
+    const p=Math.min(1,(now-w.t0)/w.dur);
     const e=p<0.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
     w.cur=p>=1?w.to:w.from+(w.to-w.from)*e;
     const svg=document.getElementById('tl-hourly-svg');
-    if(svg)svg.setAttribute('viewBox',(w.cur/24*TL_W).toFixed(2)+' 0 '+TL_W+' '+TL_H);
+    if(svg)svg.setAttribute('viewBox',(w.cur/24*TL_W).toFixed(2)+' 0 '+TL_W+' '+TL.H);
     tlLensUpdate();
   }
-  if(!TL.reduced){
-    const meanW=(()=>{const s=TL.sel*24;let a=0,n=0;for(let k=s;k<s+24;k++){const v=TL.wind[k];if(v!=null){a+=v;n++;}}return n?a/n:0;})();
-    const core=1.2+(meanW/TL.wMax)*3.2;
-    const a=document.getElementById('tl-wind-a'), b=document.getElementById('tl-wind-b'), g=document.getElementById('tl-wind-glow');
-    if(a){a.setAttribute('d',tlWindD(0,t));a.setAttribute('stroke-width',core.toFixed(2));}
-    if(b){b.setAttribute('d',tlWindD(1.7,t));b.setAttribute('stroke-width',(core*0.5).toFixed(2));}
-    if(g){g.setAttribute('d',a?a.getAttribute('d'):'');g.setAttribute('stroke-width',(core*2.6).toFixed(2));}
-    const wk=document.getElementById('tl-wk-wind');
-    if(wk)wk.setAttribute('d',tlWkWindD(t));
-  }
+  if(!TL.reduced)tlWindFrame(t);
   if(TL.reduced&&!tweening){cancelAnimationFrame(TL.raf);TL.raf=0;}
 }
-// draw one static wind frame synchronously (so lanes are never empty even
-// if rAF is throttled/paused), then keep the loop alive.
+// draw one wind frame synchronously (lanes are never empty even if rAF is
+// throttled or paused)
 function tlWindFrame(t){
+  if(!TL.lanes.includes('wind'))return;
   const a=document.getElementById('tl-wind-a'), b=document.getElementById('tl-wind-b'), g=document.getElementById('tl-wind-glow');
   const wk=document.getElementById('tl-wk-wind');
   const s=TL.sel*24; let sum=0,n=0;
@@ -520,16 +569,17 @@ function tlEnsureLoop(){
   tlWindFrame(TL.reduced?0:(performance.now()-TL.tBase)/1000);
   TL.raf=requestAnimationFrame(tlLoop);
 }
-document.addEventListener('visibilitychange',()=>{
-  if(!document.hidden&&document.getElementById('tl-hourly-svg'))tlEnsureLoop();
+['visibilitychange','pageshow','focus'].forEach(ev=>{
+  (ev==='visibilitychange'?document:window).addEventListener(ev,()=>{
+    if(!document.hidden&&document.getElementById('tl-hourly-svg'))tlEnsureLoop();
+  });
 });
 
 // ── render root + wiring ────────────────────────────────────────────────
 function tlRenderAll(root){
   TL.win.cur=TL.win.to=TL.sel*24;
-  root.innerHTML=tlWeekHTML()+tlLensHTML()+tlHourlyHTML()+tlSecHTML()
-    +'<div class="tl-note">One continuous stream: the week above and the hours below are the same data at two zoom levels — tap a day to glide along it. Glow softness, ribbon width and bar haze show how much the models disagree; lines dim where it is night.</div>';
-  // wind stroke widths + first frame
+  TL.scrub=null;
+  root.innerHTML=tlWeekHTML()+tlLensHTML()+tlHourlyHTML()+tlSecHTML();
   const week=document.getElementById('tl-week');
   if(week)week.addEventListener('click',ev=>{
     const r=week.getBoundingClientRect();
@@ -543,6 +593,8 @@ function tlRenderAll(root){
     document.getElementById('tl-sec-body').classList.toggle('open',TL.secOpen);
     if(TL.secOpen)tlSecRender();
   });
+  const svg=document.getElementById('tl-hourly-svg');
+  if(svg)tlBindScrub(svg);
   tlLensUpdate(); tlHeads(); tlSecRender();
   tlEnsureLoop();
 }

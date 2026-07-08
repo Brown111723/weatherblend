@@ -21,13 +21,14 @@
 
 /* hourly streams */
 .tl-hourly{position:relative;margin-top:2px;}
+#tl-hourly-svg{touch-action:pan-y;cursor:crosshair;}
 .tl-head{
   position:absolute;left:0;right:0;display:flex;align-items:baseline;gap:8px;pointer-events:none;z-index:2;
 }
 .tl-head .tl-ic{align-self:center;display:flex;}
-.tl-head .tl-name{font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;}
-.tl-head .tl-big{font-size:17px;font-weight:700;letter-spacing:-.3px;color:var(--text-primary,#e8edf5);}
-.tl-head .tl-sub{font-size:11px;font-weight:600;color:var(--text-dim,#5c6a80);}
+.tl-head .tl-ic svg{width:17px;height:17px;}
+.tl-head .tl-big{font-size:20px;font-weight:700;letter-spacing:-.3px;color:var(--text-primary,#e8edf5);}
+.tl-head .tl-sub{font-size:11.5px;font-weight:600;color:var(--text-dim,#5c6a80);}
 .tl-head .tl-right{margin-left:auto;font-size:10px;font-weight:600;color:var(--text-dim,#5c6a80);font-family:ui-monospace,Menlo,Consolas,monospace;}
 
 /* secondary metrics */
@@ -54,9 +55,4 @@
 .tl-now-glow{animation:tlNowPulse 2.4s ease-in-out infinite alternate;}
 @media (prefers-reduced-motion: reduce){
   .tl-glow,.tl-now-glow{animation:none;}
-}
-
-.tl-note{
-  font-size:11px;color:var(--text-dim,#5c6a80);line-height:1.55;
-  padding:12px 2px 0;border-top:1px solid var(--border,#1c2431);margin-top:2px;
 }
