@@ -1,0 +1,62 @@
+/* WeatherBlend — continuous timeline view (overrides the cards UI) */
+.tl-legacy-hidden{display:none !important;}
+
+#timeline-root{
+  max-width:520px;margin:0 auto;padding:6px 14px 10px;
+  color:var(--text-primary,#e8edf5);
+}
+#timeline-root svg{display:block;width:100%;}
+#timeline-root *{box-sizing:border-box;}
+
+/* week overview */
+.tl-week{position:relative;cursor:pointer;user-select:none;-webkit-user-select:none;}
+.tl-week-days{display:grid;grid-template-columns:repeat(7,1fr);padding:0 0 3px;}
+.tl-week-days span{
+  text-align:center;font-size:10px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;
+  color:var(--text-dim,#5c6a80);transition:color .3s;
+}
+.tl-week-days span.tl-sel{color:var(--text-primary,#e8edf5);font-weight:800;}
+.tl-week-days span.tl-today{color:var(--text-muted,#93a1b8);}
+.tl-week-days b{color:var(--accent,#4d8df0);font-weight:800;}
+
+/* hourly streams */
+.tl-hourly{position:relative;margin-top:2px;}
+.tl-head{
+  position:absolute;left:0;right:0;display:flex;align-items:baseline;gap:8px;pointer-events:none;z-index:2;
+}
+.tl-head .tl-ic{align-self:center;display:flex;}
+.tl-head .tl-name{font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;}
+.tl-head .tl-big{font-size:17px;font-weight:700;letter-spacing:-.3px;color:var(--text-primary,#e8edf5);}
+.tl-head .tl-sub{font-size:11px;font-weight:600;color:var(--text-dim,#5c6a80);}
+.tl-head .tl-right{margin-left:auto;font-size:10px;font-weight:600;color:var(--text-dim,#5c6a80);font-family:ui-monospace,Menlo,Consolas,monospace;}
+
+/* secondary metrics */
+.tl-sec-btn{
+  width:100%;display:flex;align-items:center;gap:8px;background:none;border:none;
+  border-top:1px solid var(--border,#1c2431);padding:13px 2px 12px;cursor:pointer;
+  color:var(--text-dim,#5c6a80);font-family:inherit;
+}
+.tl-sec-btn .tl-sec-label{font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;}
+.tl-sec-btn .tl-sec-chev{margin-left:auto;display:flex;transition:transform .3s;}
+.tl-sec-btn.open .tl-sec-chev{transform:rotate(180deg);}
+.tl-sec-body{overflow:hidden;max-height:0;opacity:0;transition:max-height .45s cubic-bezier(.4,0,.2,1),opacity .35s;}
+.tl-sec-body.open{max-height:360px;opacity:1;}
+.tl-sec-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px 22px;padding:2px 2px 14px;}
+.tl-sec-item{display:flex;flex-direction:column;gap:5px;}
+.tl-sec-row{display:flex;align-items:baseline;gap:7px;}
+.tl-sec-name{font-size:9.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text-dim,#5c6a80);}
+.tl-sec-val{margin-left:auto;font-size:12.5px;font-weight:600;color:var(--text-muted,#93a1b8);}
+
+/* gentle life: temp glow breathes, NOW line pulses */
+@keyframes tlBreathe{from{opacity:.07;}to{opacity:.14;}}
+@keyframes tlNowPulse{from{opacity:.2;}to{opacity:.42;}}
+.tl-glow{animation:tlBreathe 3.2s ease-in-out infinite alternate;}
+.tl-now-glow{animation:tlNowPulse 2.4s ease-in-out infinite alternate;}
+@media (prefers-reduced-motion: reduce){
+  .tl-glow,.tl-now-glow{animation:none;}
+}
+
+.tl-note{
+  font-size:11px;color:var(--text-dim,#5c6a80);line-height:1.55;
+  padding:12px 2px 0;border-top:1px solid var(--border,#1c2431);margin-top:2px;
+}
