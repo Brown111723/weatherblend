@@ -13,7 +13,7 @@
 
 const TL_W=400, TL_GAP=44, TL_TOP=42, TL_AXIS=26, TL_SUNROW=30;
 const TL_LANE_H={temp:104,rain:56,wind:56,cloud:36}; // temp is the king
-const TL_NOW='#f87171', TL_SUN='#fbbf24';
+const TL_NOW='#a3392c', TL_SUN='#3a372f';
 
 const TL={
   days:[], n:0, idx:[], temp:[], rain:[], wind:[], cloud:[],

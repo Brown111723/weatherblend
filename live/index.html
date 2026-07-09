@@ -4,17 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WeatherBlend</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%23A8E63E%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2220%22%20r%3D%2212%22%20fill%3D%22%237EE8A5%22%2F%3E%3Ccircle%20cx%3D%2244%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%235FA4FF%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2244%22%20r%3D%2212%22%20fill%3D%22%23C8A6FF%22%2F%3E%3C%2Fsvg%3E">
-<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%23A8E63E%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2220%22%20r%3D%2212%22%20fill%3D%22%237EE8A5%22%2F%3E%3Ccircle%20cx%3D%2244%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%235FA4FF%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2244%22%20r%3D%2212%22%20fill%3D%22%23C8A6FF%22%2F%3E%3C%2Fsvg%3E">
-<meta name="theme-color" content="#7EE8A5">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%23413c33%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2220%22%20r%3D%2212%22%20fill%3D%22%23232019%22%2F%3E%3Ccircle%20cx%3D%2244%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%235c584f%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2244%22%20r%3D%2212%22%20fill%3D%22%23847f73%22%2F%3E%3C%2Fsvg%3E">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%23413c33%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2220%22%20r%3D%2212%22%20fill%3D%22%23232019%22%2F%3E%3Ccircle%20cx%3D%2244%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%235c584f%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2244%22%20r%3D%2212%22%20fill%3D%22%23847f73%22%2F%3E%3C%2Fsvg%3E">
+<meta name="theme-color" content="#f2f1ec">
 <link rel="stylesheet" href="styles.css?v=2">
-<link rel="stylesheet" href="timeline.css?v=3">
+<link rel="stylesheet" href="timeline.css?v=4">
 </head>
 <body>
 
 <div class="topbar">
 <header>
-  <span class="hdr-logo" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="32" r="12" fill="#A8E63E"/><circle cx="32" cy="20" r="12" fill="#7EE8A5"/><circle cx="44" cy="32" r="12" fill="#5FA4FF"/><circle cx="32" cy="44" r="12" fill="#C8A6FF"/></svg></span>
+  <span class="hdr-logo" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="32" r="12" fill="#413c33"/><circle cx="32" cy="20" r="12" fill="#232019"/><circle cx="44" cy="32" r="12" fill="#5c584f"/><circle cx="32" cy="44" r="12" fill="#847f73"/></svg></span>
   <button class="hdr-loc" onclick="promptLocation()" aria-label="Change location" title="Change location">
     <span class="loc-name" id="loc-name">Detecting…</span>
     <span class="loc-sub"><svg class="loc-pin" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11z"/><circle cx="12" cy="10" r="2.4"/></svg><span class="loc-detail" id="loc-detail"></span></span>
@@ -28,7 +28,7 @@
 <div class="drawer-overlay hidden" id="drawer-overlay" onclick="if(event.target===this)closeDrawer()">
   <aside class="drawer" id="drawer">
     <div class="drawer-head">
-      <span class="dh-brand"><span class="dh-logo"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="32" r="12" fill="#A8E63E"/><circle cx="32" cy="20" r="12" fill="#7EE8A5"/><circle cx="44" cy="32" r="12" fill="#5FA4FF"/><circle cx="32" cy="44" r="12" fill="#C8A6FF"/></svg></span><span class="dh-title">Weather<span>Blend</span></span></span>
+      <span class="dh-brand"><span class="dh-logo"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="32" r="12" fill="#413c33"/><circle cx="32" cy="20" r="12" fill="#232019"/><circle cx="44" cy="32" r="12" fill="#5c584f"/><circle cx="32" cy="44" r="12" fill="#847f73"/></svg></span><span class="dh-title">Weather<span>Blend</span></span></span>
       <button class="drawer-close" onclick="closeDrawer()" aria-label="Close">×</button>
     </div>
     <div class="drawer-label">Options</div>
@@ -222,6 +222,6 @@
 
 <script src="engine.js?v=2"></script>
 <script src="app.js?v=2"></script>
-<script src="timeline.js?v=3"></script>
+<script src="timeline.js?v=4"></script>
 </body>
 </html>

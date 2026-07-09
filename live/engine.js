@@ -35,13 +35,13 @@ dbg('engine.js loaded');
 
 // ── Models ──────────────────────────────────────────────────────────────
 const MODELS = [
-  { key:'gfs_seamless',      ep:'/v1/forecast', label:'GFS',   short:'G', color:'#2563eb', desc:'NOAA · USA'      },
-  { key:'ecmwf_ifs025',      ep:'/v1/ecmwf',    label:'ECMWF', short:'E', color:'#059669', desc:'ECMWF · 0.25°'   },
-  { key:'icon_seamless',     ep:'/v1/forecast', label:'ICON',  short:'I', color:'#16a34a', desc:'DWD · Germany'   },
-  { key:'gem_seamless',      ep:'/v1/forecast', label:'GEM',   short:'C', color:'#7c3aed', desc:'Env. Canada'     },
-  { key:'ukmo_seamless',     ep:'/v1/forecast', label:'UKMO',  short:'U', color:'#dc2626', desc:'Met Office · UK' },
-  { key:'cma_grapes_global', ep:'/v1/forecast', label:'CMA',   short:'X', color:'#d97706', desc:'CMA · China'     },
-  { key:'jma_seamless',      ep:'/v1/forecast', label:'JMA',   short:'J', color:'#6366f1', desc:'JMA · Japan'     }
+  { key:'gfs_seamless',      ep:'/v1/forecast', label:'GFS',   short:'G', color:'#232019', desc:'NOAA · USA'      },
+  { key:'ecmwf_ifs025',      ep:'/v1/ecmwf',    label:'ECMWF', short:'E', color:'#332f28', desc:'ECMWF · 0.25°'   },
+  { key:'icon_seamless',     ep:'/v1/forecast', label:'ICON',  short:'I', color:'#413c33', desc:'DWD · Germany'   },
+  { key:'gem_seamless',      ep:'/v1/forecast', label:'GEM',   short:'C', color:'#4f4a40', desc:'Env. Canada'     },
+  { key:'ukmo_seamless',     ep:'/v1/forecast', label:'UKMO',  short:'U', color:'#5c584e', desc:'Met Office · UK' },
+  { key:'cma_grapes_global', ep:'/v1/forecast', label:'CMA',   short:'X', color:'#69645a', desc:'CMA · China'     },
+  { key:'jma_seamless',      ep:'/v1/forecast', label:'JMA',   short:'J', color:'#767065', desc:'JMA · Japan'     }
 ];
 const enabled    = new Set(MODELS.map(m=>m.key));
 const autoHidden = new Set();

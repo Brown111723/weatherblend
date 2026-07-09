@@ -8,7 +8,7 @@
 // ════════════════════════════════════════════════════════════════════════
 
 // ── Quatrefoil palette: the single source of metric identity ────────────
-const QT={temp:'#7EE8A5',rain:'#5FA4FF',wind:'#A8E63E',cloud:'#C8A6FF'};
+const QT={temp:'#232019',rain:'#232019',wind:'#232019',cloud:'#232019'};
 const MET_COLOR=QT;
 
 // ── App-local state ─────────────────────────────────────────────────────
@@ -537,8 +537,8 @@ function sunPhaseAt(iso){
 // ── The WeatherBlend glyph ──────────────────────────────────────────────
 function tempColor(t){
   if(t==null)return 'var(--text-primary)';
-  if(t<6)return '#60a5fa'; if(t<13)return '#5eead4'; if(t<20)return '#86efac';
-  if(t<27)return '#fcd34d'; if(t<33)return '#fb923c'; return '#f87171';
+  if(t<6)return '#a29e93'; if(t<13)return '#847f73'; if(t<20)return '#4d4a43';
+  if(t<27)return '#2e2b25'; if(t<33)return '#1c1a15'; return '#141311';
 }
 function _clamp01(x){return Math.max(0,Math.min(1,x));}
 function glyphRange(){
@@ -733,10 +733,10 @@ function condCard(o){
 }
 
 // ── HERO sparklines ─────────────────────────────────────────────────────
-function _rampTemp(v){return v<5?'#60a5fa':v<12?'#38bdf8':v<22?'#4ade80':v<30?'#fbbf24':'#f87171';}
-function _rampRain(v){return v<0.05?'#1e3a5f':v<0.2?'#3b82f6':v<0.5?'#2563eb':v<1?'#1d4ed8':v<2?'#1e40af':'#172554';}
-function _rampWind(v){return v<10?'#22c55e':v<20?'#84cc16':v<35?'#eab308':v<55?'#f97316':'#ef4444';}
-function _rampCloud(v){return v<12?'#60a5fa':v<40?'#818cf8':v<70?'#a78bfa':'#8b5cf6';}
+function _rampTemp(v){return v<5?'#a29e93':v<12?'#847f73':v<22?'#5c584f':v<30?'#332f28':'#141311';}
+function _rampRain(v){return v<0.05?'#c8c3b6':v<0.2?'#a29e93':v<0.5?'#847f73':v<1?'#5c584f':v<2?'#332f28':'#141311';}
+function _rampWind(v){return v<10?'#a29e93':v<20?'#847f73':v<35?'#5c584f':v<55?'#332f28':'#141311';}
+function _rampCloud(v){return v<12?'#c8c3b6':v<40?'#a29e93':v<70?'#77736a':'#4d4a43';}
 function _scaleOf(vals,zeroBase){
   const v=vals.filter(x=>x!=null&&!isNaN(x));
   if(!v.length)return {mn:0,mx:1};
@@ -799,7 +799,7 @@ function _sparkline(vals,o){
   const dash =(o.split!=null&&o.split<1)?pts.map(p=> p&&p[0]>=cut-0.6?p:null):null;
   const firstX=pts.find(p=>p)[0], area=path(pts)+` L ${X(n-1).toFixed(1)} ${H-padB} L ${firstX.toFixed(1)} ${H-padB} Z`;
   const stops=vals.map((v,i)=> v==null?null:`<stop offset="${(n>1?i/(n-1):0)*100}%" stop-color="${o.ramp(v)}" stop-opacity="0.45"/>`).filter(Boolean).join('');
-  const grid=(o.ticks||[]).map(t=>{const gx=(t.frac*(W-2*padX)+padX).toFixed(1);return `<line x1="${gx}" y1="${padT-2}" x2="${gx}" y2="${H-padB+1}" stroke="#e7a755" stroke-width="1" opacity="0.25" stroke-dasharray="1.5 2" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;}).join('');
+  const grid=(o.ticks||[]).map(t=>{const gx=(t.frac*(W-2*padX)+padX).toFixed(1);return `<line x1="${gx}" y1="${padT-2}" x2="${gx}" y2="${H-padB+1}" stroke="#141311" stroke-width="1" opacity="0.18" stroke-dasharray="1.5 2" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;}).join('');
   let predLine='';
   if(o.showPred && o.fc && o.fc.length===n){
     const fcPts=o.fc.map((v,i)=> (v==null||X(i)>cut+0.6)?null:[X(i),Y(v)]);
@@ -924,7 +924,7 @@ document.addEventListener('pointerdown',_scrubStart);
 
 // ── Confidence (model agreement) ────────────────────────────────────────
 const CONF_FIELDS={temp:['temperature_2m',6,0.38],rain:['precipitation',4,0.30],wind:['windspeed_10m',16,0.15],cloud:['cloudcover',38,0.17]};
-function confColor(p){return p==null?'var(--text-dim)':p>=72?'#34d399':p>=48?'#fbbf24':'#fb7185';}
+function confColor(p){return p==null?'var(--text-dim)':p>=72?'#141311':p>=48?'var(--text-muted)':'var(--text-dim)';}
 function confLabel(p){return p>=72?'High':p>=48?'Medium':'Low';}
 function _spreadConf(vals,scale){
   if(!vals||vals.length<2)return null;
@@ -1184,15 +1184,15 @@ function cloudCls(v){if(v==null)return"";if(v<=12)return"cl0";if(v<=25)return"cl
 function tempCls(v){if(v==null)return'';if(v<5)return'tc';if(v<12)return'tk';if(v<22)return'tm';if(v<30)return'tw';return'th';}
 
 // ── SVG weather icons ───────────────────────────────────────────────────
-const _sun='<circle cx="12" cy="12" r="4.6" fill="#fbbf24"/><g stroke="#fbbf24" stroke-width="1.7" stroke-linecap="round"><line x1="12" y1="1.6" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22.4"/><line x1="1.6" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22.4" y2="12"/><line x1="4.5" y1="4.5" x2="6.2" y2="6.2"/><line x1="17.8" y1="17.8" x2="19.5" y2="19.5"/><line x1="19.5" y1="4.5" x2="17.8" y2="6.2"/><line x1="6.2" y1="17.8" x2="4.5" y2="19.5"/></g>';
-const _moon='<path d="M20.5 14.2A8.5 8.5 0 1 1 9.8 3.5 6.7 6.7 0 0 0 20.5 14.2z" fill="#cbd5e1"/>';
-const _sunSm='<circle cx="8.2" cy="7.6" r="3.1" fill="#fbbf24"/><g stroke="#fbbf24" stroke-width="1.3" stroke-linecap="round"><line x1="8.2" y1="1.8" x2="8.2" y2="3.2"/><line x1="2.4" y1="7.6" x2="3.8" y2="7.6"/><line x1="4.1" y1="3.5" x2="5.1" y2="4.5"/><line x1="12.3" y1="3.5" x2="11.3" y2="4.5"/></g>';
-const _moonSm='<path d="M13.2 7.7A4.5 4.5 0 1 1 7.8 3.1 3.5 3.5 0 0 0 13.2 7.7z" fill="#cbd5e1"/>';
+const _sun='<circle cx="12" cy="12" r="4.6" fill="#232019"/><g stroke="#232019" stroke-width="1.7" stroke-linecap="round"><line x1="12" y1="1.6" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22.4"/><line x1="1.6" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22.4" y2="12"/><line x1="4.5" y1="4.5" x2="6.2" y2="6.2"/><line x1="17.8" y1="17.8" x2="19.5" y2="19.5"/><line x1="19.5" y1="4.5" x2="17.8" y2="6.2"/><line x1="6.2" y1="17.8" x2="4.5" y2="19.5"/></g>';
+const _moon='<path d="M20.5 14.2A8.5 8.5 0 1 1 9.8 3.5 6.7 6.7 0 0 0 20.5 14.2z" fill="#5c584f"/>';
+const _sunSm='<circle cx="8.2" cy="7.6" r="3.1" fill="#232019"/><g stroke="#232019" stroke-width="1.3" stroke-linecap="round"><line x1="8.2" y1="1.8" x2="8.2" y2="3.2"/><line x1="2.4" y1="7.6" x2="3.8" y2="7.6"/><line x1="4.1" y1="3.5" x2="5.1" y2="4.5"/><line x1="12.3" y1="3.5" x2="11.3" y2="4.5"/></g>';
+const _moonSm='<path d="M13.2 7.7A4.5 4.5 0 1 1 7.8 3.1 3.5 3.5 0 0 0 13.2 7.7z" fill="#5c584f"/>';
 function _cloud(c){return `<path d="M7 18.5h9.4a3.6 3.6 0 0 0 .42-7.16 5.3 5.3 0 0 0-10.2-1.2A4 4 0 0 0 7 18.5z" fill="${c}"/>`;}
-function _rain(n){const x=[8.5,12,15.5];let s='<g stroke="#60a5fa" stroke-width="1.8" stroke-linecap="round">';for(let i=0;i<n;i++)s+=`<line x1="${x[i]}" y1="19.8" x2="${x[i]-1}" y2="22.6"/>`;return s+'</g>';}
-const _snow='<g fill="#e2e8f0"><circle cx="8.5" cy="20.9" r="1.15"/><circle cx="12" cy="22.1" r="1.15"/><circle cx="15.5" cy="20.9" r="1.15"/></g>';
-const _bolt='<polygon points="12.6,18.4 9.6,22.4 11.7,22.4 10.7,23.8 14,19.7 11.9,19.7 13.4,18.4" fill="#facc15"/>';
-const _fog='<g stroke="#9aa7b8" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="5.5" y1="12" x2="18.5" y2="12"/><line x1="4" y1="16" x2="17" y2="16"/><line x1="7" y1="20" x2="20" y2="20"/></g>';
+function _rain(n){const x=[8.5,12,15.5];let s='<g stroke="#232019" stroke-width="1.8" stroke-linecap="round">';for(let i=0;i<n;i++)s+=`<line x1="${x[i]}" y1="19.8" x2="${x[i]-1}" y2="22.6"/>`;return s+'</g>';}
+const _snow='<g fill="#5c584f"><circle cx="8.5" cy="20.9" r="1.15"/><circle cx="12" cy="22.1" r="1.15"/><circle cx="15.5" cy="20.9" r="1.15"/></g>';
+const _bolt='<polygon points="12.6,18.4 9.6,22.4 11.7,22.4 10.7,23.8 14,19.7 11.9,19.7 13.4,18.4" fill="#141311"/>';
+const _fog='<g stroke="#847f73" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="5.5" y1="12" x2="18.5" y2="12"/><line x1="4" y1="16" x2="17" y2="16"/><line x1="7" y1="20" x2="20" y2="20"/></g>';
 function _horizonSun(col,dir){
   const ray=`<g stroke="${col}" stroke-width="1.4" stroke-linecap="round"><line x1="12" y1="3.5" x2="12" y2="5.6"/><line x1="4.6" y1="9.4" x2="6.1" y2="10.9"/><line x1="19.4" y1="9.4" x2="17.9" y2="10.9"/><line x1="2.4" y1="16" x2="4.2" y2="16"/><line x1="19.8" y1="16" x2="21.6" y2="16"/></g>`;
   const halfSun=`<path d="M6.6 16a5.4 5.4 0 0 1 10.8 0z" fill="${col}"/>`;
@@ -1204,9 +1204,9 @@ function _horizonSun(col,dir){
 }
 function wxIcon(c,night,phase){
   if(c==null)return'<span class="wx-dash">–</span>';
-  const n=!!night, GRAY='#94a3b8', DARK='#6b7a8f';
+  const n=!!night, GRAY='#8d897e', DARK='#57544c';
   if((phase==='dawn'||phase==='dusk') && c<=2){
-    const inner=_horizonSun(phase==='dawn'?'#fcd34d':'#fb923c', phase==='dawn'?'up':'down');
+    const inner=_horizonSun('#232019', phase==='dawn'?'up':'down');
     return `<svg class="wxi" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
   }
   let inner;
@@ -1419,7 +1419,7 @@ function renderVerticalHourly(){
     const isDayStart=i>0&&ref.time[i].slice(0,10)!==ref.time[i-1].slice(0,10);
     const rowStyle=isDayStart?'border-top:2px solid var(--day-line)':'';
     const cells=cols.map(c=>renderVertical_cellVal(c.id,i,onlyEnabled,actMap,nowMs,ref)).join('');
-    const labelStyle=`font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;white-space:nowrap;${isNow?'color:#ef4444;font-weight:700':''}`;
+    const labelStyle=`font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;white-space:nowrap;${isNow?'color:var(--now);font-weight:700':''}`;
     return`<tr class="data-row ${ndCls}${isNow?' now-row':''}${isDayStart?' vday-start':''}" data-date="${ref.time[i].slice(0,10)}" data-iso="${ref.time[i]}" ${isNow?'id="now-row"':''} style="${rowStyle}">
       <td class="row-label ${ndCls}" style="${labelStyle}">${DAYS[d.getDay()]} ${d.getDate()} <span style="opacity:.7">${fmtAmPm(d)}</span></td>
       ${cells}
@@ -1472,7 +1472,7 @@ function renderVerticalDaily(){
     const isToday=dateStr===todayStr;
     const isPast=dateStr<todayStr;
     const hz=horizonOf(dateStr);
-    const labelStyle=`font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;white-space:nowrap;${isToday?'color:#ef4444;font-weight:700':isPast?'opacity:.65':''}`;
+    const labelStyle=`font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;white-space:nowrap;${isToday?'color:var(--now);font-weight:700':isPast?'opacity:.65':''}`;
     const ai=actDailyMap[dateStr];
     const cells=cols.map(c=>{
       switch(c.id){
@@ -1954,7 +1954,7 @@ function renderAccuracyPanel(){
   const best={}; METS.forEach(m=>{ let bv=Infinity,bk=null; j.stats.forEach(s=>{ if(s[m]!=null&&s[m]<bv){bv=s[m];bk=s.model;} }); best[m]=bk; });
   const wmap=(j&&j.weights)||{};
   const bmap=(j&&j.biases)||{};
-  const colorOf=k=>(MODELS.find(m=>m.key===k)||{}).color||'#64748b';
+  const colorOf=k=>(MODELS.find(m=>m.key===k)||{}).color||'#8d897e';
   const shortOf=k=>(MODELS.find(m=>m.key===k)||{}).short||'?';
   const labelOf=k=>(MODELS.find(m=>m.key===k)||{}).label||k;
   const fmt=(v,m)=>v==null?'<span class="acc-na">–</span>':(m==='cloud'||m==='wind'?Math.round(v):v.toFixed(1));
@@ -1964,7 +1964,7 @@ function renderAccuracyPanel(){
     if(b==null||!isFinite(b)||b===0)return '';
     const big=Math.abs(b)>=(m==='temp'?0.3:m==='wind'?2:5);
     const v=m==='cloud'?Math.round(b):(+b).toFixed(1);
-    return `<div class="acc-w"${big?' style="color:#fbbf24"':''}>${b>0?'+':''}${v} bias</div>`;
+    return `<div class="acc-w"${big?' style="color:var(--text-primary);font-weight:700"':''}>${b>0?'+':''}${v} bias</div>`;
   };
   const rainCell=s=> s.occErr!=null?`<div class="acc-w">occ ${Math.round(s.occErr*100)}% off</div>`:'';
   const rows=j.stats.slice().sort((a,b)=>(a.temp??99)-(b.temp??99)).map(s=>{
@@ -2013,7 +2013,7 @@ function horizonMatrixHTML(j,metric){
   const byModel={};
   rows.forEach(r=>{ (byModel[r.model]||(byModel[r.model]={}))[r.h]={rmse:r.rmse,n:r.n}; });
   const fmt=v=>v==null?'–':((metric==='cloud'||metric==='wind')?Math.round(v):v.toFixed(1));
-  const colorOf=k=>(MODELS.find(m=>m.key===k)||{}).color||'#64748b';
+  const colorOf=k=>(MODELS.find(m=>m.key===k)||{}).color||'#8d897e';
   const shortOf=k=>(MODELS.find(m=>m.key===k)||{}).short||'?';
   const models=Object.keys(byModel).sort((a,b)=>MODELS.findIndex(m=>m.key===a)-MODELS.findIndex(m=>m.key===b));
   const cell={};
