@@ -7,8 +7,8 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%23413c33%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2220%22%20r%3D%2212%22%20fill%3D%22%23232019%22%2F%3E%3Ccircle%20cx%3D%2244%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%235c584f%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2244%22%20r%3D%2212%22%20fill%3D%22%23847f73%22%2F%3E%3C%2Fsvg%3E">
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%23413c33%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2220%22%20r%3D%2212%22%20fill%3D%22%23232019%22%2F%3E%3Ccircle%20cx%3D%2244%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%235c584f%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2244%22%20r%3D%2212%22%20fill%3D%22%23847f73%22%2F%3E%3C%2Fsvg%3E">
 <meta name="theme-color" content="#f2f1ec">
-<link rel="stylesheet" href="styles.css?v=2">
-<link rel="stylesheet" href="timeline.css?v=4">
+<link rel="stylesheet" href="styles.css?v=4">
+<link rel="stylesheet" href="timeline.css?v=6">
 </head>
 <body>
 
@@ -51,16 +51,16 @@
 <div id="carousels-section">
   <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
     <linearGradient id="wxGlass" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#eef4ff" stop-opacity=".46"/>
-      <stop offset="1" stop-color="#aebfdc" stop-opacity=".16"/>
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".5"/>
+      <stop offset="1" stop-color="#c8c3b6" stop-opacity=".18"/>
     </linearGradient>
     <linearGradient id="wxSun" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffe6a0" stop-opacity=".62"/>
-      <stop offset="1" stop-color="#fbbf24" stop-opacity=".28"/>
+      <stop offset="0" stop-color="#e5e1d6" stop-opacity=".6"/>
+      <stop offset="1" stop-color="#8d897e" stop-opacity=".3"/>
     </linearGradient>
     <radialGradient id="wxMoon" cx="38%" cy="34%" r="72%">
       <stop offset="0" stop-color="#ffffff" stop-opacity=".36"/>
-      <stop offset="1" stop-color="#cfe0ff" stop-opacity=".08"/>
+      <stop offset="1" stop-color="#c8c3b6" stop-opacity=".1"/>
     </radialGradient>
   </defs></svg>
   <div id="timeline-root"></div>
@@ -111,38 +111,38 @@
     <p>Each section heading row <em>is</em> the blended average. Open ☰ → Models &amp; sources and enable <strong>Sources</strong> to see individual model rows below it, each tagged with its current accuracy weight. The <strong>✓ Actual</strong> row shows real observations for past hours (from your chosen source). A <strong>Confidence</strong> row in each section shows the per-hour model agreement for that metric. Daytime columns are shaded lighter; a red column marks the current hour.</p>
 
     <h3>Colour coding</h3>
-    <p><strong style="color:#86efac">Temperature</strong></p>
+    <p><strong style="color:var(--text-primary)">Temperature</strong></p>
     <div class="swatch-row">
-      <div class="swatch"><span class="sw" style="background:#0d1a2e"></span> &lt;5° Cold</div>
-      <div class="swatch"><span class="sw" style="background:#0d2040"></span> 5–12° Cool</div>
-      <div class="swatch"><span class="sw" style="background:#0d2e1a"></span> 12–22° Mild</div>
-      <div class="swatch"><span class="sw" style="background:#2e2000"></span> 22–30° Warm</div>
-      <div class="swatch"><span class="sw" style="background:#3a1000"></span> &gt;30° Hot</div>
+      <div class="swatch"><span class="sw" style="background:#efeee9"></span> &lt;5° Cold</div>
+      <div class="swatch"><span class="sw" style="background:#e6e3da"></span> 5–12° Cool</div>
+      <div class="swatch"><span class="sw" style="background:#d5d1c3"></span> 12–22° Mild</div>
+      <div class="swatch"><span class="sw" style="background:#b5b0a0"></span> 22–30° Warm</div>
+      <div class="swatch"><span class="sw" style="background:#8d897e"></span> &gt;30° Hot</div>
     </div>
-    <p style="margin-top:10px"><strong style="color:#90caf9">Rain</strong></p>
+    <p style="margin-top:10px"><strong style="color:var(--text-primary)">Rain</strong></p>
     <div class="swatch-row">
-      <div class="swatch"><span class="sw" style="background:#0d2540"></span> Trace</div>
-      <div class="swatch"><span class="sw" style="background:#0f4c8a"></span> 0.5mm/hr</div>
-      <div class="swatch"><span class="sw" style="background:#1976d2"></span> 1mm/hr</div>
-      <div class="swatch"><span class="sw" style="background:#0d47a1"></span> 5mm/hr+</div>
+      <div class="swatch"><span class="sw" style="background:#efeee9"></span> Trace</div>
+      <div class="swatch"><span class="sw" style="background:#cec9ba"></span> 0.5mm/hr</div>
+      <div class="swatch"><span class="sw" style="background:#847e70"></span> 1mm/hr</div>
+      <div class="swatch"><span class="sw" style="background:#4d4a43"></span> 5mm/hr+</div>
     </div>
-    <p style="margin-top:10px"><strong style="color:#d9f99d">Wind</strong></p>
+    <p style="margin-top:10px"><strong style="color:var(--text-primary)">Wind</strong></p>
     <div class="swatch-row">
-      <div class="swatch"><span class="sw" style="background:#0a1a0f"></span> Calm &lt;10</div>
-      <div class="swatch"><span class="sw" style="background:#0d2215"></span> Light 10–20</div>
-      <div class="swatch"><span class="sw" style="background:#2a3a0a"></span> Moderate 20–35</div>
-      <div class="swatch"><span class="sw" style="background:#3a2a0a"></span> Strong 35–55</div>
-      <div class="swatch"><span class="sw" style="background:#4a1a0a"></span> Storm 55+</div>
+      <div class="swatch"><span class="sw" style="background:#efeee9"></span> Calm &lt;10</div>
+      <div class="swatch"><span class="sw" style="background:#dcd8cc"></span> Light 10–20</div>
+      <div class="swatch"><span class="sw" style="background:#b5b0a0"></span> Moderate 20–35</div>
+      <div class="swatch"><span class="sw" style="background:#5c584f"></span> Strong 35–55</div>
+      <div class="swatch"><span class="sw" style="background:#232019"></span> Storm 55+</div>
     </div>
 
     <h3>Weather sources (7 models)</h3>
-    <div class="src-grid"><div class="src-item"><div class="src-name" style="color:#2563eb">GFS</div><div class="src-desc">NOAA · USA · Global 25km · 16-day</div></div>
-      <div class="src-item"><div class="src-name" style="color:#059669">ECMWF</div><div class="src-desc">European Centre · 9km · Open data since Oct 2025</div></div>
-      <div class="src-item"><div class="src-name" style="color:#16a34a">ICON</div><div class="src-desc">DWD · Germany · Global + Europe high-res</div></div>
-      <div class="src-item"><div class="src-name" style="color:#7c3aed">GEM</div><div class="src-desc">Environment Canada · Global 10km</div></div>
-      <div class="src-item"><div class="src-name" style="color:#dc2626">UKMO</div><div class="src-desc">UK Met Office · Global model</div></div>
-      <div class="src-item"><div class="src-name" style="color:#d97706">CMA</div><div class="src-desc">China Met Admin · GRAPES global</div></div>
-      <div class="src-item"><div class="src-name" style="color:#6366f1">JMA</div><div class="src-desc">Japan Met Agency · Global 20km</div></div>
+    <div class="src-grid"><div class="src-item"><div class="src-name" style="color:#232019">GFS</div><div class="src-desc">NOAA · USA · Global 25km · 16-day</div></div>
+      <div class="src-item"><div class="src-name" style="color:#332f28">ECMWF</div><div class="src-desc">European Centre · 9km · Open data since Oct 2025</div></div>
+      <div class="src-item"><div class="src-name" style="color:#413c33">ICON</div><div class="src-desc">DWD · Germany · Global + Europe high-res</div></div>
+      <div class="src-item"><div class="src-name" style="color:#4f4a40">GEM</div><div class="src-desc">Environment Canada · Global 10km</div></div>
+      <div class="src-item"><div class="src-name" style="color:#5c584e">UKMO</div><div class="src-desc">UK Met Office · Global model</div></div>
+      <div class="src-item"><div class="src-name" style="color:#69645a">CMA</div><div class="src-desc">China Met Admin · GRAPES global</div></div>
+      <div class="src-item"><div class="src-name" style="color:#767065">JMA</div><div class="src-desc">Japan Met Agency · Global 20km</div></div>
     </div>
     <p style="margin-top:10px;font-size:12px">Forecasts via <a href="https://open-meteo.com" target="_blank" style="color:var(--accent)">Open-Meteo</a>. Past "actual" data uses <a href="https://www.bom.gov.au" target="_blank" style="color:var(--accent)">BOM</a>'s nearest-station observations (Australia), fetched through a Cloudflare Worker — BOM is observations only, never a forecast. Refreshes automatically every hour.</p>
 
@@ -154,7 +154,7 @@
     <p><strong>Actual source</strong> sets the ground truth: <em>BOM</em> (station obs), <em>Open-Meteo</em> (model mean) or <em>Blend</em>. <strong>Weight method</strong>: <strong>Recency</strong> — recency-weighted error (plus server-learned weights and biases when BOM is the truth source). <strong>Per-day</strong> — scores each model per day over the last X days. <strong>Blend</strong> — the mean of the two.</p>
 
     <h3>Confidence</h3>
-    <p>Confidence is a plain-English read on <em>how much the models agree</em>. When they all predict much the same thing it's <strong style="color:#34d399">High</strong>; when they diverge it falls to <strong style="color:#fbbf24">Medium</strong> or <strong style="color:#fb7185">Low</strong>. It's computed per metric, per hour and per day. It measures <em>agreement, not certainty</em>.</p>
+    <p>Confidence is a plain-English read on <em>how much the models agree</em>. When they all predict much the same thing it's <strong style="color:var(--text-primary)">High</strong>; when they diverge it falls to <strong style="color:var(--text-muted)">Medium</strong> or <strong style="color:var(--text-dim)">Low</strong>. It's computed per metric, per hour and per day. It measures <em>agreement, not certainty</em>.</p>
 
     <h3>The forecast glyph</h3>
     <p>Instead of fixed weather icons, the now card draws one living mark built from the data itself: four circles — mint (temperature), lime (wind), blue (rain) and purple (cloud) — each growing and brightening with its value, with the strongest metric glowing. Every forecast gets its own visual fingerprint.</p>
@@ -209,9 +209,9 @@
   </button>
 </nav>
 
-<div id="debug-panel" style="position:fixed;left:6px;right:6px;bottom:6px;z-index:99999;background:rgba(8,8,12,0.94);border:1px solid #555;border-radius:8px;font-family:monospace;font-size:11px;line-height:1.5;color:#9fe6a0;display:none;flex-direction:column;max-height:40vh;backdrop-filter:blur(4px)">
+<div id="debug-panel" style="position:fixed;left:6px;right:6px;bottom:6px;z-index:99999;background:rgba(20,19,17,0.94);border:1px solid #555;border-radius:8px;font-family:monospace;font-size:11px;line-height:1.5;color:#e2ded3;display:none;flex-direction:column;max-height:40vh;backdrop-filter:blur(4px)">
   <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border-bottom:1px solid #333;flex:0 0 auto">
-    <strong style="color:#eee">🐞 Debug log</strong>
+    <strong style="color:#f2f1ec">Debug log</strong>
     <span style="display:flex;gap:6px">
       <button onclick="document.getElementById('debug-lines').textContent='';" style="background:#222;color:#bbb;border:1px solid #444;border-radius:5px;padding:2px 8px;font-size:11px">clear</button>
       <button onclick="var b=document.getElementById('debug-lines');b.style.display=(b.style.display==='none'?'block':'none');this.textContent=(b.style.display==='none'?'show':'hide');" style="background:#222;color:#bbb;border:1px solid #444;border-radius:5px;padding:2px 8px;font-size:11px">hide</button>
@@ -220,8 +220,8 @@
   <div id="debug-lines" style="padding:8px 10px;overflow:auto;white-space:pre-wrap;word-break:break-word;flex:1 1 auto"></div>
 </div>
 
-<script src="engine.js?v=2"></script>
-<script src="app.js?v=2"></script>
-<script src="timeline.js?v=4"></script>
+<script src="engine.js?v=4"></script>
+<script src="app.js?v=4"></script>
+<script src="timeline.js?v=6"></script>
 </body>
 </html>
