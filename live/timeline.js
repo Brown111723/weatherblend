@@ -123,14 +123,13 @@ function tlDayRange(arr) { const s = TL.sel * 24; let hi = null, lo = null; for 
 function tlStripHTML() {
   return '<div class="tlm-strip" id="tlm-strip">' + TL.days.map((d, i) => {
     const sel = i === TL.sel;
-    const s = i * 24; let hi = null, lo = null, rainSum = 0;
-    for (let k = s; k < s + 24; k++) { const v = TL.temp[k]; if (v != null) { hi = hi == null ? v : Math.max(hi, v); lo = lo == null ? v : Math.min(lo, v); } rainSum += TL.rain[k] || 0; }
-    const code = tlDayCode(i);
+    const s = i * 24; let hi = null, lo = null, rt = 0;
+    for (let k = s; k < s + 24; k++) { const v = TL.temp[k]; if (v != null) { hi = hi == null ? v : Math.max(hi, v); lo = lo == null ? v : Math.min(lo, v); } const r = TL.rain[k]; if (r) rt += r; }
+    const rainTxt = rt >= 0.1 ? (rt >= 10 ? Math.round(rt) : rt.toFixed(1)) + 'mm' : '';
     return '<button type="button" class="tlm-day' + (sel ? ' sel' : '') + '" data-di="' + i + '">'
       + '<span class="tlm-dow">' + (d.isToday ? 'Today' : d.dow) + '</span>'
-      + '<span class="tlm-ico">' + wxIcon(code, false) + '</span>'
       + '<span class="tlm-hilo">' + (hi != null ? tempDisp(Math.round(hi)) : '—') + '° <span class="tlm-lo">' + (lo != null ? tempDisp(Math.round(lo)) + '°' : '') + '</span></span>'
-      + '<span class="tlm-rain">' + (rainSum >= 0.5 ? rainSum.toFixed(1) + 'mm' : '') + '</span>'
+      + '<span class="tlm-rain">' + rainTxt + '</span>'
       + '</button>';
   }).join('') + '</div>';
 }
@@ -138,8 +137,8 @@ function tlStripHTML() {
 // ── hour section: hero + 3 metrics + sparklines + axis ──────────────────
 function tlLaneMeta() {
   return {
-    temp: { label: 'Temp', arr: TL.temp, fmt: v => tempDisp(Math.round(v)) + '°' },
-    rain: { label: 'Rain', arr: TL.rain, fmt: v => (v < 0.05 ? '0.0' : v.toFixed(1)) },
+    temp: { label: 'Temp', arr: TL.temp, fmt: v => tempDisp(v) + '°' },
+    rain: { label: 'Rain', arr: TL.rain, fmt: v => (v < 0.05 ? '0' : v.toFixed(1)) },
     wind: { label: 'Wind', arr: TL.wind, fmt: v => Math.round(v) },
     cloud: { label: 'Cloud', arr: TL.cloud, fmt: v => Math.round(v) + '%' },
   };
@@ -150,26 +149,39 @@ function tlSparkSVG(m) {
   const good = vals.map((v, i) => [i, v]).filter(p => p[1] != null && !isNaN(p[1]));
   if (good.length < 2) return '<svg viewBox="0 0 ' + TL_SVGW + ' ' + TL_SVGH + '" width="100%" height="' + TL_SVGH + '" style="display:block"></svg>';
   const gv = good.map(p => p[1]); const mn = Math.min(...gv), mx = Math.max(...gv), span = (mx - mn) || 1;
-  const pts = good.map(([i, v]) => [(i / 23) * TL_SVGW, TL_SVGH - TL_PAD - ((v - mn) / span) * (TL_SVGH - TL_PAD * 2)]);
-  const d = tlPath(pts);
-  const conf = TL.dayConf[TL.days[TL.sel].date][m]; const cval = conf != null ? conf : 80;
-  const extra = (1 - cval / 100) * 15;
+  const XY = i => [(i / 23) * TL_SVGW, TL_SVGH - TL_PAD - ((vals[i] - mn) / span) * (TL_SVGH - TL_PAD * 2)];
+  const pts = good.map(([i]) => XY(i));
+  const line = tlPath(pts);
+  // per-hour confidence "shadow": a ribbon whose half-thickness grows as
+  // that hour's model agreement (the table's confidence figure) drops.
+  const MAXW = 7;
+  const top = [], bot = [];
+  good.forEach(([i]) => {
+    const [x, y] = XY(i);
+    const c = TL.confH[m][s + i]; const cv = c != null ? c : 100;
+    const hw = (1 - cv / 100) * MAXW;
+    top.push([x, y - hw]); bot.push([x, y + hw]);
+  });
+  const ribbon = tlPath(top) + ' L ' + bot[bot.length - 1][0].toFixed(1) + ' ' + bot[bot.length - 1][1].toFixed(1)
+    + ' ' + tlPath(bot.slice().reverse()).slice(1) + ' Z';
+  // night mask: full opacity between sunrise and sunset, dimmed outside —
+  // line WIDTH stays constant across the whole day, only opacity changes.
   const { rise, set } = tlSunFrac();
-  const r1 = Math.max(0, rise * 100 - 1.2), r2 = Math.min(100, rise * 100 + 1.2);
-  const s1 = Math.max(0, set * 100 - 1.2), s2 = Math.min(100, set * 100 + 1.2);
+  const r1 = Math.max(0, rise * 100 - 0.6), r2 = Math.min(100, rise * 100 + 0.6);
+  const s1 = Math.max(0, set * 100 - 0.6), s2 = Math.min(100, set * 100 + 0.6);
   const gid = 'tlmN_' + m;
   return '<svg viewBox="0 0 ' + TL_SVGW + ' ' + TL_SVGH + '" width="100%" height="' + TL_SVGH + '" style="display:block;overflow:visible">'
     + '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="1" y2="0">'
-    + '<stop offset="0%" stop-color="#fff" stop-opacity="0.32"/>'
-    + '<stop offset="' + r1.toFixed(1) + '%" stop-color="#fff" stop-opacity="0.32"/>'
+    + '<stop offset="0%" stop-color="#fff" stop-opacity="0.3"/>'
+    + '<stop offset="' + r1.toFixed(1) + '%" stop-color="#fff" stop-opacity="0.3"/>'
     + '<stop offset="' + r2.toFixed(1) + '%" stop-color="#fff" stop-opacity="1"/>'
     + '<stop offset="' + s1.toFixed(1) + '%" stop-color="#fff" stop-opacity="1"/>'
-    + '<stop offset="' + s2.toFixed(1) + '%" stop-color="#fff" stop-opacity="0.32"/>'
-    + '<stop offset="100%" stop-color="#fff" stop-opacity="0.32"/>'
+    + '<stop offset="' + s2.toFixed(1) + '%" stop-color="#fff" stop-opacity="0.3"/>'
+    + '<stop offset="100%" stop-color="#fff" stop-opacity="0.3"/>'
     + '</linearGradient><mask id="m' + gid + '"><rect width="' + TL_SVGW + '" height="' + TL_SVGH + '" fill="url(#' + gid + ')"/></mask></defs>'
     + '<g mask="url(#m' + gid + ')">'
-    + '<path d="' + d + '" fill="none" stroke="var(--text-primary,#141311)" stroke-width="' + (2 + extra).toFixed(1) + '" stroke-linecap="round" opacity="0.14"/>'
-    + '<path d="' + d + '" fill="none" stroke="var(--text-primary,#141311)" stroke-width="1.6" stroke-linecap="round" opacity="0.92"/>'
+    + '<path d="' + ribbon + '" fill="var(--text-primary,#141311)" stroke="none" opacity="0.15"/>'
+    + '<path d="' + line + '" fill="none" stroke="var(--text-primary,#141311)" stroke-width="1.6" stroke-linecap="round" opacity="0.92"/>'
     + '</g></svg>';
 }
 function tlLaneCeilFloor(m) {
@@ -184,14 +196,14 @@ function tlHourHTML() {
   const sideM = TL.lanes.filter(m => m !== 'temp');
   const meta = tlLaneMeta();
 
-  // hero + 3 metrics (values filled by tlHeads)
+  // hero + 3 metrics (values filled by tlHeads); icon sits with its figure
   let hero = '<div class="tlm-hero">'
     + '<div class="tlm-hero-l"><div class="tlm-temp" id="tlm-temp">—</div><div class="tlm-feels" id="tlm-feels"></div></div>'
     + '<div class="tlm-metrics">'
     + sideM.map(m =>
       '<div class="tlm-metric"><span class="tlm-mic">' + IC[m] + '</span>'
-      + '<span class="tlm-mgrp"><span class="tlm-mfig" id="tlm-fig-' + m + '"></span>'
-      + '<span class="tlm-mconf" id="tlm-conf-' + m + '"></span></span></div>').join('')
+      + '<span class="tlm-mfig" id="tlm-fig-' + m + '"></span>'
+      + '<span class="tlm-mconf" id="tlm-conf-' + m + '"></span></div>').join('')
     + '</div></div>';
 
   // sparkline lanes
@@ -200,17 +212,15 @@ function tlHourHTML() {
     + '<span class="tlm-lspark">' + tlSparkSVG(m) + '</span>'
     + '<span class="tlm-lscale">' + tlLaneCeilFloor(m) + '</span></div>').join('') + '</div>';
 
-  // overlay: now-line + sunrise/sunset verticals (drag target)
-  const { rise, set } = tlSunFrac();
+  // overlay: draggable NOW line only (sunrise/sunset shown by the dimming)
   const overlay = '<div class="tlm-overlay" id="tlm-overlay">'
-    + '<div class="tlm-rise" style="left:' + (rise * 100).toFixed(1) + '%"></div>'
-    + '<div class="tlm-set" style="left:' + (set * 100).toFixed(1) + '%"></div>'
     + '<div class="tlm-now" id="tlm-now" style="left:' + (TL.frac * 100).toFixed(1) + '%"></div>'
     + '<div class="tlm-nowlab" id="tlm-nowlab" style="left:' + (TL.frac * 100).toFixed(1) + '%"></div>'
     + '</div>';
 
   // axis: sunrise / sunset times
   const sun = tlSunFrac();
+  const rise = sun.rise, set = sun.set;
   const axis = '<div class="tlm-axis"><span class="tlm-axpad"></span><div class="tlm-axtrack">'
     + (sun.riseMs ? '<span class="tlm-suntime" style="left:' + (rise * 100).toFixed(1) + '%">' + wxIcon(0, false, null) + '<b>' + tlClock(sun.riseMs) + '</b></span>' : '')
     + (sun.setMs ? '<span class="tlm-suntime" style="left:' + (set * 100).toFixed(1) + '%">' + wxIcon(0, true, null) + '<b>' + tlClock(sun.setMs) + '</b></span>' : '')
@@ -230,10 +240,14 @@ function tlHeads() {
   let feels = null;
   if (d.isToday && Math.round(TL.frac * 23) === Math.round((TL.nowH - TL.sel * 24)) && cachedCurrent && cachedCurrent.c && cachedCurrent.c.apparent_temperature != null) feels = cachedCurrent.c.apparent_temperature;
   else if (t != null && TL.wind[h] != null) feels = t - TL.wind[h] * 0.11;
-  set('tlm-temp', t != null ? tempDisp(Math.round(t)) + '°' : '—');
-  set('tlm-feels', feels != null ? 'Feels like ' + tempDisp(Math.round(feels)) + '°' : '');
-  // side metrics
-  const figFor = { rain: (TL.rain[h] != null ? TL.rain[h].toFixed(1) : '0.0') + ' mm', wind: (TL.wind[h] != null ? Math.round(TL.wind[h]) : '—') + ' km/h', cloud: (TL.cloud[h] != null ? Math.round(TL.cloud[h]) : '—') + '%' };
+  set('tlm-temp', t != null ? tempDisp(t) + '°' : '—');
+  set('tlm-feels', feels != null ? 'Feels like ' + tempDisp(feels) + '°' : '');
+  // side metrics — match the table's cell formatting exactly
+  const figFor = {
+    rain: (TL.rain[h] == null ? '—' : TL.rain[h] < 0.05 ? '0' : TL.rain[h].toFixed(1)) + ' mm',
+    wind: (TL.wind[h] != null ? Math.round(TL.wind[h]) : '—') + ' km/h',
+    cloud: (TL.cloud[h] != null ? Math.round(TL.cloud[h]) : '—') + '%',
+  };
   ['rain', 'wind', 'cloud'].forEach(m => {
     set('tlm-fig-' + m, figFor[m]);
     const c = TL.dayConf[d.date][m];
@@ -258,7 +272,15 @@ function tlBindScrub() {
   };
   ov.addEventListener('pointerdown', ev => { active = true; try { ov.setPointerCapture(ev.pointerId); } catch (e) {} setFrom(ev); });
   ov.addEventListener('pointermove', ev => { if (active) setFrom(ev); });
-  const end = () => { active = false; };
+  // on release, snap the NOW line back to the live current time
+  const end = () => {
+    if (!active) return; active = false;
+    TL.frac = tlDefaultFrac();
+    const now = document.getElementById('tlm-now'), lab = document.getElementById('tlm-nowlab');
+    if (now) now.style.left = (TL.frac * 100).toFixed(1) + '%';
+    if (lab) lab.style.left = (TL.frac * 100).toFixed(1) + '%';
+    tlHeads(); tlSecRender();
+  };
   ov.addEventListener('pointerup', end); ov.addEventListener('pointercancel', end);
 }
 
