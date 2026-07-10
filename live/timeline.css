@@ -8,15 +8,13 @@
 #timeline-root *{box-sizing:border-box;}
 .tlm{font-family:'Helvetica Neue',Helvetica,Arial,system-ui,-apple-system,'Segoe UI',sans-serif;}
 
-/* ── continuous week overview ── */
-.tlm-week{margin-bottom:2px;}
-.tlm-wk-svg{display:block;width:100%;height:74px;overflow:visible;}
-.tlm-wk-labels{display:grid;grid-template-columns:repeat(7,1fr);margin-top:2px;}
-.tlm-wk-day{display:flex;flex-direction:column;align-items:center;gap:1px;padding:5px 0 3px;border:none;background:transparent;cursor:pointer;font-family:inherit;color:var(--text-dim,#a29e93);}
+/* ── continuous week overview (compressed) ── */
+.tlm-week{margin-bottom:2px;cursor:pointer;touch-action:pan-y;user-select:none;-webkit-user-select:none;}
+.tlm-wk-svg{display:block;width:100%;height:38px;overflow:visible;}
+.tlm-wk-labels{display:grid;grid-template-columns:repeat(7,1fr);margin-top:1px;}
+.tlm-wk-day{display:flex;justify-content:center;padding:4px 0 2px;border:none;background:transparent;cursor:pointer;font-family:inherit;color:var(--text-dim,#a29e93);}
 .tlm-wk-dow{font-size:9.5px;font-weight:700;letter-spacing:.6px;}
-.tlm-wk-num{font-size:11px;font-weight:600;color:var(--text-muted,#6f6c64);}
-.tlm-wk-day.sel .tlm-wk-dow{color:var(--text-primary,#141311);}
-.tlm-wk-day.sel .tlm-wk-num{color:var(--text-primary,#141311);}
+.tlm-wk-day.sel{color:var(--text-primary,#141311);}
 
 /* ── hour section ── */
 .tlm-hour{padding-top:14px;margin-top:14px;border-top:1px solid var(--border,#dedad0);}
@@ -31,10 +29,18 @@
 .tlm-mfig{font-size:21px;font-weight:600;letter-spacing:-.5px;color:var(--text-primary,#141311);white-space:nowrap;}
 .tlm-mconf{font-size:12px;font-weight:600;color:var(--text-dim,#a29e93);}
 .tlm-mdir{font-size:13px;font-weight:600;color:var(--text-muted,#6f6c64);}
+/* metric icon colours — the one chromatic touch besides the NOW red */
+.tlm-ic-temp{color:var(--q-temp,#1f8a5b)!important;}
+.tlm-ic-rain{color:var(--q-rain,#2a6fdb)!important;}
+.tlm-ic-wind{color:var(--q-wind,#6f8f1f)!important;}
+.tlm-ic-cloud{color:var(--q-cloud,#7c5cc4)!important;}
 
 /* ── sparklines ── */
 .tlm-chart{position:relative;}
-.tlm-lanes{display:flex;flex-direction:column;gap:34px;}
+.tlm-lanes{display:flex;flex-direction:column;gap:34px;position:relative;z-index:1;}
+/* dimmed background before sunrise / after sunset (line stays crisp) */
+.tlm-nightbg{position:absolute;left:36px;right:50px;top:-6px;bottom:-6px;pointer-events:none;z-index:0;}
+.tlm-night{position:absolute;top:0;bottom:0;background:rgba(20,19,17,.055);}
 .tlm-lane{display:flex;align-items:center;gap:10px;}
 .tlm-lic{flex:0 0 26px;display:flex;justify-content:center;color:var(--text-primary,#141311);}
 .tlm-lic svg{width:16px;height:16px;}
@@ -43,15 +49,15 @@
 .tlm-ceil{font-size:12.5px;font-weight:700;color:var(--text-primary,#141311);}
 .tlm-floor{font-size:12.5px;font-weight:700;color:var(--text-dim,#a29e93);}
 
-/* overlay: NOW line (hour-snapped). Left/right insets exactly match the
-   lane spark region so the line aligns with the sparkline hour grid at
-   any width — identical on mobile and desktop. */
-.tlm-overlay{position:absolute;left:36px;right:50px;top:0;bottom:0;cursor:ew-resize;touch-action:pan-y;}
+/* overlay: NOW line (hour-snapped scrub, exact time idle). Insets match
+   the lane spark region so the line aligns with the hour grid at any
+   width — identical on mobile and desktop. */
+.tlm-overlay{position:absolute;left:36px;right:50px;top:0;bottom:0;cursor:ew-resize;touch-action:pan-y;z-index:2;}
 .tlm-now{position:absolute;top:0;bottom:0;width:1.5px;background:var(--now,#a3392c);transform:translateX(-50%);box-shadow:0 0 0 3px rgba(163,57,44,.14);}
-.tlm-nowlab{position:absolute;top:-18px;transform:translateX(-50%);font-size:10.5px;font-weight:700;color:var(--now,#a3392c);white-space:nowrap;letter-spacing:.2px;}
+.tlm-nowlab{position:absolute;top:-22px;transform:translateX(-50%);font-size:10.5px;font-weight:700;color:var(--now,#a3392c);white-space:nowrap;letter-spacing:.2px;z-index:3;background:var(--bg,#f2f1ec);padding:0 3px;}
 
-/* axis: sunrise / sunset */
-.tlm-axis{display:flex;align-items:center;gap:10px;margin-top:10px;}
+/* top axis: sunrise / sunset times + NOW label share this line */
+.tlm-axis{display:flex;align-items:center;gap:10px;margin:0 0 8px;}
 .tlm-axpad{flex:0 0 26px;}
 .tlm-axpad-r{flex:0 0 40px;}
 .tlm-axtrack{flex:1;position:relative;height:20px;}
@@ -76,3 +82,5 @@
 .tl-sec-name{font-size:9.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text-dim,#a29e93);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .tl-sec-val{margin-left:auto;font-size:12.5px;font-weight:600;color:var(--text-muted,#6f6c64);white-space:nowrap;}
 .tl-sec-spark{display:block;width:100%;height:22px;}
+.tl-sec-sparkwrap{position:relative;touch-action:pan-y;cursor:ew-resize;}
+.tl-sec-now{position:absolute;top:-2px;bottom:-2px;width:1.5px;background:var(--now,#a3392c);transform:translateX(-50%);pointer-events:none;}

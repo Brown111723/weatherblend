@@ -8,7 +8,7 @@
 // ════════════════════════════════════════════════════════════════════════
 
 // ── Quatrefoil palette: the single source of metric identity ────────────
-const QT={temp:'#232019',rain:'#232019',wind:'#232019',cloud:'#232019'};
+const QT={temp:'#1f8a5b',rain:'#2a6fdb',wind:'#6f8f1f',cloud:'#7c5cc4'};
 const MET_COLOR=QT;
 
 // ── App-local state ─────────────────────────────────────────────────────
@@ -1266,7 +1266,8 @@ function srcRowClass(m,sec){
   return`data-row src-row${sec?' src-'+sec:''}${(!isOn||!open)?' src-hidden':''}${!isOn?' perm-hidden':''}`;
 }
 function secHeadLabel(sec,content){
-  return`<td class="row-label sec-toggle" onclick="toggleSecDetail('${sec}')">${content}</td>`;
+  const ic={temp:MI_TEMP,rain:MI_RAIN,wind:MI_WIND,cloud:MI_CLOUD}[sec]||'';
+  return`<td class="row-label sec-toggle" onclick="toggleSecDetail('${sec}')">${ic?`<span class="shl-ic" style="color:var(--q-${sec})">${ic}</span>`:''}${content}</td>`;
 }
 function toggleSecDetail(sec){
   secDetail[sec]=!secDetail[sec];
@@ -1319,7 +1320,7 @@ function buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled,r
     const tag=({bom:'BOM',om:'Open-Meteo',blend:'Blend'})[actualSource]||'';
     actRow=`<tr class="actual-row"><td class="row-label" style="color:${QT.cloud}">✓ Actual<span class="act-src">${tag}</span></td>${cells}</tr>`;
   }
-  return`<tr class="sec-head-temp">${secHeadLabel('cloud','<span style="color:'+QT.cloud+'">Cloud</span>')}${avgCells}</tr>${typeof confRow==='function'?confRow('cloud'):''}${srcRows}`+actRow;
+  return`<tr class="sec-head-temp">${secHeadLabel('cloud','Cloud')}${avgCells}</tr>${typeof confRow==='function'?confRow('cloud'):''}${srcRows}`+actRow;
 }
 
 // ── Vertical layout ─────────────────────────────────────────────────────
@@ -1870,7 +1871,7 @@ function renderDaily(){
       <tr class="spacer"><td colspan="${C}"></td></tr>
     `)}
     ${secGroup('cloud',`
-      <tr class="sec-head-temp">${secHeadLabel('cloud','<span style="color:'+QT.cloud+'">Cloud</span>')}${avgCloudCells}</tr>
+      <tr class="sec-head-temp">${secHeadLabel('cloud','Cloud')}${avgCloudCells}</tr>
       ${cloudModelRows}
     `)}`;
 

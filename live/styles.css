@@ -12,6 +12,8 @@
   --day-bg:#ffffff;
   --day-line:rgba(20,19,17,0.18);
   --now:#a3392c;
+  /* metric icon hues — icons only; all other ink stays monochrome */
+  --q-temp:#1f8a5b;--q-rain:#2a6fdb;--q-wind:#6f8f1f;--q-cloud:#7c5cc4;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:var(--bg);color:var(--text-primary);font-family:'Helvetica Neue',Helvetica,Arial,system-ui,-apple-system,'Segoe UI',sans-serif;font-size:18px;min-height:100vh;}
@@ -340,6 +342,8 @@ body{padding-bottom:64px;}
 .col-time{display:block;}
 .sec-head-temp td,.sec-head-wind td,.sec-head-rain td{text-align:center;padding:10px 4px 8px;font-size:15px;font-weight:600;color:var(--text-primary);border-bottom:2px solid var(--border2);}
 .sec-head-temp td.row-label{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--text-primary);text-align:left!important;padding-left:20px!important;}
+.shl-ic{display:inline-flex;vertical-align:-2px;margin-right:7px;}
+.shl-ic svg{width:14px;height:14px;}
 .sec-head-wind td.row-label{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--text-primary);text-align:left!important;padding-left:20px!important;}
 .sec-head-rain td.row-label{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--text-primary);text-align:left!important;padding-left:20px!important;}
 .sec-head-temp .hilocell,.sec-head-rain .hilocell,.sec-head-wind .hilocell{font-size:12px;color:var(--text-muted);display:block;margin-top:1px;font-weight:400;}
