@@ -937,6 +937,37 @@ function bomHourlyPayload(){
   return out.slice(-96);
 }
 
+// Daily aggregates of the blend the app is currently displaying (today..+7),
+// pushed to /track/sync as model='blend' rows. These become the literal
+// "we said X°" record the receipts panel verifies against BOM actuals.
+function blendDailyForecastRows(){
+  try{
+    const ref=refHourly(); if(!ref?.time)return [];
+    const today=localTodayStr();
+    const by={};
+    ref.time.forEach((iso,i)=>{
+      const d=iso.slice(0,10); if(d<today)return;
+      const hz=horizonOf(d);
+      const t=wBlendAt('temperature_2m',i,hz), r=wBlendAt('precipitation',i,hz),
+            w=wBlendAt('windspeed_10m',i,hz), c=wBlendAt('cloudcover',i,hz);
+      const o=by[d]||(by[d]={tmax:null,tmin:null,rain:0,hasR:false,wind:null,cs:0,cn:0});
+      if(t!=null&&!isNaN(t)){o.tmax=o.tmax==null?t:Math.max(o.tmax,t);o.tmin=o.tmin==null?t:Math.min(o.tmin,t);}
+      if(r!=null&&!isNaN(r)){o.rain+=r;o.hasR=true;}
+      if(w!=null&&!isNaN(w)){o.wind=o.wind==null?w:Math.max(o.wind,w);}
+      if(c!=null&&!isNaN(c)){o.cs+=c;o.cn++;}
+    });
+    return Object.keys(by).sort().slice(0,8).map(d=>{
+      const o=by[d];
+      return {target:d,model:'blend',
+        tmax:o.tmax!=null?+o.tmax.toFixed(1):null,
+        tmin:o.tmin!=null?+o.tmin.toFixed(1):null,
+        rain:o.hasR?+o.rain.toFixed(2):null,
+        wind:o.wind!=null?+o.wind.toFixed(1):null,
+        cloud:o.cn?+(o.cs/o.cn).toFixed(1):null};
+    });
+  }catch(e){ return []; }
+}
+
 async function syncAndLoadAccuracy(){
   if(!bomWorkerConfigured())return;
   const station=actualData?._bom?.wmo;
@@ -950,7 +981,7 @@ async function syncAndLoadAccuracy(){
 
   try{
     await fetch(`${BOM_WORKER_URL}/track/sync`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({station,issued:today,actuals,hourly,meta})});
+      body:JSON.stringify({station,issued:today,forecasts:blendDailyForecastRows(),actuals,hourly,meta})});
     dbg(`accuracy: synced ${actuals.length} daily + ${hourly.length} hourly actuals`);
   }catch(e){ dbg('accuracy sync POST failed: '+e.message); }
 
