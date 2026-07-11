@@ -41,8 +41,8 @@ function addDaysStr(dateStr,n){
 }
 function isoHour(dateStr,h){return dateStr+'T'+String(h).padStart(2,'0')+':00';}
 function cap(s){return s?s.charAt(0).toUpperCase()+s.slice(1):s;}
-function degf(v){return Math.round(v)+'°';}
-function mmTxt(v){return (v<10?Math.round(v*2)/2:Math.round(v))+'mm';}
+function degf(v){return (typeof tempDisp==='function'?tempDisp(v):Math.round(v))+'°';}
+function mmTxt(v){return (v<10?v.toFixed(1):String(Math.round(v)))+'mm';}
 function weekday(dateStr,style){return new Date(dateStr+'T12:00:00').toLocaleDateString('en-AU',{weekday:style||'long'});}
 function curSelDate(){
   try{ if(typeof selDate!=='undefined'&&selDate)return selDate; }catch(e){}
@@ -126,7 +126,7 @@ function headlineToday(){
 
   const rainConf=(typeof confDayMetric==='function')?confDayMetric(evening?tomorrow:today,'rain'):null;
   const segs=rainSegments(hours);
-  const totalRain=segs.reduce((a,s)=>a+s.total,0);
+  const totalRain=hours.reduce((a,h)=>a+(typeof _rcell==='function'?_rcell(h.rain):(h.rain||0)),0);
 
   let s1;
   const periodWord=evening?'overnight and tomorrow morning':(hh<11?'today':'for the rest of the day');
@@ -185,7 +185,7 @@ function headlineFuture(sel){
   const label=sel===addDaysStr(today,1)?'Tomorrow':weekday(sel);
   const rainConf=(typeof confDayMetric==='function')?confDayMetric(sel,'rain'):null;
   const segs=rainSegments(hours);
-  const totalRain=segs.reduce((a,s)=>a+s.total,0);
+  const totalRain=hours.reduce((a,h)=>a+(typeof _rcell==='function'?_rcell(h.rain):(h.rain||0)),0);
 
   let s1;
   if(!segs.length){
@@ -203,13 +203,11 @@ function headlineFuture(sel){
   }
 
   const dm=minMax(hours,sel);
-  const morn=hoursIn(isoHour(sel,0),isoHour(sel,9));
-  const mm2=minMax(morn);
   let s2='';
   if(dm.mx!=null)s2=`Top of ${degf(dm.mx)} around ${fmtH(dm.mxIso)}`;
-  if(mm2.mn!=null){
-    s2+=(s2?'; ':'')+`morning low ${degf(mm2.mn)}`;
-    if(mm2.mn<=2)s2+=', frost possible';
+  if(dm.mn!=null){
+    s2+=(s2?'; ':'')+`low ${degf(dm.mn)} overnight`;
+    if(dm.mn<=2)s2+=', frost possible';
   }
   if(s2)s2+='.';
 
@@ -280,6 +278,57 @@ function currentStation(){
   catch(e){ return null; }
 }
 
+// Pure blend daily aggregates from the app's own data — by construction the
+// same numbers as the table's blend row / dashed forecast line for that day.
+// Used to fill "we said" for days the app wasn't opened to archive a row.
+function pureBlendDay(dateStr){
+  try{
+    const ref=(typeof refHourly==='function')?refHourly():null;
+    if(!ref||!ref.time)return null;
+    const hz=(typeof horizonOf==='function')?horizonOf(dateStr):0;
+    let tmax=null,tmin=null,rain=0,hasR=false;
+    for(let i=0;i<ref.time.length;i++){
+      if(ref.time[i].slice(0,10)!==dateStr)continue;
+      const t=wBlendAt('temperature_2m',i,hz);
+      if(t!=null&&!isNaN(t)){tmax=tmax==null?t:Math.max(tmax,t);tmin=tmin==null?t:Math.min(tmin,t);}
+      let r=wBlendAt('precipitation',i,hz);
+      if(r!=null&&!isNaN(r)){if(typeof _rcell==='function')r=_rcell(r);rain+=r;hasR=true;}
+    }
+    if(tmax==null&&!hasR)return null;
+    return {tmax:tmax!=null?+tmax.toFixed(1):null,tmin:tmin!=null?+tmin.toFixed(1):null,rain:hasR?+rain.toFixed(2):null};
+  }catch(e){return null;}
+}
+function rcptSummary(rows){
+  let ae=0,n=0,hit=0,rn=0;
+  rows.forEach(r=>{
+    if(r.f.tmax!=null&&r.a.tmax!=null){ae+=Math.abs(r.f.tmax-r.a.tmax);n++;}
+    if(r.f.rain!=null&&r.a.rain!=null){rn++;if((r.f.rain>=1)===(r.a.rain>=1))hit++;}
+  });
+  return {n,tmaxMAE:n?+(ae/n).toFixed(2):null,rainHit:hit,rainN:rn};
+}
+// Merge endpoint data with client-side fill. Handles the old response shape
+// (rows+summary only) and the new one (rows + actuals map).
+function buildRcptRows(j){
+  if(!j)return null;
+  if(!j.actuals){ // old worker — use as-is
+    return (Array.isArray(j.rows)&&j.summary)?{rows:j.rows,summary:j.summary}:null;
+  }
+  const stored={};
+  (j.rows||[]).forEach(r=>{if(r&&r.target)stored[r.target]=r;});
+  const today=localTodayStr();
+  const dates=Object.keys(j.actuals).filter(d=>d<today).sort().reverse().slice(0,7);
+  const rows=[];
+  for(const d of dates){
+    const a=j.actuals[d]; if(!a)continue;
+    let f=null,src='client';
+    if(stored[d]&&stored[d].f){f=stored[d].f;src=stored[d].src||'stored';}
+    else{f=at1h(function(){return pureBlendDay(d);});}
+    if(!f)continue;
+    rows.push({target:d,src,f,a:{tmax:a.tmax!=null?a.tmax:null,tmin:a.tmin!=null?a.tmin:null,rain:a.rain!=null?a.rain:null}});
+  }
+  return {rows,summary:rcptSummary(rows)};
+}
+
 async function loadReceipts(){
   if(typeof bomWorkerConfigured!=='function'||!bomWorkerConfigured())return;
   const station=currentStation();
@@ -303,9 +352,10 @@ async function loadReceipts(){
     if(!r.ok)throw new Error('http '+r.status);
     const j=await r.json();
     _rcptState='done';
-    if(j&&Array.isArray(j.rows)&&j.rows.length&&j.summary&&j.summary.n>0){
-      _rcpt=j;renderReceipts();
-      if(typeof dbg==='function')dbg(`receipts[${station}]: ${j.summary.n} verified days, tmax MAE ${j.summary.tmaxMAE}°`);
+    const built=buildRcptRows(j);
+    if(built&&built.rows.length&&built.summary.n>0){
+      _rcpt=built;renderReceipts();
+      if(typeof dbg==='function')dbg(`receipts[${station}]: ${built.summary.n} verified days, tmax MAE ${built.summary.tmaxMAE}°`);
     }else{
       if(typeof dbg==='function')dbg(`receipts[${station}]: no verified days yet`);
     }
@@ -333,15 +383,15 @@ function renderReceipts(){
   if(y&&y.f.tmax!=null&&y.a.tmax!=null){
     const isYest=y.target===addDaysStr(localTodayStr(),-1);
     const when=isYest?'Yesterday':(selRow?`On ${weekday(y.target)}`:dayName(y.target));
-    const est=y.src==='recon';
-    line1=`<span class="wxi-tick">✓</span><span>${when} we ${est?'estimated <b>~':'said <b>'}${y.f.tmax.toFixed(1)}°</b> — BOM recorded <b>${y.a.tmax.toFixed(1)}°</b>.</span>`;
+    const est=(y.src==='client'||y.src==='recon');
+    line1=`<span class="wxi-tick">✓</span><span>${when} we said <b>${est?'~':''}${y.f.tmax.toFixed(1)}°</b> — BOM recorded <b>${y.a.tmax.toFixed(1)}°</b>.</span>`;
   }else{
     line1=`<span class="wxi-tick">✓</span><span>Forecast record — verified against BOM observations.</span>`;
   }
   const rainTxt=s.rainN?` · rain called right ${s.rainHit}/${s.rainN} days`:'';
   const line2=`Past ${s.n} days: within ${s.tmaxMAE.toFixed(1)}° on average${rainTxt} · tap for the record`;
   const rows=_rcpt.rows.map(r=>{
-    const ft=r.f.tmax!=null?(r.src==='recon'?'~':'')+r.f.tmax.toFixed(1)+'°':'—';
+    const ft=r.f.tmax!=null?((r.src==='client'||r.src==='recon')?'~':'')+r.f.tmax.toFixed(1)+'°':'—';
     const at=r.a.tmax!=null?r.a.tmax.toFixed(1)+'°':'—';
     const fw=r.f.rain!=null&&r.f.rain>=1, aw=r.a.rain!=null&&r.a.rain>=1;
     const rainHit=(r.f.rain!=null&&r.a.rain!=null)?(fw===aw):null;
