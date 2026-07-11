@@ -712,11 +712,11 @@ async function trackReceipts(url, env) {
 
   const latR = isFinite(lat) ? Math.round(lat * 10) / 10 : "-";
   const lonR = isFinite(lon) ? Math.round(lon * 10) / 10 : "-";
-  const key = `rcpt|${latR}|${lonR}|${days}|${station}`;
+  const key = `rcpt2|${latR}|${lonR}|${days}|${station}`;
 
   try {
     await env.DB.prepare(CACHE_DDL).run();
-    const c = await env.DB.prepare("SELECT json FROM weights_cache WHERE k=?1 AND computed_at >= datetime('now','-3 hours')").bind(key).first();
+    const c = await env.DB.prepare("SELECT json FROM weights_cache WHERE k=?1 AND computed_at >= datetime('now','-30 minutes')").bind(key).first();
     if (c && c.json) { const obj = JSON.parse(c.json); obj.cached = true; return json(obj); }
   } catch { /* fall through */ }
 
@@ -732,112 +732,62 @@ async function trackReceipts(url, env) {
 }
 
 async function computeReceipts(env, station, lat, lon, days) {
-  // 1) BOM daily actuals (ground truth)
+  // Ground truth: BOM daily actuals
   const actuals = await bomActualsMap(env, station, days + 2);
 
-  // 2) Stored blend rows: issued exactly the day before the target
-  const blendRows = {};
+  // Stored blend rows — the numbers the app actually displayed. Same-day
+  // capture (issued = target) preferred: that IS the table's figure for the
+  // day; day-ahead (issued = target − 1) as fallback. No reconstruction:
+  // clients fill un-archived days from their own blended table data, so the
+  // receipt always quotes what is on screen.
+  const stored = {};
   try {
     const rs = ((await env.DB.prepare(
-      "SELECT target,tmax,tmin,rain FROM forecasts WHERE station=?1 AND model='blend' " +
-      "AND issued = date(target,'-1 day') AND target >= date('now',?2)"
+      "SELECT target, issued, tmax, tmin, rain FROM forecasts WHERE station=?1 AND model='blend' " +
+      "AND (issued = target OR issued = date(target,'-1 day')) AND target >= date('now', ?2)"
     ).bind(station, `-${days + 1} days`).all()).results) || [];
-    for (const r of rs) blendRows[r.target] = { tmax: r.tmax, tmin: r.tmin, rain: r.rain };
-  } catch { /* table may predate schema — ignore */ }
+    for (const r of rs) {
+      const sameDay = r.issued === r.target;
+      if (!stored[r.target] || (sameDay && !stored[r.target].sameDay)) {
+        stored[r.target] = { sameDay, f: { tmax: r.tmax, tmin: r.tmin, rain: r.rain } };
+      }
+    }
+  } catch { /* forecasts table may predate schema */ }
 
-  // 3) Reconstruction for days without a stored blend row
   const todayLocal = new Date(Date.now() + 10 * 3600 * 1000).toISOString().slice(0, 10);
   const targets = [];
   for (let i = 1; i <= days; i++) {
-    const d = new Date(new Date(todayLocal + "T12:00:00Z").getTime() - i * 86400000).toISOString().slice(0, 10);
-    targets.push(d);
-  }
-  const needRecon = targets.some(d => !blendRows[d] && actuals[d]);
-
-  let recon = {};
-  if (needRecon && isFinite(lat) && isFinite(lon)) {
-    // Latest cached weights/biases for this location, preferring the lead-1
-    // horizon set — the same set the client blends tomorrow with.
-    let wTemp = null, wRain = null, bTemp = null;
-    try {
-      const w = await env.DB.prepare(
-        "SELECT json FROM weights_cache WHERE k LIKE ?1 ORDER BY computed_at DESC LIMIT 1"
-      ).bind(`v2|${Math.round(lat * 10) / 10}|${Math.round(lon * 10) / 10}|%`).first();
-      if (w && w.json) {
-        const o = JSON.parse(w.json);
-        const wh = (o.weightsByHorizon && o.weightsByHorizon["1"]) || o.weights || null;
-        const bh = (o.biasesByHorizon && o.biasesByHorizon["1"]) || o.biases || null;
-        if (wh) { wTemp = wh.temp || null; wRain = wh.rain || null; }
-        if (bh) bTemp = bh.temp || null;
-      }
-    } catch { /* equal weights below */ }
-
-    const prevResults = await fetchPrevBatched(lat, lon, days + 2);
-    // Per-model hourly lead-1 maps: iso -> { t, p }
-    const hourlyByModel = {};
-    PREV_MODELS.forEach((m, i) => {
-      const j = prevResults[i]; const h = j && j.hourly;
-      if (!h || !h.time) return;
-      const t1 = h.temperature_2m_previous_day1, p1 = h.precipitation_previous_day1;
-      const map = {};
-      for (let k = 0; k < h.time.length; k++) {
-        const tv = t1 ? t1[k] : null, pv = p1 ? p1[k] : null;
-        if (tv == null && pv == null) continue;
-        map[h.time[k]] = { t: tv, p: pv };
-      }
-      if (Object.keys(map).length) hourlyByModel[m] = map;
-    });
-    const modelsUp = Object.keys(hourlyByModel);
-
-    // Blend hour-by-hour (bias-corrected temps), THEN take the day's
-    // max/min/sum — matching how the client's table derives its daily
-    // figures from the blended hourly curve. Blending daily maxima per
-    // model instead overstates/understates because models peak at
-    // different hours.
-    for (const d of targets) {
-      if (blendRows[d] || !actuals[d] || !modelsUp.length) continue;
-      let tmax = null, tmin = null, rsum = 0, hasR = false, hasT = false;
-      for (let hh = 0; hh < 24; hh++) {
-        const iso = d + "T" + String(hh).padStart(2, "0") + ":00";
-        let tv = 0, tw = 0, pv = 0, pw = 0;
-        for (const m of modelsUp) {
-          const o = hourlyByModel[m][iso]; if (!o) continue;
-          if (o.t != null) { const w = (wTemp && wTemp[m] != null) ? wTemp[m] : 1; tv += (o.t - ((bTemp && bTemp[m]) || 0)) * w; tw += w; }
-          if (o.p != null) { const w = (wRain && wRain[m] != null) ? wRain[m] : 1; pv += o.p * w; pw += w; }
-        }
-        if (tw > 0) { const t = tv / tw; hasT = true; tmax = tmax == null ? t : Math.max(tmax, t); tmin = tmin == null ? t : Math.min(tmin, t); }
-        if (pw > 0) { rsum += pv / pw; hasR = true; }
-      }
-      if (hasT || hasR) recon[d] = { tmax, tmin, rain: hasR ? rsum : null };
-    }
+    targets.push(new Date(new Date(todayLocal + "T12:00:00Z").getTime() - i * 86400000).toISOString().slice(0, 10));
   }
 
-  // 4) Join → rows (most recent first) + summary
+  // Verified rows (stored ∩ actuals), most recent first — kept in the old
+  // shape so pre-update clients continue to work.
   const rows = [];
-  let aeT = 0, nT = 0, aeTn = 0, nTn = 0, rainHit = 0, rainN = 0;
+  let aeT = 0, nT = 0, rainHit = 0, rainN = 0;
   for (const d of targets) {
-    const a = actuals[d]; if (!a) continue;
-    const f = blendRows[d] || recon[d]; if (!f) continue;
-    const src = blendRows[d] ? "stored" : "recon";
+    const a = actuals[d], st = stored[d];
+    if (!a || !st) continue;
+    const f = st.f;
     rows.push({
-      target: d, src,
+      target: d, src: st.sameDay ? "same-day" : "day-ahead",
       f: { tmax: f.tmax != null ? +f.tmax.toFixed(1) : null, tmin: f.tmin != null ? +f.tmin.toFixed(1) : null, rain: f.rain != null ? +f.rain.toFixed(2) : null },
       a: { tmax: a.tmax != null ? +a.tmax.toFixed(1) : null, tmin: a.tmin != null ? +a.tmin.toFixed(1) : null, rain: a.rain != null ? +a.rain.toFixed(2) : null }
     });
     if (f.tmax != null && a.tmax != null) { aeT += Math.abs(f.tmax - a.tmax); nT++; }
-    if (f.tmin != null && a.tmin != null) { aeTn += Math.abs(f.tmin - a.tmin); nTn++; }
     if (f.rain != null && a.rain != null) { rainN++; if ((f.rain >= WET_MM) === (a.rain >= WET_MM)) rainHit++; }
   }
 
+  // Full actuals map so the client can fill un-archived days itself
+  const actOut = {};
+  for (const d of targets) {
+    const a = actuals[d]; if (!a) continue;
+    actOut[d] = { tmax: a.tmax != null ? a.tmax : null, tmin: a.tmin != null ? a.tmin : null, rain: a.rain != null ? a.rain : null };
+  }
+
   return {
-    station, days,
-    rows,
-    summary: {
-      n: nT,
-      tmaxMAE: nT ? +(aeT / nT).toFixed(2) : null,
-      tminMAE: nTn ? +(aeTn / nTn).toFixed(2) : null,
-      rainHit, rainN
-    },
+    station, days, rows,
+    summary: { n: nT, tmaxMAE: nT ? +(aeT / nT).toFixed(2) : null, tminMAE: null, rainHit, rainN },
+    actuals: actOut,
     generated: new Date().toISOString()
   };
 }
