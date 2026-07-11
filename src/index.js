@@ -756,41 +756,59 @@ async function computeReceipts(env, station, lat, lon, days) {
 
   let recon = {};
   if (needRecon && isFinite(lat) && isFinite(lon)) {
-    // Most recent cached pooled weights/biases for this location (any window)
-    let weights = null, biases = null;
+    // Latest cached weights/biases for this location, preferring the lead-1
+    // horizon set — the same set the client blends tomorrow with.
+    let wTemp = null, wRain = null, bTemp = null;
     try {
       const w = await env.DB.prepare(
         "SELECT json FROM weights_cache WHERE k LIKE ?1 ORDER BY computed_at DESC LIMIT 1"
       ).bind(`v2|${Math.round(lat * 10) / 10}|${Math.round(lon * 10) / 10}|%`).first();
-      if (w && w.json) { const o = JSON.parse(w.json); weights = o.weights || null; biases = o.biases || null; }
+      if (w && w.json) {
+        const o = JSON.parse(w.json);
+        const wh = (o.weightsByHorizon && o.weightsByHorizon["1"]) || o.weights || null;
+        const bh = (o.biasesByHorizon && o.biasesByHorizon["1"]) || o.biases || null;
+        if (wh) { wTemp = wh.temp || null; wRain = wh.rain || null; }
+        if (bh) bTemp = bh.temp || null;
+      }
     } catch { /* equal weights below */ }
 
     const prevResults = await fetchPrevBatched(lat, lon, days + 2);
-    const perModel = {};
-    PREV_MODELS.forEach((m, i) => { const j = prevResults[i]; if (j && j.hourly) perModel[m] = aggregatePrev(j.hourly); });
-
-    for (const d of targets) {
-      if (blendRows[d] || !actuals[d]) continue;
-      const parts = { tmax: [], tmin: [], rain: [] };
-      for (const m of Object.keys(perModel)) {
-        const lead1 = perModel[m][d] && perModel[m][d][1];
-        if (!lead1) continue;
-        const bT = (biases && biases.temp && biases.temp[m]) || 0;
-        const wT = (weights && weights.temp && weights.temp[m]) != null ? weights.temp[m] : null;
-        const wR = (weights && weights.rain && weights.rain[m]) != null ? weights.rain[m] : null;
-        if (lead1.tmax != null) parts.tmax.push({ v: lead1.tmax - bT, w: wT });
-        if (lead1.tmin != null) parts.tmin.push({ v: lead1.tmin - bT, w: wT });
-        if (lead1.rain != null) parts.rain.push({ v: lead1.rain, w: wR });
+    // Per-model hourly lead-1 maps: iso -> { t, p }
+    const hourlyByModel = {};
+    PREV_MODELS.forEach((m, i) => {
+      const j = prevResults[i]; const h = j && j.hourly;
+      if (!h || !h.time) return;
+      const t1 = h.temperature_2m_previous_day1, p1 = h.precipitation_previous_day1;
+      const map = {};
+      for (let k = 0; k < h.time.length; k++) {
+        const tv = t1 ? t1[k] : null, pv = p1 ? p1[k] : null;
+        if (tv == null && pv == null) continue;
+        map[h.time[k]] = { t: tv, p: pv };
       }
-      const wavg = arr => {
-        if (!arr.length) return null;
-        const useW = arr.every(p => p.w != null);
-        let sv = 0, sw = 0;
-        for (const p of arr) { const w = useW ? p.w : 1; sv += p.v * w; sw += w; }
-        return sw > 0 ? sv / sw : null;
-      };
-      const t1 = wavg(parts.tmax), t2 = wavg(parts.tmin), r1 = wavg(parts.rain);
-      if (t1 != null || r1 != null) recon[d] = { tmax: t1, tmin: t2, rain: r1 };
+      if (Object.keys(map).length) hourlyByModel[m] = map;
+    });
+    const modelsUp = Object.keys(hourlyByModel);
+
+    // Blend hour-by-hour (bias-corrected temps), THEN take the day's
+    // max/min/sum — matching how the client's table derives its daily
+    // figures from the blended hourly curve. Blending daily maxima per
+    // model instead overstates/understates because models peak at
+    // different hours.
+    for (const d of targets) {
+      if (blendRows[d] || !actuals[d] || !modelsUp.length) continue;
+      let tmax = null, tmin = null, rsum = 0, hasR = false, hasT = false;
+      for (let hh = 0; hh < 24; hh++) {
+        const iso = d + "T" + String(hh).padStart(2, "0") + ":00";
+        let tv = 0, tw = 0, pv = 0, pw = 0;
+        for (const m of modelsUp) {
+          const o = hourlyByModel[m][iso]; if (!o) continue;
+          if (o.t != null) { const w = (wTemp && wTemp[m] != null) ? wTemp[m] : 1; tv += (o.t - ((bTemp && bTemp[m]) || 0)) * w; tw += w; }
+          if (o.p != null) { const w = (wRain && wRain[m] != null) ? wRain[m] : 1; pv += o.p * w; pw += w; }
+        }
+        if (tw > 0) { const t = tv / tw; hasT = true; tmax = tmax == null ? t : Math.max(tmax, t); tmin = tmin == null ? t : Math.min(tmin, t); }
+        if (pw > 0) { rsum += pv / pw; hasR = true; }
+      }
+      if (hasT || hasR) recon[d] = { tmax, tmin, rain: hasR ? rsum : null };
     }
   }
 
