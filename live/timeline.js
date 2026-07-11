@@ -31,6 +31,8 @@ const TL_RAIN_CEIL_MIN = 0.5;                     // rain lane ceiling floor
 
 const TL = {
   days: [], n: 0, idx: [], temp: [], rain: [], wind: [], cloud: [], wdir: [],
+  fc: { temp: [], rain: [], wind: [], cloud: [] },    // pure blend (no actual substitution)
+  act: { temp: [], rain: [], wind: [], cloud: [] },   // observed only (BOM/selected actuals)
   confH: { temp: [], rain: [], wind: [], cloud: [] }, dayConf: {},
   lanes: [], suns: [], streamT0: 0, nowH: null,
   sel: 0, hourSel: 12, scrubbing: false, startOff: 0, _canPrev: false, _canNext: false,
@@ -95,7 +97,7 @@ function tlBuild() {
   TL.days = days.map(d => ({ date: d, dow: DOW[new Date(d + 'T12:00').getDay()], isToday: d === today, past: d < today }));
   TL.n = days.length * 24;
   TL.idx = []; TL.temp = []; TL.rain = []; TL.wind = []; TL.cloud = []; TL.wdir = [];
-  ['temp', 'rain', 'wind', 'cloud'].forEach(k => TL.confH[k] = []);
+  ['temp', 'rain', 'wind', 'cloud'].forEach(k => { TL.confH[k] = []; TL.fc[k] = []; TL.act[k] = []; });
   TL.dayConf = {};
   days.forEach(d => {
     TL.dayConf[d] = { temp: confDayMetric(d, 'temp'), rain: confDayMetric(d, 'rain'), wind: confDayMetric(d, 'wind'), cloud: confDayMetric(d, 'cloud') };
@@ -108,6 +110,31 @@ function tlBuild() {
       TL.rain.push(td && td.rain != null ? _rcell(td.rain) : null);
       TL.wind.push(td && td.wind != null ? td.wind : null);
       TL.cloud.push(td && td.cloud != null ? td.cloud : null);
+      // pure forecast (blend, never actual-substituted) — one line of the pair
+      let fT = null, fR = null, fW = null, fC = null;
+      if (idx != null && typeof wBlendAt === 'function') {
+        try {
+          fT = wBlendAt('temperature_2m', idx, hz); fR = wBlendAt('precipitation', idx, hz);
+          fW = wBlendAt('windspeed_10m', idx, hz); fC = wBlendAt('cloudcover', idx, hz);
+        } catch (e) {}
+      }
+      TL.fc.temp.push(fT); TL.fc.rain.push(fR != null ? _rcell(fR) : null);
+      TL.fc.wind.push(fW); TL.fc.cloud.push(fC);
+      // observed only (whatever actuals source is selected) — the other line
+      let aT = null, aR = null, aW = null, aC = null;
+      try {
+        if (typeof actualData !== 'undefined' && actualData && actualData.hourly && actualData.hourly.time) {
+          const ai = actualData.hourly.time.indexOf(iso);
+          if (ai >= 0) {
+            aT = actualData.hourly.temperature_2m ? (actualData.hourly.temperature_2m[ai] ?? null) : null;
+            aR = actualData.hourly.precipitation ? (actualData.hourly.precipitation[ai] ?? null) : null;
+            aW = actualData.hourly.windspeed_10m ? (actualData.hourly.windspeed_10m[ai] ?? null) : null;
+            aC = actualData.hourly.cloudcover ? (actualData.hourly.cloudcover[ai] ?? null) : null;
+          }
+        }
+      } catch (e) {}
+      TL.act.temp.push(aT); TL.act.rain.push(aR != null ? _rcell(aR) : null);
+      TL.act.wind.push(aW); TL.act.cloud.push(aC);
       let wd = null;
       try { if (idx != null && typeof wBlendAt === 'function') wd = wBlendAt('winddirection_10m', idx, hz); } catch (e) {}
       TL.wdir.push(wd);
@@ -187,24 +214,45 @@ function tlLaneMeta() {
     cloud: { label: 'Cloud', arr: TL.cloud, fmt: v => Math.round(v) + '%' },
   };
 }
+// shared per-lane range across hybrid, forecast, and actual series so the
+// sparkline scale and the ceil/floor labels always agree
+function tlLaneRange(m) {
+  const s = TL.sel * 24; let hi = null, lo = null;
+  const scan = arr => {
+    if (!arr) return;
+    for (let k = s; k < s + 24; k++) {
+      const v = arr[k]; if (v == null || isNaN(v)) continue;
+      hi = hi == null ? v : Math.max(hi, v); lo = lo == null ? v : Math.min(lo, v);
+    }
+  };
+  scan(TL[m]); scan(TL.fc[m]); scan(TL.act[m]);
+  return [hi, lo];
+}
 function tlLineSparkSVG(m) {
   const s = TL.sel * 24;
-  const vals = []; for (let h = 0; h < 24; h++) vals.push(TL[m][s + h]);
-  const good = vals.map((v, i) => [i, v]).filter(p => p[1] != null && !isNaN(p[1]));
+  const hyb = [], fc = [], act = [];
+  for (let h = 0; h < 24; h++) { hyb.push(TL[m][s + h]); fc.push(TL.fc[m][s + h]); act.push(TL.act[m][s + h]); }
+  const actN = act.filter(v => v != null && !isNaN(v)).length;
+  const dual = actN >= 2;                       // observed hours exist → two lines
+  const base = dual ? fc : hyb;                 // forecast carries the day; hybrid when no obs
+  const good = base.map((v, i) => [i, v]).filter(p => p[1] != null && !isNaN(p[1]));
   if (good.length < 2) return '<svg viewBox="0 0 ' + TL_SVGW + ' ' + TL_SVGH + '" width="100%" height="' + TL_SVGH + '" style="display:block"></svg>';
-  const gv = good.map(p => p[1]);
-  // cloud is always drawn on a fixed 0–100% scale
-  const mn = m === 'cloud' ? 0 : Math.min(...gv);
-  const mx = m === 'cloud' ? 100 : Math.max(...gv);
+  const [hiR, loR] = tlLaneRange(m);
+  const mn = m === 'cloud' ? 0 : loR;
+  const mx = m === 'cloud' ? 100 : hiR;
   const span = (mx - mn) || 1;
-  const disp = m === 'temp' ? tlSmooth(vals) : vals;
-  const XY = i => [(i / 23) * TL_SVGW, TL_SVGH - TL_PAD - (((disp[i] != null ? disp[i] : vals[i]) - mn) / span) * (TL_SVGH - TL_PAD * 2)];
-  const pts = good.map(([i]) => XY(i));
-  const line = tlPath(pts);
+  const dispB = m === 'temp' ? tlSmooth(base) : base;
+  const dispA = m === 'temp' ? tlSmooth(act) : act;
+  const Y = v => TL_SVGH - TL_PAD - ((v - mn) / span) * (TL_SVGH - TL_PAD * 2);
+  const ptsOf = (arr, disp) => arr.map((v, i) => [i, v]).filter(p => p[1] != null && !isNaN(p[1]))
+    .map(([i]) => [(i / 23) * TL_SVGW, Y(disp[i] != null ? disp[i] : arr[i])]);
+  const basePts = good.map(([i]) => [(i / 23) * TL_SVGW, Y(dispB[i] != null ? dispB[i] : base[i])]);
+  const baseLine = tlPath(basePts);
+  // confidence ribbon follows the forecast/base line (agreement is a model property)
   const MAXW = 6.5;
   const top = [], bot = [];
   good.forEach(([i]) => {
-    const [x, y] = XY(i);
+    const x = (i / 23) * TL_SVGW, y = Y(dispB[i] != null ? dispB[i] : base[i]);
     const c = TL.confH[m][s + i]; const cv = c != null ? c : 100;
     const hw = 1 + (1 - cv / 100) * MAXW;
     top.push([x, y - hw]); bot.push([x, y + hw]);
@@ -212,35 +260,53 @@ function tlLineSparkSVG(m) {
   const ribbon = tlPath(top) + ' L ' + bot[bot.length - 1][0].toFixed(1) + ' ' + bot[bot.length - 1][1].toFixed(1)
     + ' ' + tlPath(bot.slice().reverse()).slice(1) + ' Z';
   const fid = 'tlmB_' + m;
+  let lines;
+  if (dual) {
+    const actPts = ptsOf(act, dispA);
+    const actLine = tlPath(actPts);
+    lines =
+      '<path d="' + baseLine + '" fill="none" stroke="var(--text-primary,#141311)" stroke-width="1.4" stroke-dasharray="5 4" stroke-linecap="round" stroke-linejoin="round" opacity="0.42"/>'
+      + (actLine ? '<path d="' + actLine + '" fill="none" stroke="var(--text-primary,#141311)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.92"/>' : '');
+  } else {
+    lines = '<path d="' + baseLine + '" fill="none" stroke="var(--text-primary,#141311)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.92"/>';
+  }
   return '<svg viewBox="0 0 ' + TL_SVGW + ' ' + TL_SVGH + '" width="100%" height="' + TL_SVGH + '" style="display:block;overflow:visible">'
     + '<defs><filter id="' + fid + '" x="-20%" y="-60%" width="140%" height="220%"><feGaussianBlur stdDeviation="2.4"/></filter></defs>'
     + '<path d="' + ribbon + '" fill="var(--text-primary,#141311)" stroke="none" opacity="0.16" filter="url(#' + fid + ')"/>'
-    + '<path d="' + line + '" fill="none" stroke="var(--text-primary,#141311)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.92"/>'
+    + lines
     + '</svg>';
 }
 function tlRainSparkSVG() {
   const s = TL.sel * 24;
-  const vals = []; for (let h = 0; h < 24; h++) vals.push(TL.rain[s + h]);
-  const mx = Math.max(TL_RAIN_CEIL_MIN, ...vals.map(v => v || 0));
+  const fc = [], act = [];
+  for (let h = 0; h < 24; h++) { fc.push(TL.fc.rain[s + h]); act.push(TL.act.rain[s + h]); }
+  const hasAct = act.some(v => v != null && v >= 0.05);
+  const mx = Math.max(TL_RAIN_CEIL_MIN, ...fc.map(v => v || 0), ...act.map(v => v || 0));
   const bw = (TL_SVGW / 24) * 0.6;
   const nowH = TL.nowH - s;
-  const bars = vals.map((v, i) => {
-    if (!v || v < 0.05) return '';
+  const rect = (i, v, op) => {
     const hgt = Math.max(1.5, (Math.log1p(v) / Math.log1p(mx)) * (TL_SVGH - TL_PAD * 2));
     const x = (i / 23) * TL_SVGW - bw / 2;
+    return '<rect x="' + x.toFixed(1) + '" y="' + (TL_SVGH - TL_PAD - hgt).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + hgt.toFixed(1) + '" rx="1" fill="var(--text-primary,#141311)" opacity="' + op.toFixed(2) + '"/>';
+  };
+  // forecast bars all day: conf-scaled ahead of now, ghosted behind observed hours
+  const fbars = fc.map((v, i) => {
+    if (!v || v < 0.05) return '';
     const future = i > nowH;
     const conf = TL.confH.rain[s + i]; const cv = conf != null ? conf : 100;
-    const op = future ? (0.28 + 0.5 * cv / 100) : 0.85;
-    return '<rect x="' + x.toFixed(1) + '" y="' + (TL_SVGH - TL_PAD - hgt).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + hgt.toFixed(1) + '" rx="1" fill="var(--text-primary,#141311)" opacity="' + op.toFixed(2) + '"/>';
+    const op = future ? (0.28 + 0.5 * cv / 100) : (hasAct ? 0.22 : 0.85);
+    return rect(i, v, op);
   }).join('');
+  // observed bars drawn on top, full strength
+  const abars = act.map((v, i) => (v == null || v < 0.05) ? '' : rect(i, v, 0.85)).join('');
   return '<svg viewBox="0 0 ' + TL_SVGW + ' ' + TL_SVGH + '" width="100%" height="' + TL_SVGH + '" style="display:block;overflow:visible">'
     + '<line x1="0" y1="' + (TL_SVGH - TL_PAD) + '" x2="' + TL_SVGW + '" y2="' + (TL_SVGH - TL_PAD) + '" stroke="var(--border,#dedad0)" stroke-width="1"/>'
-    + bars + '</svg>';
+    + fbars + abars + '</svg>';
 }
 function tlSparkSVG(m) { return m === 'rain' ? tlRainSparkSVG() : tlLineSparkSVG(m); }
 function tlLaneCeilFloor(m) {
   const meta = tlLaneMeta()[m];
-  const [hi, lo] = tlDayRange(TL[m]);
+  const [hi, lo] = tlLaneRange(m);
   if (m === 'rain') {
     const ceil = Math.max(TL_RAIN_CEIL_MIN, hi != null ? hi : 0);
     return '<span class="tlm-ceil">' + ceil.toFixed(1) + '</span><span class="tlm-floor">0.0</span>';
@@ -296,11 +362,18 @@ function tlHeads() {
   const h = tlRefHour();
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.innerHTML = v; };
   const t = TL.temp[h];
-  let feels = null;
-  if (d.isToday && !TL.scrubbing && cachedCurrent && cachedCurrent.c && cachedCurrent.c.apparent_temperature != null) feels = cachedCurrent.c.apparent_temperature;
-  else if (t != null && TL.wind[h] != null) feels = t - TL.wind[h] * 0.11;
-  set('tlm-temp', t != null ? tempDisp(t) + '°' : '—');
-  set('tlm-feels', feels != null ? 'Feels like ' + tempDisp(feels) + '°' : '');
+  if (!d.isToday && !TL.scrubbing) {
+    // future days: forecast high/low for the day · past days: observed high/low
+    const [hi, lo] = tlDayRange(TL.temp);
+    set('tlm-temp', hi != null ? tempDisp(hi) + '°' : '—');
+    set('tlm-feels', lo != null ? 'Low ' + tempDisp(lo) + '°' : '');
+  } else {
+    let feels = null;
+    if (d.isToday && !TL.scrubbing && cachedCurrent && cachedCurrent.c && cachedCurrent.c.apparent_temperature != null) feels = cachedCurrent.c.apparent_temperature;
+    else if (t != null && TL.wind[h] != null) feels = t - TL.wind[h] * 0.11;
+    set('tlm-temp', t != null ? tempDisp(t) + '°' : '—');
+    set('tlm-feels', feels != null ? 'Feels like ' + tempDisp(feels) + '°' : '');
+  }
   // rain figure: day total idle · hourly figure while scrubbing
   let rainFig;
   if (TL.scrubbing) rainFig = (TL.rain[h] == null ? '—' : TL.rain[h] < 0.05 ? '0' : TL.rain[h].toFixed(1)) + ' mm';

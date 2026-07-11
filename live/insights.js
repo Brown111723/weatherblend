@@ -333,14 +333,15 @@ function renderReceipts(){
   if(y&&y.f.tmax!=null&&y.a.tmax!=null){
     const isYest=y.target===addDaysStr(localTodayStr(),-1);
     const when=isYest?'Yesterday':(selRow?`On ${weekday(y.target)}`:dayName(y.target));
-    line1=`<span class="wxi-tick">✓</span><span>${when} we said <b>${y.f.tmax.toFixed(1)}°</b> — BOM recorded <b>${y.a.tmax.toFixed(1)}°</b>.</span>`;
+    const est=y.src==='recon';
+    line1=`<span class="wxi-tick">✓</span><span>${when} we ${est?'estimated <b>~':'said <b>'}${y.f.tmax.toFixed(1)}°</b> — BOM recorded <b>${y.a.tmax.toFixed(1)}°</b>.</span>`;
   }else{
     line1=`<span class="wxi-tick">✓</span><span>Forecast record — verified against BOM observations.</span>`;
   }
   const rainTxt=s.rainN?` · rain called right ${s.rainHit}/${s.rainN} days`:'';
   const line2=`Past ${s.n} days: within ${s.tmaxMAE.toFixed(1)}° on average${rainTxt} · tap for the record`;
   const rows=_rcpt.rows.map(r=>{
-    const ft=r.f.tmax!=null?r.f.tmax.toFixed(1)+'°':'—';
+    const ft=r.f.tmax!=null?(r.src==='recon'?'~':'')+r.f.tmax.toFixed(1)+'°':'—';
     const at=r.a.tmax!=null?r.a.tmax.toFixed(1)+'°':'—';
     const fw=r.f.rain!=null&&r.f.rain>=1, aw=r.a.rain!=null&&r.a.rain>=1;
     const rainHit=(r.f.rain!=null&&r.a.rain!=null)?(fw===aw):null;
