@@ -447,32 +447,65 @@ function tlBindScrubOn(el, fracEl, allowSwipe) {
 }
 
 // ── week overview interactions: tap = select, drag = scroll window ──────
+// The strip follows the finger while dragging, rubber-bands when there's
+// nothing further that way, glides out/in when the window shifts, and
+// springs back on an aborted drag.
 function tlBindWeek() {
   const wk = document.getElementById('tlm-week'); if (!wk) return;
-  let down = false, sx = 0, moved = false;
+  let down = false, sx = 0, moved = false, dx = 0;
+  const blockedAt = d => (d > 0 && !TL._canPrev) || (d < 0 && !TL._canNext);
+  const spring = () => {
+    wk.style.transition = 'transform .22s cubic-bezier(.2,.7,.3,1)';
+    wk.style.transform = 'translateX(0)';
+  };
   wk.addEventListener('pointerdown', ev => {
-    down = true; sx = ev.clientX; moved = false;
+    down = true; sx = ev.clientX; moved = false; dx = 0;
+    wk.style.transition = 'none';
     try { wk.setPointerCapture(ev.pointerId); } catch (e) {}
   });
-  wk.addEventListener('pointermove', ev => { if (down && Math.abs(ev.clientX - sx) > 8) moved = true; });
+  wk.addEventListener('pointermove', ev => {
+    if (!down) return;
+    dx = ev.clientX - sx;
+    if (!moved && Math.abs(dx) > 8) moved = true;
+    if (moved) wk.style.transform = 'translateX(' + (blockedAt(dx) ? dx * 0.28 : dx).toFixed(1) + 'px)';
+  });
   wk.addEventListener('pointerup', ev => {
     if (!down) return; down = false;
-    const dx = ev.clientX - sx;
     const r = wk.getBoundingClientRect();
     const colW = r.width / (TL.days.length || 7);
-    if (moved && Math.abs(dx) >= colW * 0.5) {
+    if (moved && !blockedAt(dx) && Math.abs(dx) >= colW * 0.5) {
       // drag left → scroll ahead; clamped in tlBuild to the table's range
-      TL.startOff += Math.max(1, Math.round(Math.abs(dx) / colW)) * (dx < 0 ? 1 : -1);
-      const root = document.getElementById('timeline-root');
-      if (root && tlBuild()) tlRenderAll(root);
+      const step = Math.max(1, Math.round(Math.abs(dx) / colW)) * (dx < 0 ? 1 : -1);
+      const dir = dx < 0 ? 1 : -1;
+      wk.style.transition = 'transform .13s ease-in, opacity .13s ease-in';
+      wk.style.transform = 'translateX(' + (-dir * colW * 1.2).toFixed(1) + 'px)';
+      wk.style.opacity = '0.35';
+      setTimeout(() => {
+        TL.startOff += step;
+        const root = document.getElementById('timeline-root');
+        if (!root || !tlBuild()) return;
+        tlRenderAll(root);
+        const nw = document.getElementById('tlm-week');
+        if (!nw) return;
+        nw.style.transition = 'none';
+        nw.style.transform = 'translateX(' + (dir * colW * 1.2).toFixed(1) + 'px)';
+        nw.style.opacity = '0.35';
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          nw.style.transition = 'transform .2s cubic-bezier(.2,.7,.3,1), opacity .2s';
+          nw.style.transform = 'translateX(0)';
+          nw.style.opacity = '1';
+        }));
+      }, 130);
       return;
     }
+    if (moved) { spring(); return; }
     // tap — on a label button or anywhere on the chart — selects that day
     const b = ev.target.closest('.tlm-wk-day');
     let di = b ? +b.dataset.di : Math.floor((ev.clientX - r.left) / colW);
     di = Math.max(0, Math.min(TL.days.length - 1, di));
     setSelectedDay(TL.days[di].date, { behavior: 'smooth' });
   });
+  wk.addEventListener('pointercancel', () => { if (down) { down = false; spring(); } });
 }
 
 // ── secondary metrics ────────────────────────────────────────────────────
@@ -599,7 +632,13 @@ function tlSelect(i) {
     }));
   }, 150);
 }
-function tlBindScrub() { tlBindScrubOn(document.getElementById('tlm-overlay'), null, true); }
+function tlBindScrub() {
+  const ov = document.getElementById('tlm-overlay');
+  tlBindScrubOn(ov, null, true);
+  // hero + metric figures: same gesture surface as the sparklines — quick
+  // flick changes day, hold-drag scrubs hours (x mapped to the chart grid)
+  tlBindScrubOn(document.querySelector('#tlm-hour .tlm-hero'), ov, true);
+}
 
 // ── render root + wiring ────────────────────────────────────────────────
 function tlRenderAll(root) {

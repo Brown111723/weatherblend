@@ -9,7 +9,7 @@
 .tlm{font-family:'Helvetica Neue',Helvetica,Arial,system-ui,-apple-system,'Segoe UI',sans-serif;}
 
 /* ── continuous week overview (compressed) ── */
-.tlm-week{margin-bottom:2px;cursor:pointer;touch-action:pan-y;user-select:none;-webkit-user-select:none;}
+.tlm-week{margin-bottom:2px;cursor:pointer;touch-action:pan-y;user-select:none;-webkit-user-select:none;will-change:transform;}
 .tlm-wk-svg{display:block;width:100%;height:38px;overflow:visible;}
 .tlm-wk-labels{display:grid;grid-template-columns:repeat(7,1fr);margin-top:1px;}
 .tlm-wk-day{display:flex;justify-content:center;padding:4px 0 2px;border:none;background:transparent;cursor:pointer;font-family:inherit;color:var(--text-dim,#a29e93);}
@@ -18,7 +18,7 @@
 
 /* ── hour section ── */
 .tlm-hour{padding-top:14px;margin-top:14px;border-top:1px solid var(--border,#dedad0);}
-.tlm-hero{display:flex;align-items:flex-start;gap:14px;padding:2px 0 22px;}
+.tlm-hero{display:flex;align-items:flex-start;gap:14px;padding:2px 0 22px;touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:ew-resize;}
 .tlm-hero-l{flex:0 0 auto;}
 .tlm-temp{font-size:62px;font-weight:500;letter-spacing:-2.5px;line-height:.9;color:var(--text-primary,#141311);}
 .tlm-feels{font-size:14px;font-weight:500;color:var(--text-muted,#6f6c64);margin-top:6px;}

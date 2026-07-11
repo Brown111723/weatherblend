@@ -46,6 +46,10 @@ window.addEventListener('DOMContentLoaded',()=>{
   document.addEventListener('click',(ev)=>{
     const panel=document.getElementById('model-panel');
     if(!panel||!panel.classList.contains('open'))return;
+    // option presses rebuild the panel's contents, detaching the clicked
+    // node before this bubbles — a detached target means the click began
+    // inside the panel, so don't treat it as an outside click
+    if(!ev.target.isConnected)return;
     const drawer=document.getElementById('drawer-overlay');
     if(panel.contains(ev.target))return;
     if(drawer&&drawer.contains(ev.target))return;

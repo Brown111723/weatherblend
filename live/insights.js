@@ -1,53 +1,31 @@
 // ════════════════════════════════════════════════════════════════════════
-// WeatherBlend — insights layer v2 (loads after timeline.js)
-//   1. Headline: plain-language answer built from the same data path the
-//      table uses (hourTileData → wBlendAt + observed actuals), always at
-//      1-hour resolution regardless of the 1h/3h/8h view, so its numbers
-//      agree with the table exactly. Follows the selected day:
-//        today  → now-relative ("Dry until 2pm, then showers…")
-//        future → day summary  ("Tuesday: showers from 11am…")
-//        past   → observed recap ("Thursday: top of 13.2°, 4mm of rain")
-//   2. Receipts: what the blend said the day before vs what was observed.
-//      The table is king: observed values come from the app's own actual
-//      series (respecting the Actual-source setting — BOM / Open-Meteo /
-//      Blend), with the Worker's stored BOM daily rows only as fallback for
-//      days outside the client's past-data window.
-//      Re-fetches when the station changes; highlights the selected day.
+// WeatherBlend — forecast receipts (loads after timeline.js)
+//   Lives inside ☰ → Forecast accuracy, at the top of the modal.
+//   "What we said the day before vs what was observed", 7 days.
+//   · The table is king: observed values come from the app's own actual
+//     series (respecting the Actual-source setting — BOM / Open-Meteo /
+//     Blend); the Worker's stored BOM daily rows only fill days outside
+//     the client's past-data window.
+//   · Everything is keyed to station + coordinates: changing location
+//     always discards the old record and refetches — a receipt is never
+//     rendered against data from a different place.
 // ════════════════════════════════════════════════════════════════════════
 
 (function(){
 'use strict';
 
-// ── container ────────────────────────────────────────────────────────────
-function insightRoot(){
-  let el=document.getElementById('wx-insight');
-  if(!el){
-    const sec=document.getElementById('carousels-section');
-    if(!sec)return null;
-    el=document.createElement('div');
-    el.id='wx-insight';
-    sec.insertBefore(el, document.getElementById('timeline-root')||sec.firstChild);
-  }
-  return el;
-}
-
 // ── small utils ──────────────────────────────────────────────────────────
-function fmtH(iso){
-  const h=parseInt(iso.slice(11,13),10);
-  if(h===0)return 'midnight';
-  if(h===12)return 'noon';
-  return (h%12)+(h<12?'am':'pm');
-}
 function addDaysStr(dateStr,n){
   const d=new Date(dateStr+'T12:00:00'); d.setDate(d.getDate()+n);
   const p=x=>String(x).padStart(2,'0');
   return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
 }
-function isoHour(dateStr,h){return dateStr+'T'+String(h).padStart(2,'0')+':00';}
-function cap(s){return s?s.charAt(0).toUpperCase()+s.slice(1):s;}
-function degf(v){return (typeof tempDisp==='function'?tempDisp(v):Math.round(v))+'°';}
-function mmTxt(v){return (v<10?v.toFixed(1):String(Math.round(v)))+'mm';}
 function weekday(dateStr,style){return new Date(dateStr+'T12:00:00').toLocaleDateString('en-AU',{weekday:style||'long'});}
+function dayName(dateStr){
+  const today=localTodayStr();
+  if(dateStr===addDaysStr(today,-1))return 'Yesterday';
+  return weekday(dateStr,'short');
+}
 function curSelDate(){
   try{ if(typeof selDate!=='undefined'&&selDate)return selDate; }catch(e){}
   return localTodayStr();
@@ -62,215 +40,23 @@ function at1h(fn){
   try{ return fn(); } finally{ state.view=v; }
 }
 
-// Collect hourTileData for every ref hour in [fromIso, toIso)
-function hoursIn(fromIso,toIso){
-  const ref=(typeof refHourly==='function')?refHourly():null;
-  if(!ref||!ref.time)return [];
-  const out=[];
-  for(let i=0;i<ref.time.length;i++){
-    const t=ref.time[i];
-    if(t>=fromIso&&t<toIso){
-      const d=hourTileData(t);
-      if(d)out.push(d);
-    }
-  }
-  return out;
+// ── receipts state ───────────────────────────────────────────────────────
+let _rcpt=null,_rcptRaw=null,_rcptState='idle',_rcptKey=null,_rcptTries=0;
+
+function currentStation(){
+  try{ return (typeof actualData!=='undefined')&&actualData&&actualData._bom&&actualData._bom.wmo||null; }
+  catch(e){ return null; }
 }
-
-// ── rain segmentation ────────────────────────────────────────────────────
-const RAIN_ON=0.15;          // mm/h considered "raining"
-function rainSegments(hours){
-  const segs=[]; let cur=null;
-  for(const h of hours){
-    const r=h.rain==null?0:h.rain;
-    if(r>=RAIN_ON){
-      if(!cur)cur={start:h.iso,end:h.iso,total:0,peak:0};
-      cur.end=h.iso; cur.total+=r; cur.peak=Math.max(cur.peak,r);
-    }else if(cur){segs.push(cur);cur=null;}
-  }
-  if(cur)segs.push(cur);
-  return segs.filter(s=>s.total>=0.3);
+// One key for "which place is this record about". Station AND rounded
+// coordinates — so moving to a new town always changes the key, even while
+// the nearest-station lookup is still catching up or resolves to the same
+// station.
+function rcptLocKey(){
+  const st=currentStation()||'-';
+  const la=(state&&state.lat!=null)?(Math.round(state.lat*10)/10):'-';
+  const lo=(state&&state.lon!=null)?(Math.round(state.lon*10)/10):'-';
+  return st+'|'+la+'|'+lo;
 }
-function rainWord(seg){
-  if(seg.peak<0.5)return 'light showers';
-  if(seg.peak<1.5)return 'showers';
-  if(seg.peak<4)return 'rain';
-  return 'heavy rain';
-}
-// confidence → phrasing. hi: declarative. med: "likely". low: "a chance of".
-function qualify(word,conf){
-  if(conf==null||conf>=72)return word;
-  if(conf>=48)return word+' likely';
-  return 'a chance of '+word;
-}
-function minMax(hours,dateOnly){
-  let mn=null,mnIso=null,mx=null,mxIso=null;
-  for(const h of hours){
-    if(dateOnly&&h.iso.slice(0,10)!==dateOnly)continue;
-    if(h.temp==null)continue;
-    if(mx==null||h.temp>mx){mx=h.temp;mxIso=h.iso;}
-    if(mn==null||h.temp<mn){mn=h.temp;mnIso=h.iso;}
-  }
-  return {mn,mnIso,mx,mxIso};
-}
-
-// ── headline: today (now-relative) ───────────────────────────────────────
-function headlineToday(){
-  const today=localTodayStr();
-  const tomorrow=addDaysStr(today,1);
-  const now=locNowDate();
-  const hh=now.getHours();
-  const evening=hh>=17;
-  const nowIso=isoHour(today,hh);
-
-  const winFrom=nowIso;
-  const winTo  =evening?isoHour(tomorrow,12):isoHour(tomorrow,0);
-  const hours=hoursIn(winFrom,winTo);
-  if(!hours.length)return null;
-
-  const rainConf=(typeof confDayMetric==='function')?confDayMetric(evening?tomorrow:today,'rain'):null;
-  const segs=rainSegments(hours);
-  const totalRain=hours.reduce((a,h)=>a+(typeof _rcell==='function'?_rcell(h.rain):(h.rain||0)),0);
-
-  let s1;
-  const periodWord=evening?'overnight and tomorrow morning':(hh<11?'today':'for the rest of the day');
-  if(!segs.length){
-    s1=(rainConf!=null&&rainConf<48)?`Probably dry ${periodWord}`:`Dry ${periodWord}`;
-  }else{
-    const seg=segs[0];
-    const word=qualify(rainWord(seg),rainConf);
-    const startsSoon=seg.start<=isoHour(today,Math.min(23,hh+1))||seg.start===nowIso;
-    const endH=parseInt(seg.end.slice(11,13),10);
-    const endsLate=seg.end.slice(0,10)!==today||endH>=21;
-    const endPhrase=endsLate?(evening?'into the morning':'through the evening'):`until about ${fmtH(seg.end)}`;
-    s1=startsSoon?`${cap(word)} ${endPhrase}`
-                 :`Dry until ${fmtH(seg.start)}, then ${word} ${endPhrase}`;
-    if(totalRain>=1)s1+=` — around ${mmTxt(totalRain)}`;
-    if(segs.length>1)s1+=', with more later';
-  }
-
-  let s2='';
-  if(evening){
-    const night=hoursIn(isoHour(today,18),isoHour(tomorrow,9));
-    const nm=minMax(night);
-    const tmrw=hoursIn(isoHour(tomorrow,9),isoHour(addDaysStr(tomorrow,1),0));
-    const tm=minMax(tmrw,tomorrow);
-    if(nm.mn!=null){
-      s2=`Down to ${degf(nm.mn)} overnight`;
-      if(nm.mn<=2)s2+=', frost possible by morning';
-      if(tm.mx!=null)s2+=`; ${degf(tm.mx)} tomorrow around ${fmtH(tm.mxIso)}`;
-      s2+='.';
-    }
-  }else{
-    const dm=minMax(hours,today);
-    if(dm.mx!=null){
-      const mxH=parseInt(dm.mxIso.slice(11,13),10);
-      s2=(mxH<=hh)?`Top of ${degf(dm.mx)} — the warmest part of the day is now.`
-                  :`Top of ${degf(dm.mx)} around ${fmtH(dm.mxIso)}.`;
-    }
-    const night=hoursIn(isoHour(today,18),isoHour(tomorrow,9));
-    const nm=minMax(night);
-    if(nm.mn!=null&&nm.mn<=2)s2+=` Cold night ahead — down to ${degf(nm.mn)}, frost possible.`;
-  }
-
-  let windBit='';
-  let wMax=null;
-  for(const h of hours){ if(h.wind!=null&&(wMax==null||h.wind>wMax))wMax=h.wind; }
-  if(wMax!=null&&wMax>=30)windBit=`Windy — up to ${Math.round(wMax/5)*5} km/h.`;
-
-  return {s1:s1+'.',s2:[s2,windBit].filter(Boolean).join(' '),conf:rainConf,confDay:evening?tomorrow:today};
-}
-
-// ── headline: a future day ───────────────────────────────────────────────
-function headlineFuture(sel){
-  const today=localTodayStr();
-  const hours=hoursIn(isoHour(sel,0),isoHour(addDaysStr(sel,1),0));
-  if(!hours.length)return null;
-  const label=sel===addDaysStr(today,1)?'Tomorrow':weekday(sel);
-  const rainConf=(typeof confDayMetric==='function')?confDayMetric(sel,'rain'):null;
-  const segs=rainSegments(hours);
-  const totalRain=hours.reduce((a,h)=>a+(typeof _rcell==='function'?_rcell(h.rain):(h.rain||0)),0);
-
-  let s1;
-  if(!segs.length){
-    s1=(rainConf!=null&&rainConf<48)?`${label}: probably dry`:`${label}: dry all day`;
-  }else{
-    const seg=segs[0];
-    const word=qualify(rainWord(seg),rainConf);
-    const startH=parseInt(seg.start.slice(11,13),10);
-    const endH=parseInt(seg.end.slice(11,13),10);
-    const startPhrase=startH<6?`${word} early`:`${word} from ${fmtH(seg.start)}`;
-    const endPhrase=endH>=21?'into the night':`until about ${fmtH(seg.end)}`;
-    s1=`${label}: ${startPhrase}${startH<6?', ':' '}${endPhrase}`;
-    if(totalRain>=1)s1+=` — around ${mmTxt(totalRain)}`;
-    if(segs.length>1)s1+=', with more later';
-  }
-
-  const dm=minMax(hours,sel);
-  let s2='';
-  if(dm.mx!=null)s2=`Top of ${degf(dm.mx)} around ${fmtH(dm.mxIso)}`;
-  if(dm.mn!=null){
-    s2+=(s2?'; ':'')+`low ${degf(dm.mn)} overnight`;
-    if(dm.mn<=2)s2+=', frost possible';
-  }
-  if(s2)s2+='.';
-
-  let wMax=null;
-  for(const h of hours){ if(h.wind!=null&&(wMax==null||h.wind>wMax))wMax=h.wind; }
-  if(wMax!=null&&wMax>=30)s2+=` Windy — up to ${Math.round(wMax/5)*5} km/h.`;
-
-  return {s1:s1+'.',s2,conf:rainConf,confDay:sel};
-}
-
-// ── headline: a past day (observed recap) ────────────────────────────────
-function headlinePast(sel){
-  const hours=hoursIn(isoHour(sel,0),isoHour(addDaysStr(sel,1),0));
-  if(!hours.length)return null;
-  const today=localTodayStr();
-  const label=sel===addDaysStr(today,-1)?'Yesterday':weekday(sel);
-  const dm=minMax(hours,sel);
-  let rain=0,hasR=false,anyAct=false;
-  for(const h of hours){ if(h.rain!=null){rain+=h.rain;hasR=true;} if(h.isAct)anyAct=true; }
-  let s1=`${label}: `;
-  const bits=[];
-  if(dm.mx!=null)bits.push(`top of ${dm.mx.toFixed(1)}°`);
-  if(dm.mn!=null)bits.push(`low of ${dm.mn.toFixed(1)}°`);
-  if(hasR)bits.push(rain>=0.3?`${mmTxt(rain)} of rain`:'no rain');
-  s1+=bits.join(', ')||'no data';
-  return {s1:s1+'.',s2:'',conf:null,confDay:null,past:true,anyAct};
-}
-
-// ── render ───────────────────────────────────────────────────────────────
-function buildHeadline(){
-  const today=localTodayStr();
-  const sel=curSelDate();
-  if(sel===today)return headlineToday();
-  if(sel>today)return headlineFuture(sel);
-  return headlinePast(sel);
-}
-
-function renderHeadline(){
-  const root=insightRoot(); if(!root)return;
-  let el=root.querySelector('.wxi-head-wrap');
-  if(!el){el=document.createElement('div');el.className='wxi-head-wrap';root.prepend(el);}
-  const h=at1h(buildHeadline);
-  if(!h){el.innerHTML='';return;}
-  const models=(typeof activeEnabled==='function')?activeEnabled().length:0;
-  let meta;
-  if(h.past){
-    meta=h.anyAct?`Observed (${obsSrcTag()}) where available`:'Model hindcast — no observations stored';
-  }else{
-    const confTxt=h.conf==null?'':` · rain confidence ${typeof confLabel==='function'?confLabel(h.conf):h.conf+'%'}`;
-    meta=`Blend of ${models} models${confTxt}`;
-  }
-  el.innerHTML=
-    `<div class="wxi-head">${h.s1}</div>`+
-    (h.s2?`<div class="wxi-sub">${h.s2}</div>`:'')+
-    `<div class="wxi-meta">${meta}</div>`;
-}
-
-// ── receipts ─────────────────────────────────────────────────────────────
-let _rcpt=null,_rcptRaw=null,_rcptState='idle',_rcptStation=null,_rcptTries=0;
 
 // Same tag the table's ✓ Actual row shows for the current source setting.
 function obsSrcTag(){
@@ -290,16 +76,6 @@ function clientObsDay(dateStr){
     const tmin=D.temperature_2m_min[i], rain=D.precipitation_sum[i];
     return {tmax:+(+tmax).toFixed(1), tmin:tmin!=null?+(+tmin).toFixed(1):null, rain:rain!=null?+(+rain).toFixed(2):null};
   }catch(e){return null;}
-}
-
-function dayName(dateStr){
-  const today=localTodayStr();
-  if(dateStr===addDaysStr(today,-1))return 'Yesterday';
-  return weekday(dateStr,'short');
-}
-function currentStation(){
-  try{ return (typeof actualData!=='undefined')&&actualData&&actualData._bom&&actualData._bom.wmo||null; }
-  catch(e){ return null; }
 }
 
 // Pure blend daily aggregates from the app's own data — by construction the
@@ -330,6 +106,7 @@ function rcptSummary(rows){
   });
   return {n,tmaxMAE:n?+(ae/n).toFixed(2):null,rainHit:hit,rainN:rn};
 }
+
 // Merge endpoint data with client-side fill. Forecast side: the archived
 // blend row (Worker), else a client-side pure-blend reconstruction (~).
 // Observed side: the table is king — clientObsDay (the app's own actual
@@ -369,26 +146,27 @@ function buildRcptRows(j){
 
 async function loadReceipts(){
   if(typeof bomWorkerConfigured!=='function'||!bomWorkerConfigured())return;
-  const station=currentStation();
-  // station changed (new location) → clear and refetch
-  if(station&&_rcptStation&&station!==_rcptStation){
+  const key=rcptLocKey();
+  // location changed (station or coordinates) → discard and refetch
+  if(_rcptKey&&key!==_rcptKey){
     _rcpt=null;_rcptRaw=null;_rcptState='idle';_rcptTries=0;
-    const root=insightRoot();
-    const el=root&&root.querySelector('.wxi-receipt');
+    const el=document.querySelector('#acc-body .wxi-receipt');
     if(el)el.remove();
   }
   if(_rcptState==='loading')return;
-  if(_rcptState==='done'&&station===_rcptStation)return;
+  if(_rcptState==='done'&&key===_rcptKey)return;
+  const station=currentStation();
   if(!station||state.lat==null){
     if(_rcptTries++<20)setTimeout(loadReceipts,3000);
     return;
   }
-  _rcptState='loading';_rcptStation=station;
+  _rcptState='loading';_rcptKey=key;
   try{
     const u=`${BOM_WORKER_URL}/track/receipts?station=${encodeURIComponent(station)}&lat=${state.lat}&lon=${state.lon}&days=7`;
     const r=await fetch(u,{signal:AbortSignal.timeout(30000)});
     if(!r.ok)throw new Error('http '+r.status);
     const j=await r.json();
+    if(rcptLocKey()!==key){ _rcptState='idle'; return; } // moved mid-flight — discard
     _rcptState='done';
     _rcptRaw=j;
     const built=buildRcptRows(j);
@@ -399,45 +177,42 @@ async function loadReceipts(){
       if(typeof dbg==='function')dbg(`receipts[${station}]: no verified days yet`);
     }
   }catch(e){
-    _rcptState='done';
+    if(rcptLocKey()===key)_rcptState='done';
     if(typeof dbg==='function')dbg('receipts unavailable: '+e.message);
   }
 }
 
 function renderReceipts(){
-  const root=insightRoot(); if(!root)return;
+  const body=document.getElementById('acc-body'); if(!body)return;
+  const fresh=_rcptKey===rcptLocKey();
   // rebuild from the raw payload so the observed side always reflects the
   // current Actual-source setting (and the freshest client actuals)
-  if(_rcptRaw){
+  if(_rcptRaw&&fresh){
     const b=buildRcptRows(_rcptRaw);
     if(b&&b.rows.length&&b.summary.n>0)_rcpt=b;
   }
-  if(!_rcpt)return;
-  let el=root.querySelector('.wxi-receipt');
+  let el=body.querySelector('.wxi-receipt');
+  if(!fresh||!_rcpt){ if(el)el.remove(); return; }
   if(!el){
     el=document.createElement('div');
-    el.className='wxi-receipt';
+    el.className='wxi-receipt open';
     el.addEventListener('click',()=>el.classList.toggle('open'));
-    root.appendChild(el);
+    body.insertBefore(el,body.firstChild);
   }
   const s=_rcpt.summary;
   const sel=curSelDate();
-  // lead with the selected day if it's in the record, else the most recent
-  const selRow=_rcpt.rows.find(r=>r.target===sel);
-  const y=selRow||_rcpt.rows[0];
+  const y=_rcpt.rows[0];
   let line1='';
   if(y&&y.f.tmax!=null&&y.a.tmax!=null){
-    const isYest=y.target===addDaysStr(localTodayStr(),-1);
-    const when=isYest?'Yesterday':(selRow?`On ${weekday(y.target)}`:dayName(y.target));
     const est=(y.src==='client'||y.src==='recon');
     const tag=y.aSrc==='client'?obsSrcTag():'BOM';
     const recWord=tag==='Blend'?'the blend recorded':`${tag} recorded`;
-    line1=`<span class="wxi-tick">✓</span><span>${when} we said <b>${est?'~':''}${y.f.tmax.toFixed(1)}°</b> — ${recWord} <b>${y.a.tmax.toFixed(1)}°</b>.</span>`;
+    line1=`<span class="wxi-tick">✓</span><span>${dayName(y.target)} we said <b>${est?'~':''}${y.f.tmax.toFixed(1)}°</b> — ${recWord} <b>${y.a.tmax.toFixed(1)}°</b>.</span>`;
   }else{
     line1=`<span class="wxi-tick">✓</span><span>Forecast record — verified against observations.</span>`;
   }
   const rainTxt=s.rainN?` · rain called right ${s.rainHit}/${s.rainN} days`:'';
-  const line2=s.n?`Past ${s.n} days: within ${s.tmaxMAE.toFixed(1)}° on average${rainTxt} · tap for the record`:'';
+  const line2=s.n?`Past ${s.n} days: within ${s.tmaxMAE.toFixed(1)}° on average${rainTxt}`:'';
   const rows=_rcpt.rows.map(r=>{
     const ft=r.f.tmax!=null?((r.src==='client'||r.src==='recon')?'~':'')+r.f.tmax.toFixed(1)+'°':'—';
     const at=r.a.tmax!=null?r.a.tmax.toFixed(1)+'°':'—';
@@ -454,27 +229,21 @@ function renderReceipts(){
 }
 
 // ── hooks ────────────────────────────────────────────────────────────────
-function refreshAll(){
-  try{renderHeadline();}catch(e){}
-  try{renderReceipts();}catch(e){}
-  try{loadReceipts();}catch(e){}
-}
-// 1) every data re-render (load, refresh, model toggles, location change)
+// 1) every data re-render (load, refresh, model toggles, location change) —
+//    keeps the record warm and catches location changes immediately.
 if(typeof renderCurrentBar==='function'){
   const _o=renderCurrentBar;
-  renderCurrentBar=function(){ _o.apply(this,arguments); refreshAll(); };
+  renderCurrentBar=function(){ _o.apply(this,arguments); try{loadReceipts();}catch(e){} };
 }
-// 2) day selection — the timeline changes days via tlSelect / setSelectedDay,
-//    which do NOT go through renderCurrentBar, so wrap both.
-if(typeof tlSelect==='function'){
-  const _o=tlSelect;
-  tlSelect=function(){ _o.apply(this,arguments); refreshAll(); };
+// 2) the accuracy modal — the receipt renders at the top of it, so re-add it
+//    after every panel render (open, and option changes while open).
+if(typeof renderAccuracyPanel==='function'){
+  const _o=renderAccuracyPanel;
+  renderAccuracyPanel=function(){
+    _o.apply(this,arguments);
+    try{renderReceipts();}catch(e){}
+    try{loadReceipts();}catch(e){}
+  };
 }
-if(typeof setSelectedDay==='function'){
-  const _o=setSelectedDay;
-  setSelectedDay=function(){ _o.apply(this,arguments); refreshAll(); };
-}
-// 3) slow timer for clock drift
-setInterval(function(){try{renderHeadline();}catch(e){}},10*60*1000);
 
 })();
