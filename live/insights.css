@@ -54,3 +54,7 @@
 .wxi-dot.hit{color:var(--q-temp,#1f8a5b);}
 .wxi-dot.miss{color:var(--now,#a3392c);}
 .wxi-dot.dim{color:var(--text-dim,#a29e93);}
+
+/* selected-day highlight in the receipts record */
+.wxi-r-row.sel{color:var(--text-primary,#141311);}
+.wxi-r-row.sel .wxi-r-day{text-decoration:underline;text-underline-offset:2px;}
