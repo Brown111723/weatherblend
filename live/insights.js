@@ -7,7 +7,11 @@
 //        today  → now-relative ("Dry until 2pm, then showers…")
 //        future → day summary  ("Tuesday: showers from 11am…")
 //        past   → observed recap ("Thursday: top of 13.2°, 4mm of rain")
-//   2. Receipts: what the blend said the day before vs what BOM observed.
+//   2. Receipts: what the blend said the day before vs what was observed.
+//      The table is king: observed values come from the app's own actual
+//      series (respecting the Actual-source setting — BOM / Open-Meteo /
+//      Blend), with the Worker's stored BOM daily rows only as fallback for
+//      days outside the client's past-data window.
 //      Re-fetches when the station changes; highlights the selected day.
 // ════════════════════════════════════════════════════════════════════════
 
@@ -254,7 +258,7 @@ function renderHeadline(){
   const models=(typeof activeEnabled==='function')?activeEnabled().length:0;
   let meta;
   if(h.past){
-    meta=h.anyAct?'Observed (BOM) where available':'Model hindcast — no observations stored';
+    meta=h.anyAct?`Observed (${obsSrcTag()}) where available`:'Model hindcast — no observations stored';
   }else{
     const confTxt=h.conf==null?'':` · rain confidence ${typeof confLabel==='function'?confLabel(h.conf):h.conf+'%'}`;
     meta=`Blend of ${models} models${confTxt}`;
@@ -266,7 +270,27 @@ function renderHeadline(){
 }
 
 // ── receipts ─────────────────────────────────────────────────────────────
-let _rcpt=null,_rcptState='idle',_rcptStation=null,_rcptTries=0;
+let _rcpt=null,_rcptRaw=null,_rcptState='idle',_rcptStation=null,_rcptTries=0;
+
+// Same tag the table's ✓ Actual row shows for the current source setting.
+function obsSrcTag(){
+  try{ return ({bom:'BOM',om:'Open-Meteo',blend:'Blend'})[actualSource]||'BOM'; }catch(e){ return 'BOM'; }
+}
+// Observed daily stats from the app's own actual series — actualData.daily is
+// exactly what the table's ✓ Actual row renders, so this follows the
+// Actual-source setting by construction. Completed days only.
+function clientObsDay(dateStr){
+  try{
+    if(dateStr>=localTodayStr())return null;
+    const D=(typeof actualData!=='undefined')&&actualData&&actualData.daily;
+    if(!D||!D.time)return null;
+    const i=D.time.indexOf(dateStr); if(i<0)return null;
+    const tmax=D.temperature_2m_max[i];
+    if(tmax==null)return null;
+    const tmin=D.temperature_2m_min[i], rain=D.precipitation_sum[i];
+    return {tmax:+(+tmax).toFixed(1), tmin:tmin!=null?+(+tmin).toFixed(1):null, rain:rain!=null?+(+rain).toFixed(2):null};
+  }catch(e){return null;}
+}
 
 function dayName(dateStr){
   const today=localTodayStr();
@@ -306,25 +330,39 @@ function rcptSummary(rows){
   });
   return {n,tmaxMAE:n?+(ae/n).toFixed(2):null,rainHit:hit,rainN:rn};
 }
-// Merge endpoint data with client-side fill. Handles the old response shape
-// (rows+summary only) and the new one (rows + actuals map).
+// Merge endpoint data with client-side fill. Forecast side: the archived
+// blend row (Worker), else a client-side pure-blend reconstruction (~).
+// Observed side: the table is king — clientObsDay (the app's own actual
+// series, per the Actual-source setting) wins wherever it covers the day;
+// the Worker's stored BOM daily row is only the fallback beyond the
+// client's past-data window. Handles old (rows+summary) and new
+// (rows+actuals map) response shapes.
 function buildRcptRows(j){
   if(!j)return null;
-  if(!j.actuals){ // old worker — use as-is
-    return (Array.isArray(j.rows)&&j.summary)?{rows:j.rows,summary:j.summary}:null;
-  }
-  const stored={};
-  (j.rows||[]).forEach(r=>{if(r&&r.target)stored[r.target]=r;});
+  const stored={},workerAct={};
+  (j.rows||[]).forEach(r=>{
+    if(!r||!r.target)return;
+    if(r.f)stored[r.target]={f:r.f,src:r.src||'stored'};
+    if(r.a)workerAct[r.target]=r.a;
+  });
+  Object.keys(j.actuals||{}).forEach(d=>{ if(!workerAct[d])workerAct[d]=j.actuals[d]; });
   const today=localTodayStr();
-  const dates=Object.keys(j.actuals).filter(d=>d<today).sort().reverse().slice(0,7);
+  const dset=new Set(Object.keys(workerAct));
+  try{
+    const D=(typeof actualData!=='undefined')&&actualData&&actualData.daily;
+    if(D&&D.time)D.time.forEach(d=>{if(d<today)dset.add(d);});
+  }catch(e){}
+  const dates=[...dset].filter(d=>d<today).sort().reverse().slice(0,7);
   const rows=[];
   for(const d of dates){
-    const a=j.actuals[d]; if(!a)continue;
+    const co=clientObsDay(d), wa=workerAct[d]||null;
+    const a=co||(wa?{tmax:wa.tmax!=null?wa.tmax:null,tmin:wa.tmin!=null?wa.tmin:null,rain:wa.rain!=null?wa.rain:null}:null);
+    if(!a)continue;
     let f=null,src='client';
-    if(stored[d]&&stored[d].f){f=stored[d].f;src=stored[d].src||'stored';}
+    if(stored[d]&&stored[d].f){f=stored[d].f;src=stored[d].src;}
     else{f=at1h(function(){return pureBlendDay(d);});}
     if(!f)continue;
-    rows.push({target:d,src,f,a:{tmax:a.tmax!=null?a.tmax:null,tmin:a.tmin!=null?a.tmin:null,rain:a.rain!=null?a.rain:null}});
+    rows.push({target:d,src,f,a,aSrc:co?'client':'bom'});
   }
   return {rows,summary:rcptSummary(rows)};
 }
@@ -334,7 +372,7 @@ async function loadReceipts(){
   const station=currentStation();
   // station changed (new location) → clear and refetch
   if(station&&_rcptStation&&station!==_rcptStation){
-    _rcpt=null;_rcptState='idle';_rcptTries=0;
+    _rcpt=null;_rcptRaw=null;_rcptState='idle';_rcptTries=0;
     const root=insightRoot();
     const el=root&&root.querySelector('.wxi-receipt');
     if(el)el.remove();
@@ -352,6 +390,7 @@ async function loadReceipts(){
     if(!r.ok)throw new Error('http '+r.status);
     const j=await r.json();
     _rcptState='done';
+    _rcptRaw=j;
     const built=buildRcptRows(j);
     if(built&&built.rows.length&&built.summary.n>0){
       _rcpt=built;renderReceipts();
@@ -366,7 +405,14 @@ async function loadReceipts(){
 }
 
 function renderReceipts(){
-  const root=insightRoot(); if(!root||!_rcpt)return;
+  const root=insightRoot(); if(!root)return;
+  // rebuild from the raw payload so the observed side always reflects the
+  // current Actual-source setting (and the freshest client actuals)
+  if(_rcptRaw){
+    const b=buildRcptRows(_rcptRaw);
+    if(b&&b.rows.length&&b.summary.n>0)_rcpt=b;
+  }
+  if(!_rcpt)return;
   let el=root.querySelector('.wxi-receipt');
   if(!el){
     el=document.createElement('div');
@@ -384,12 +430,14 @@ function renderReceipts(){
     const isYest=y.target===addDaysStr(localTodayStr(),-1);
     const when=isYest?'Yesterday':(selRow?`On ${weekday(y.target)}`:dayName(y.target));
     const est=(y.src==='client'||y.src==='recon');
-    line1=`<span class="wxi-tick">✓</span><span>${when} we said <b>${est?'~':''}${y.f.tmax.toFixed(1)}°</b> — BOM recorded <b>${y.a.tmax.toFixed(1)}°</b>.</span>`;
+    const tag=y.aSrc==='client'?obsSrcTag():'BOM';
+    const recWord=tag==='Blend'?'the blend recorded':`${tag} recorded`;
+    line1=`<span class="wxi-tick">✓</span><span>${when} we said <b>${est?'~':''}${y.f.tmax.toFixed(1)}°</b> — ${recWord} <b>${y.a.tmax.toFixed(1)}°</b>.</span>`;
   }else{
-    line1=`<span class="wxi-tick">✓</span><span>Forecast record — verified against BOM observations.</span>`;
+    line1=`<span class="wxi-tick">✓</span><span>Forecast record — verified against observations.</span>`;
   }
   const rainTxt=s.rainN?` · rain called right ${s.rainHit}/${s.rainN} days`:'';
-  const line2=`Past ${s.n} days: within ${s.tmaxMAE.toFixed(1)}° on average${rainTxt} · tap for the record`;
+  const line2=s.n?`Past ${s.n} days: within ${s.tmaxMAE.toFixed(1)}° on average${rainTxt} · tap for the record`:'';
   const rows=_rcpt.rows.map(r=>{
     const ft=r.f.tmax!=null?((r.src==='client'||r.src==='recon')?'~':'')+r.f.tmax.toFixed(1)+'°':'—';
     const at=r.a.tmax!=null?r.a.tmax.toFixed(1)+'°':'—';
