@@ -79,6 +79,7 @@ export default {
     if (url.pathname === "/track/sync"    && request.method === "POST") return trackSync(request, env);
     if (url.pathname === "/track/weights" && request.method === "GET")  return trackWeights(url, env);
     if (url.pathname === "/track/horizon" && request.method === "GET")  return trackHorizon(url, env);
+    if (url.pathname === "/track/receipts" && request.method === "GET") return trackReceipts(url, env);
 
     // ── BOM forecast passthrough (legacy) ─────────────────────────────────
     if (url.searchParams.get("forecast")) {
@@ -209,6 +210,21 @@ const HOURLY_DDL = "CREATE TABLE IF NOT EXISTS actuals_hourly (station TEXT NOT 
 async function writeCapture(env, station, issued, forecasts, actuals, hourly) {
   try { await env.DB.prepare(HOURLY_DDL).run(); } catch {}
   const stmts = [];
+  // Forecast rows (was previously accepted but ignored). The client now sends
+  // its displayed blend as model='blend' — the literal record for receipts.
+  const fcSql = env.DB.prepare(
+    "INSERT INTO forecasts (station,issued,target,model,tmax,tmin,rain,wind,cloud) VALUES (?,?,?,?,?,?,?,?,?) " +
+    "ON CONFLICT(station,issued,target,model) DO UPDATE SET tmax=excluded.tmax,tmin=excluded.tmin," +
+    "rain=excluded.rain,wind=excluded.wind,cloud=excluded.cloud"
+  );
+  for (const f of (forecasts || [])) {
+    const target = String(f.target || "").trim();
+    if (!DATE_RE.test(target)) continue;
+    const model = String(f.model || "").trim().toLowerCase().slice(0, 32);
+    if (!model) continue;
+    stmts.push(fcSql.bind(station, issued, target, model,
+      numOrNull(f.tmax), numOrNull(f.tmin), numOrNull(f.rain), numOrNull(f.wind), numOrNull(f.cloud)));
+  }
   const acSql = env.DB.prepare(
     "INSERT INTO actuals (station,target,tmax,tmin,rain,wind,cloud,source) VALUES (?,?,?,?,?,?,?,?) " +
     "ON CONFLICT(station,target) DO UPDATE SET tmax=excluded.tmax,tmin=excluded.tmin,rain=excluded.rain," +
@@ -672,4 +688,138 @@ async function trackHorizon(url, env) {
   }
   const rows = (obj.horizon && obj.horizon[metric]) || [];
   return json({ station: station || null, window: days, metric, rows });
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// RECEIPTS  GET /track/receipts?station=X&lat=&lon=&days=7
+// "What did the blend say the day before vs what BOM observed."
+//   • Preferred source per day: the stored model='blend' row with
+//     issued = target − 1 day (the literal forecast the app displayed).
+//   • Fallback (days before blend rows existed): reconstruct the day-ahead
+//     blend from the Previous Runs API lead-1 values using the most recent
+//     cached weights/biases for this location (equal weights if none).
+//   • Ground truth: BOM daily actuals only — never model-derived.
+// Cached 3 h per location in weights_cache under an 'rcpt|' key.
+// ════════════════════════════════════════════════════════════════════════
+async function trackReceipts(url, env) {
+  if (!env || !env.DB) return json({ error: "no-db" }, 200);
+  const station = String(url.searchParams.get("station") || "").trim();
+  const lat = parseFloat(url.searchParams.get("lat")), lon = parseFloat(url.searchParams.get("lon"));
+  if (!station) return json({ error: "missing-station" }, 400);
+  let days = parseInt(url.searchParams.get("days") || "7", 10);
+  if (!Number.isFinite(days)) days = 7;
+  days = Math.max(3, Math.min(14, days));
+
+  const latR = isFinite(lat) ? Math.round(lat * 10) / 10 : "-";
+  const lonR = isFinite(lon) ? Math.round(lon * 10) / 10 : "-";
+  const key = `rcpt|${latR}|${lonR}|${days}|${station}`;
+
+  try {
+    await env.DB.prepare(CACHE_DDL).run();
+    const c = await env.DB.prepare("SELECT json FROM weights_cache WHERE k=?1 AND computed_at >= datetime('now','-3 hours')").bind(key).first();
+    if (c && c.json) { const obj = JSON.parse(c.json); obj.cached = true; return json(obj); }
+  } catch { /* fall through */ }
+
+  let result;
+  try { result = await computeReceipts(env, station, lat, lon, days); }
+  catch (e) { return json({ error: "compute", detail: String(e && e.message || e) }, 500); }
+
+  try {
+    await env.DB.prepare("INSERT INTO weights_cache (k,json,computed_at) VALUES (?1,?2,datetime('now')) ON CONFLICT(k) DO UPDATE SET json=excluded.json,computed_at=excluded.computed_at").bind(key, JSON.stringify(result)).run();
+  } catch { /* best effort */ }
+  result.cached = false;
+  return json(result);
+}
+
+async function computeReceipts(env, station, lat, lon, days) {
+  // 1) BOM daily actuals (ground truth)
+  const actuals = await bomActualsMap(env, station, days + 2);
+
+  // 2) Stored blend rows: issued exactly the day before the target
+  const blendRows = {};
+  try {
+    const rs = ((await env.DB.prepare(
+      "SELECT target,tmax,tmin,rain FROM forecasts WHERE station=?1 AND model='blend' " +
+      "AND issued = date(target,'-1 day') AND target >= date('now',?2)"
+    ).bind(station, `-${days + 1} days`).all()).results) || [];
+    for (const r of rs) blendRows[r.target] = { tmax: r.tmax, tmin: r.tmin, rain: r.rain };
+  } catch { /* table may predate schema — ignore */ }
+
+  // 3) Reconstruction for days without a stored blend row
+  const todayLocal = new Date(Date.now() + 10 * 3600 * 1000).toISOString().slice(0, 10);
+  const targets = [];
+  for (let i = 1; i <= days; i++) {
+    const d = new Date(new Date(todayLocal + "T12:00:00Z").getTime() - i * 86400000).toISOString().slice(0, 10);
+    targets.push(d);
+  }
+  const needRecon = targets.some(d => !blendRows[d] && actuals[d]);
+
+  let recon = {};
+  if (needRecon && isFinite(lat) && isFinite(lon)) {
+    // Most recent cached pooled weights/biases for this location (any window)
+    let weights = null, biases = null;
+    try {
+      const w = await env.DB.prepare(
+        "SELECT json FROM weights_cache WHERE k LIKE ?1 ORDER BY computed_at DESC LIMIT 1"
+      ).bind(`v2|${Math.round(lat * 10) / 10}|${Math.round(lon * 10) / 10}|%`).first();
+      if (w && w.json) { const o = JSON.parse(w.json); weights = o.weights || null; biases = o.biases || null; }
+    } catch { /* equal weights below */ }
+
+    const prevResults = await fetchPrevBatched(lat, lon, days + 2);
+    const perModel = {};
+    PREV_MODELS.forEach((m, i) => { const j = prevResults[i]; if (j && j.hourly) perModel[m] = aggregatePrev(j.hourly); });
+
+    for (const d of targets) {
+      if (blendRows[d] || !actuals[d]) continue;
+      const parts = { tmax: [], tmin: [], rain: [] };
+      for (const m of Object.keys(perModel)) {
+        const lead1 = perModel[m][d] && perModel[m][d][1];
+        if (!lead1) continue;
+        const bT = (biases && biases.temp && biases.temp[m]) || 0;
+        const wT = (weights && weights.temp && weights.temp[m]) != null ? weights.temp[m] : null;
+        const wR = (weights && weights.rain && weights.rain[m]) != null ? weights.rain[m] : null;
+        if (lead1.tmax != null) parts.tmax.push({ v: lead1.tmax - bT, w: wT });
+        if (lead1.tmin != null) parts.tmin.push({ v: lead1.tmin - bT, w: wT });
+        if (lead1.rain != null) parts.rain.push({ v: lead1.rain, w: wR });
+      }
+      const wavg = arr => {
+        if (!arr.length) return null;
+        const useW = arr.every(p => p.w != null);
+        let sv = 0, sw = 0;
+        for (const p of arr) { const w = useW ? p.w : 1; sv += p.v * w; sw += w; }
+        return sw > 0 ? sv / sw : null;
+      };
+      const t1 = wavg(parts.tmax), t2 = wavg(parts.tmin), r1 = wavg(parts.rain);
+      if (t1 != null || r1 != null) recon[d] = { tmax: t1, tmin: t2, rain: r1 };
+    }
+  }
+
+  // 4) Join → rows (most recent first) + summary
+  const rows = [];
+  let aeT = 0, nT = 0, aeTn = 0, nTn = 0, rainHit = 0, rainN = 0;
+  for (const d of targets) {
+    const a = actuals[d]; if (!a) continue;
+    const f = blendRows[d] || recon[d]; if (!f) continue;
+    const src = blendRows[d] ? "stored" : "recon";
+    rows.push({
+      target: d, src,
+      f: { tmax: f.tmax != null ? +f.tmax.toFixed(1) : null, tmin: f.tmin != null ? +f.tmin.toFixed(1) : null, rain: f.rain != null ? +f.rain.toFixed(2) : null },
+      a: { tmax: a.tmax != null ? +a.tmax.toFixed(1) : null, tmin: a.tmin != null ? +a.tmin.toFixed(1) : null, rain: a.rain != null ? +a.rain.toFixed(2) : null }
+    });
+    if (f.tmax != null && a.tmax != null) { aeT += Math.abs(f.tmax - a.tmax); nT++; }
+    if (f.tmin != null && a.tmin != null) { aeTn += Math.abs(f.tmin - a.tmin); nTn++; }
+    if (f.rain != null && a.rain != null) { rainN++; if ((f.rain >= WET_MM) === (a.rain >= WET_MM)) rainHit++; }
+  }
+
+  return {
+    station, days,
+    rows,
+    summary: {
+      n: nT,
+      tmaxMAE: nT ? +(aeT / nT).toFixed(2) : null,
+      tminMAE: nTn ? +(aeTn / nTn).toFixed(2) : null,
+      rainHit, rainN
+    },
+    generated: new Date().toISOString()
+  };
 }
