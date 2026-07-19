@@ -1,75 +1,66 @@
-/* WeatherBlend — mono minimalist timeline view (overrides the cards UI) */
+/* WeatherBlend — timeline view (quatrefoil dark UI · merged hero chart) */
 .tl-legacy-hidden{display:none !important;}
 
 #timeline-root{
   max-width:520px;margin:0 auto;padding:8px 16px 12px;
-  color:var(--text-primary,#141311);
+  color:var(--text-primary,#f4f7fd);
 }
 #timeline-root *{box-sizing:border-box;}
-.tlm{font-family:'Helvetica Neue',Helvetica,Arial,system-ui,-apple-system,'Segoe UI',sans-serif;}
+.tlm{font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;}
 
 /* ── continuous week overview (compressed) ── */
 .tlm-week{margin-bottom:2px;cursor:pointer;touch-action:pan-y;user-select:none;-webkit-user-select:none;will-change:transform;}
 .tlm-wk-svg{display:block;width:100%;height:38px;overflow:visible;}
 .tlm-wk-labels{display:grid;grid-template-columns:repeat(7,1fr);margin-top:1px;}
-.tlm-wk-day{display:flex;justify-content:center;padding:4px 0 2px;border:none;background:transparent;cursor:pointer;font-family:inherit;color:var(--text-dim,#a29e93);}
+.tlm-wk-day{display:flex;justify-content:center;padding:4px 0 2px;border:none;background:transparent;cursor:pointer;font-family:inherit;color:var(--text-dim,#5f6f82);}
 .tlm-wk-dow{font-size:9.5px;font-weight:700;letter-spacing:.6px;}
-.tlm-wk-day.sel{color:var(--text-primary,#141311);}
+.tlm-wk-day.sel{color:var(--text-primary,#f4f7fd);}
 
 /* ── hour section ── */
-.tlm-hour{padding-top:14px;margin-top:14px;border-top:1px solid var(--border,#dedad0);}
-.tlm-hero{display:flex;align-items:flex-start;gap:14px;padding:2px 0 22px;touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:ew-resize;}
+.tlm-hour{padding-top:14px;margin-top:14px;border-top:1px solid var(--border,#1f2733);}
+.tlm-hero{display:flex;align-items:flex-start;gap:14px;padding:2px 0 20px;touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:ew-resize;}
 .tlm-hero-l{flex:0 0 auto;}
-.tlm-temp{font-size:62px;font-weight:500;letter-spacing:-2.5px;line-height:.9;color:var(--text-primary,#141311);}
-.tlm-feels{font-size:14px;font-weight:500;color:var(--text-muted,#6f6c64);margin-top:6px;}
+.tlm-temp{font-size:62px;font-weight:500;letter-spacing:-2.5px;line-height:.9;color:var(--text-primary,#f4f7fd);}
+.tlm-feels{font-size:14px;font-weight:500;color:var(--text-muted,#93a6c0);margin-top:6px;}
 .tlm-metrics{flex:1;display:flex;flex-direction:column;gap:14px;padding-top:6px;}
 .tlm-metric{display:flex;align-items:center;justify-content:flex-end;gap:9px;}
-.tlm-mic{display:flex;color:var(--text-primary,#141311);}
+.tlm-mic{display:flex;}
 .tlm-mic svg{width:18px;height:18px;}
-.tlm-mfig{font-size:21px;font-weight:600;letter-spacing:-.5px;color:var(--text-primary,#141311);white-space:nowrap;}
-.tlm-mconf{font-size:12px;font-weight:600;color:var(--text-dim,#a29e93);}
-.tlm-mdir{font-size:13px;font-weight:600;color:var(--text-muted,#6f6c64);}
-/* metric icon colours — the one chromatic touch besides the NOW red */
-.tlm-ic-temp{color:var(--q-temp,#1f8a5b)!important;}
-.tlm-ic-rain{color:var(--q-rain,#2a6fdb)!important;}
-.tlm-ic-wind{color:var(--q-wind,#6f8f1f)!important;}
-.tlm-ic-cloud{color:var(--q-cloud,#7c5cc4)!important;}
+.tlm-mfig{font-size:21px;font-weight:600;letter-spacing:-.5px;color:var(--text-primary,#f4f7fd);white-space:nowrap;}
+.tlm-mconf{font-size:12px;font-weight:600;color:var(--text-dim,#5f6f82);}
+.tlm-mdir{font-size:13px;font-weight:600;color:var(--text-muted,#93a6c0);}
+/* metric icon colours — the quatrefoil */
+.tlm-ic-temp{color:var(--q-temp,#7EE8A5)!important;}
+.tlm-ic-rain{color:var(--q-rain,#5FA4FF)!important;}
+.tlm-ic-wind{color:var(--q-wind,#A8E63E)!important;}
+.tlm-ic-cloud{color:var(--q-cloud,#C8A6FF)!important;}
 
-/* ── sparklines ── */
+/* ── the merged day chart ── */
 .tlm-chart{position:relative;}
-.tlm-lanes{display:flex;flex-direction:column;gap:34px;position:relative;z-index:1;}
-/* dimmed background before sunrise / after sunset (line stays crisp) */
-.tlm-nightbg{position:absolute;left:36px;right:50px;top:-6px;bottom:-6px;pointer-events:none;z-index:0;}
-.tlm-night{position:absolute;top:0;bottom:0;background:rgba(20,19,17,.055);}
-.tlm-lane{display:flex;align-items:center;gap:10px;}
-.tlm-lic{flex:0 0 26px;display:flex;justify-content:center;color:var(--text-primary,#141311);}
-.tlm-lic svg{width:16px;height:16px;}
-.tlm-lspark{flex:1;min-width:0;}
-.tlm-lscale{flex:0 0 40px;display:flex;flex-direction:column;align-items:flex-end;justify-content:space-between;height:40px;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;}
-.tlm-ceil{font-size:12.5px;font-weight:700;color:var(--text-primary,#141311);}
-.tlm-floor{font-size:12.5px;font-weight:700;color:var(--text-dim,#a29e93);}
+.tlm-mainsvg{display:block;width:100%;height:176px;overflow:visible;border-radius:10px;}
+/* hi/lo labels drawn on the curve */
+.tlm-clab{fill:var(--text-primary,#f4f7fd);font-size:13px;font-weight:700;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;paint-order:stroke;stroke:var(--bg,#0c0f15);stroke-width:3px;stroke-linejoin:round;}
+.tlm-clab.lo{fill:var(--text-muted,#93a6c0);}
 
-/* overlay: NOW line (hour-snapped scrub, exact time idle). Insets match
-   the lane spark region so the line aligns with the hour grid at any
-   width — identical on mobile and desktop. */
-.tlm-overlay{position:absolute;left:36px;right:50px;top:0;bottom:0;cursor:ew-resize;touch-action:pan-y;z-index:2;}
-.tlm-now{position:absolute;top:0;bottom:0;width:1.5px;background:var(--now,#a3392c);transform:translateX(-50%);box-shadow:0 0 0 3px rgba(163,57,44,.14);}
-.tlm-nowlab{position:absolute;top:-22px;transform:translateX(-50%);font-size:10.5px;font-weight:700;color:var(--now,#a3392c);white-space:nowrap;letter-spacing:.2px;z-index:3;background:var(--bg,#f2f1ec);padding:0 3px;}
+/* overlay: NOW line + the dot riding the temp curve. Full chart width —
+   the hour grid runs edge to edge, identical on mobile and desktop. */
+.tlm-overlay{position:absolute;left:0;right:0;top:0;bottom:0;cursor:ew-resize;touch-action:pan-y;z-index:2;}
+.tlm-now{position:absolute;top:0;bottom:4px;width:1.5px;background:var(--now,#f87171);transform:translateX(-50%);box-shadow:0 0 0 3px rgba(248,113,113,.14);}
+.tlm-dot{position:absolute;width:11px;height:11px;border-radius:50%;background:#fff;border:2px solid var(--q-temp,#7EE8A5);box-shadow:0 0 10px 2px rgba(126,232,165,.55);transform:translate(-50%,-50%);pointer-events:none;z-index:3;}
+.tlm-nowlab{position:absolute;top:-22px;transform:translateX(-50%);font-size:10.5px;font-weight:700;color:var(--now,#f87171);white-space:nowrap;letter-spacing:.2px;z-index:3;background:var(--bg,#0c0f15);padding:0 3px;border-radius:4px;}
 
 /* top axis: sunrise / sunset times + NOW label share this line */
-.tlm-axis{display:flex;align-items:center;gap:10px;margin:0 0 8px;}
-.tlm-axpad{flex:0 0 26px;}
-.tlm-axpad-r{flex:0 0 40px;}
-.tlm-axtrack{flex:1;position:relative;height:20px;}
-.tlm-suntime{position:absolute;top:0;transform:translateX(-50%);display:flex;align-items:center;gap:4px;color:var(--text-muted,#6f6c64);white-space:nowrap;}
+.tlm-axis{margin:0 0 8px;}
+.tlm-axtrack{position:relative;height:20px;}
+.tlm-suntime{position:absolute;top:0;transform:translateX(-50%);display:flex;align-items:center;gap:4px;color:var(--text-muted,#93a6c0);white-space:nowrap;}
 .tlm-suntime .wxi{width:12px;height:12px;filter:none;}
 .tlm-suntime b{font-size:11px;font-weight:600;}
 
 /* ── secondary metrics ── */
 .tl-sec-btn{
   width:100%;display:flex;align-items:center;gap:8px;background:none;border:none;
-  border-top:1px solid var(--border,#dedad0);padding:16px 2px 14px;cursor:pointer;
-  color:var(--text-muted,#6f6c64);font-family:inherit;margin-top:8px;
+  border-top:1px solid var(--border,#1f2733);padding:16px 2px 14px;cursor:pointer;
+  color:var(--text-muted,#93a6c0);font-family:inherit;margin-top:8px;
 }
 .tl-sec-btn .tl-sec-label{font-size:10.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;}
 .tl-sec-btn .tl-sec-chev{margin-left:auto;display:flex;transition:transform .3s;}
@@ -79,8 +70,8 @@
 .tl-sec-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 20px;padding:2px 2px 14px;}
 .tl-sec-item{display:flex;flex-direction:column;gap:5px;min-width:0;}
 .tl-sec-row{display:flex;align-items:baseline;gap:7px;min-width:0;}
-.tl-sec-name{font-size:9.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text-dim,#a29e93);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.tl-sec-val{margin-left:auto;font-size:12.5px;font-weight:600;color:var(--text-muted,#6f6c64);white-space:nowrap;}
+.tl-sec-name{font-size:9.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text-dim,#5f6f82);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tl-sec-val{margin-left:auto;font-size:12.5px;font-weight:600;color:var(--text-muted,#93a6c0);white-space:nowrap;}
 .tl-sec-spark{display:block;width:100%;height:22px;}
 .tl-sec-sparkwrap{position:relative;touch-action:pan-y;cursor:ew-resize;}
-.tl-sec-now{position:absolute;top:-2px;bottom:-2px;width:1.5px;background:var(--now,#a3392c);transform:translateX(-50%);pointer-events:none;}
+.tl-sec-now{position:absolute;top:-2px;bottom:-2px;width:1.5px;background:var(--now,#f87171);transform:translateX(-50%);pointer-events:none;}

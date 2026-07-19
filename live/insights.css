@@ -2,40 +2,40 @@
 
 .wxi-receipt{
   margin:2px 0 16px;padding:11px 13px;
-  border:1px solid var(--border,#dedad0);border-radius:12px;
-  background:var(--surface,#ffffff);cursor:pointer;
+  border:1px solid var(--border,#1f2733);border-radius:12px;
+  background:var(--surface,#141922);cursor:pointer;
   transition:border-color .15s;
   user-select:none;-webkit-user-select:none;
   font-family:'Helvetica Neue',Helvetica,Arial,system-ui,-apple-system,'Segoe UI',sans-serif;
 }
-.wxi-receipt:hover{border-color:var(--border2,#c8c3b6);}
+.wxi-receipt:hover{border-color:var(--border2,#2b3647);}
 .wxi-r-line{
   display:flex;gap:8px;align-items:baseline;
-  font-size:13.5px;line-height:1.4;color:var(--text-primary,#141311);
+  font-size:13.5px;line-height:1.4;color:var(--text-primary,#f4f7fd);
 }
 .wxi-r-line b{font-weight:700;}
-.wxi-tick{color:var(--q-temp,#1f8a5b);font-weight:700;flex-shrink:0;}
-.wxi-r-sub{font-size:12px;color:var(--text-muted,#6f6c64);margin-top:3px;padding-left:21px;}
+.wxi-tick{color:var(--q-temp,#7EE8A5);font-weight:700;flex-shrink:0;}
+.wxi-r-sub{font-size:12px;color:var(--text-muted,#93a6c0);margin-top:3px;padding-left:21px;}
 
 /* expandable 7-day record (open by default in the modal; tap to collapse) */
-.wxi-r-table{display:none;margin-top:10px;border-top:1px solid var(--border,#dedad0);padding-top:8px;}
+.wxi-r-table{display:none;margin-top:10px;border-top:1px solid var(--border,#1f2733);padding-top:8px;}
 .wxi-receipt.open .wxi-r-table{display:block;}
 .wxi-r-row{
   display:grid;grid-template-columns:74px 1fr 1fr 74px;gap:4px;
-  font-size:12.5px;padding:3.5px 0;color:var(--text-muted,#6f6c64);
+  font-size:12.5px;padding:3.5px 0;color:var(--text-muted,#93a6c0);
   font-variant-numeric:tabular-nums;
 }
 .wxi-r-hdr{
   font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
-  color:var(--text-dim,#a29e93);
+  color:var(--text-dim,#5f6f82);
 }
-.wxi-r-day{font-weight:600;color:var(--text-primary,#141311);}
+.wxi-r-day{font-weight:600;color:var(--text-primary,#f4f7fd);}
 .wxi-r-rain{text-align:right;white-space:nowrap;}
 .wxi-dot{font-size:9px;vertical-align:1px;margin-right:2px;}
-.wxi-dot.hit{color:var(--q-temp,#1f8a5b);}
-.wxi-dot.miss{color:var(--now,#a3392c);}
-.wxi-dot.dim{color:var(--text-dim,#a29e93);}
+.wxi-dot.hit{color:var(--q-temp,#7EE8A5);}
+.wxi-dot.miss{color:var(--now,#f87171);}
+.wxi-dot.dim{color:var(--text-dim,#5f6f82);}
 
 /* selected-day highlight in the receipts record */
-.wxi-r-row.sel{color:var(--text-primary,#141311);}
+.wxi-r-row.sel{color:var(--text-primary,#f4f7fd);}
 .wxi-r-row.sel .wxi-r-day{text-decoration:underline;text-underline-offset:2px;}

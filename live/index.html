@@ -4,18 +4,18 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WeatherBlend</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%23413c33%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2220%22%20r%3D%2212%22%20fill%3D%22%23232019%22%2F%3E%3Ccircle%20cx%3D%2244%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%235c584f%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2244%22%20r%3D%2212%22%20fill%3D%22%23847f73%22%2F%3E%3C%2Fsvg%3E">
-<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%23413c33%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2220%22%20r%3D%2212%22%20fill%3D%22%23232019%22%2F%3E%3Ccircle%20cx%3D%2244%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%235c584f%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2244%22%20r%3D%2212%22%20fill%3D%22%23847f73%22%2F%3E%3C%2Fsvg%3E">
-<meta name="theme-color" content="#f2f1ec">
-<link rel="stylesheet" href="styles.css?v=5">
-<link rel="stylesheet" href="timeline.css?v=10">
-<link rel="stylesheet" href="insights.css?v=3">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%23A8E63E%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2220%22%20r%3D%2212%22%20fill%3D%22%237EE8A5%22%2F%3E%3Ccircle%20cx%3D%2244%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%235FA4FF%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2244%22%20r%3D%2212%22%20fill%3D%22%23C8A6FF%22%2F%3E%3C%2Fsvg%3E">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%23A8E63E%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2220%22%20r%3D%2212%22%20fill%3D%22%237EE8A5%22%2F%3E%3Ccircle%20cx%3D%2244%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%235FA4FF%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2244%22%20r%3D%2212%22%20fill%3D%22%23C8A6FF%22%2F%3E%3C%2Fsvg%3E">
+<meta name="theme-color" content="#7EE8A5">
+<link rel="stylesheet" href="styles.css?v=6">
+<link rel="stylesheet" href="timeline.css?v=11">
+<link rel="stylesheet" href="insights.css?v=4">
 </head>
 <body>
 
 <div class="topbar">
 <header>
-  <span class="hdr-logo" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="32" r="12" fill="#413c33"/><circle cx="32" cy="20" r="12" fill="#232019"/><circle cx="44" cy="32" r="12" fill="#5c584f"/><circle cx="32" cy="44" r="12" fill="#847f73"/></svg></span>
+  <span class="hdr-logo" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="32" r="12" fill="#A8E63E"/><circle cx="32" cy="20" r="12" fill="#7EE8A5"/><circle cx="44" cy="32" r="12" fill="#5FA4FF"/><circle cx="32" cy="44" r="12" fill="#C8A6FF"/></svg></span>
   <button class="hdr-loc" onclick="promptLocation()" aria-label="Change location" title="Change location">
     <span class="loc-name" id="loc-name">Detecting…</span>
     <span class="loc-sub"><svg class="loc-pin" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11z"/><circle cx="12" cy="10" r="2.4"/></svg><span class="loc-detail" id="loc-detail"></span></span>
@@ -29,7 +29,7 @@
 <div class="drawer-overlay hidden" id="drawer-overlay" onclick="if(event.target===this)closeDrawer()">
   <aside class="drawer" id="drawer">
     <div class="drawer-head">
-      <span class="dh-brand"><span class="dh-logo"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="32" r="12" fill="#413c33"/><circle cx="32" cy="20" r="12" fill="#232019"/><circle cx="44" cy="32" r="12" fill="#5c584f"/><circle cx="32" cy="44" r="12" fill="#847f73"/></svg></span><span class="dh-title">Weather<span>Blend</span></span></span>
+      <span class="dh-brand"><span class="dh-logo"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="32" r="12" fill="#A8E63E"/><circle cx="32" cy="20" r="12" fill="#7EE8A5"/><circle cx="44" cy="32" r="12" fill="#5FA4FF"/><circle cx="32" cy="44" r="12" fill="#C8A6FF"/></svg></span><span class="dh-title">Weather<span>Blend</span></span></span>
       <button class="drawer-close" onclick="closeDrawer()" aria-label="Close">×</button>
     </div>
     <div class="drawer-label">Options</div>
@@ -88,7 +88,7 @@
   <div class="help-modal acc-modal">
     <button class="modal-x" onclick="hideAccuracy()" aria-label="Close">✕</button>
     <h2>Forecast accuracy</h2>
-    <div class="help-sub" id="acc-sub">Tracking how each model performs against BOM observations.</div>
+    <div class="help-sub" id="acc-sub">Tracking how each model performs against Open-Meteo observations.</div>
     <div id="acc-body"></div>
     <div style="margin-top:14px;text-align:right"><button class="acc-close" onclick="hideAccuracy()">Close</button></div>
   </div>
@@ -105,54 +105,54 @@
     <p>WeatherBlend fetches forecasts from multiple global weather models simultaneously and blends them. Research shows multi-model blends are consistently more accurate than any single model.</p>
 
     <h3>The cards view</h3>
-    <p>The big <strong>now card</strong> shows current conditions for the selected day: a data-driven blend orb, temperature (with feels-like and the day's high/low), rain, wind and cloud. Swipe left/right between days or tap ◀ ▶. Below it, four <strong>sparklines</strong> (temp, rain, wind, cloud) trace the whole day — solid where observed, dashed where forecast, with sunrise/sunset markers and a red "now" line. On today you can <strong>drag the now line</strong> to scrub the card to any hour.</p>
+    <p>The hero shows the selected day: temperature with feels-like, plus rain, wind and cloud figures. Below it, <strong>one chart</strong> draws the whole day — the temperature curve (solid where observed, dashed where forecast, wrapped in a soft ribbon that widens where the models disagree), blue rain bars rising from the floor, a faint cloud band across the top of the sky, night shading outside sunrise/sunset, and the day's high/low labelled right on the curve. A glowing dot rides the curve at the red "now" line. <strong>Hold and drag</strong> anywhere on the chart or the hero figures to scrub to any hour; <strong>flick</strong> to slide between days.</p>
     <p>The <strong>metric cards</strong> and <strong>hourly strip</strong> always reconcile with the table — the same blended (or observed) value appears everywhere.</p>
 
     <h3>Reading the table</h3>
-    <p>Each section heading row <em>is</em> the blended average. Open ☰ → Models &amp; sources and enable <strong>Sources</strong> to see individual model rows below it, each tagged with its current accuracy weight. The <strong>✓ Actual</strong> row shows real observations for past hours (from your chosen source). A <strong>Confidence</strong> row in each section shows the per-hour model agreement for that metric. Daytime columns are shaded lighter; a red column marks the current hour.</p>
+    <p>Each section heading row <em>is</em> the blended average. Open ☰ → Models &amp; sources and enable <strong>Sources</strong> to see individual model rows below it, each tagged with its current accuracy weight. The <strong>✓ Actual</strong> row shows Open-Meteo’s analysis for past hours. A <strong>Confidence</strong> row in each section shows the per-hour model agreement for that metric. Daytime columns are shaded lighter; a red column marks the current hour.</p>
 
     <h3>Colour coding</h3>
-    <p><strong style="color:var(--text-primary)">Temperature</strong></p>
+    <p><strong style="color:#86efac">Temperature</strong></p>
     <div class="swatch-row">
-      <div class="swatch"><span class="sw" style="background:#efeee9"></span> &lt;5° Cold</div>
-      <div class="swatch"><span class="sw" style="background:#e6e3da"></span> 5–12° Cool</div>
-      <div class="swatch"><span class="sw" style="background:#d5d1c3"></span> 12–22° Mild</div>
-      <div class="swatch"><span class="sw" style="background:#b5b0a0"></span> 22–30° Warm</div>
-      <div class="swatch"><span class="sw" style="background:#8d897e"></span> &gt;30° Hot</div>
+      <div class="swatch"><span class="sw" style="background:#0d1a2e"></span> &lt;5° Cold</div>
+      <div class="swatch"><span class="sw" style="background:#0d2040"></span> 5–12° Cool</div>
+      <div class="swatch"><span class="sw" style="background:#0d2e1a"></span> 12–22° Mild</div>
+      <div class="swatch"><span class="sw" style="background:#2e2000"></span> 22–30° Warm</div>
+      <div class="swatch"><span class="sw" style="background:#3a1000"></span> &gt;30° Hot</div>
     </div>
-    <p style="margin-top:10px"><strong style="color:var(--text-primary)">Rain</strong></p>
+    <p style="margin-top:10px"><strong style="color:#90caf9">Rain</strong></p>
     <div class="swatch-row">
-      <div class="swatch"><span class="sw" style="background:#efeee9"></span> Trace</div>
-      <div class="swatch"><span class="sw" style="background:#cec9ba"></span> 0.5mm/hr</div>
-      <div class="swatch"><span class="sw" style="background:#847e70"></span> 1mm/hr</div>
-      <div class="swatch"><span class="sw" style="background:#4d4a43"></span> 5mm/hr+</div>
+      <div class="swatch"><span class="sw" style="background:#0d2540"></span> Trace</div>
+      <div class="swatch"><span class="sw" style="background:#0f4c8a"></span> 0.5mm/hr</div>
+      <div class="swatch"><span class="sw" style="background:#1976d2"></span> 1mm/hr</div>
+      <div class="swatch"><span class="sw" style="background:#0d47a1"></span> 5mm/hr+</div>
     </div>
-    <p style="margin-top:10px"><strong style="color:var(--text-primary)">Wind</strong></p>
+    <p style="margin-top:10px"><strong style="color:#d9f99d">Wind</strong></p>
     <div class="swatch-row">
-      <div class="swatch"><span class="sw" style="background:#efeee9"></span> Calm &lt;10</div>
-      <div class="swatch"><span class="sw" style="background:#dcd8cc"></span> Light 10–20</div>
-      <div class="swatch"><span class="sw" style="background:#b5b0a0"></span> Moderate 20–35</div>
-      <div class="swatch"><span class="sw" style="background:#5c584f"></span> Strong 35–55</div>
-      <div class="swatch"><span class="sw" style="background:#232019"></span> Storm 55+</div>
+      <div class="swatch"><span class="sw" style="background:#0a1a0f"></span> Calm &lt;10</div>
+      <div class="swatch"><span class="sw" style="background:#0d2215"></span> Light 10–20</div>
+      <div class="swatch"><span class="sw" style="background:#2a3a0a"></span> Moderate 20–35</div>
+      <div class="swatch"><span class="sw" style="background:#3a2a0a"></span> Strong 35–55</div>
+      <div class="swatch"><span class="sw" style="background:#4a1a0a"></span> Storm 55+</div>
     </div>
 
     <h3>Weather sources (7 models)</h3>
-    <div class="src-grid"><div class="src-item"><div class="src-name" style="color:#232019">GFS</div><div class="src-desc">NOAA · USA · Global 25km · 16-day</div></div>
-      <div class="src-item"><div class="src-name" style="color:#332f28">ECMWF</div><div class="src-desc">European Centre · 9km · Open data since Oct 2025</div></div>
-      <div class="src-item"><div class="src-name" style="color:#413c33">ICON</div><div class="src-desc">DWD · Germany · Global + Europe high-res</div></div>
-      <div class="src-item"><div class="src-name" style="color:#4f4a40">GEM</div><div class="src-desc">Environment Canada · Global 10km</div></div>
-      <div class="src-item"><div class="src-name" style="color:#5c584e">UKMO</div><div class="src-desc">UK Met Office · Global model</div></div>
-      <div class="src-item"><div class="src-name" style="color:#69645a">CMA</div><div class="src-desc">China Met Admin · GRAPES global</div></div>
-      <div class="src-item"><div class="src-name" style="color:#767065">JMA</div><div class="src-desc">Japan Met Agency · Global 20km</div></div>
+    <div class="src-grid"><div class="src-item"><div class="src-name" style="color:#2563eb">GFS</div><div class="src-desc">NOAA · USA · Global 25km · 16-day</div></div>
+      <div class="src-item"><div class="src-name" style="color:#059669">ECMWF</div><div class="src-desc">European Centre · 9km · Open data since Oct 2025</div></div>
+      <div class="src-item"><div class="src-name" style="color:#16a34a">ICON</div><div class="src-desc">DWD · Germany · Global + Europe high-res</div></div>
+      <div class="src-item"><div class="src-name" style="color:#7c3aed">GEM</div><div class="src-desc">Environment Canada · Global 10km</div></div>
+      <div class="src-item"><div class="src-name" style="color:#dc2626">UKMO</div><div class="src-desc">UK Met Office · Global model</div></div>
+      <div class="src-item"><div class="src-name" style="color:#d97706">CMA</div><div class="src-desc">China Met Admin · GRAPES global</div></div>
+      <div class="src-item"><div class="src-name" style="color:#6366f1">JMA</div><div class="src-desc">Japan Met Agency · Global 20km</div></div>
     </div>
-    <p style="margin-top:10px;font-size:12px">Forecasts via <a href="https://open-meteo.com" target="_blank" style="color:var(--accent)">Open-Meteo</a>. Past "actual" data uses <a href="https://www.bom.gov.au" target="_blank" style="color:var(--accent)">BOM</a>'s nearest-station observations (Australia), fetched through a Cloudflare Worker — BOM is observations only, never a forecast. Refreshes automatically every hour.</p>
+    <p style="margin-top:10px;font-size:12px">All data via <a href="https://open-meteo.com" target="_blank" style="color:var(--accent)">Open-Meteo</a> — forecasts ahead, and each model's own analysis of hours already gone as the "actual" record behind. No API key required. Refreshes automatically every hour.</p>
 
     <h3>Menu (☰)</h3>
     <p><strong>Show:</strong> which metrics appear (Temp / Rain / Wind / Cloud). <strong>Options:</strong> Weighted blend, Vertical table, Actual rows, Predicted line, Debug. <strong>Confidence:</strong> per-metric model-agreement figures for Temp / Rain / Wind / Cloud. <strong>Models:</strong> enable/disable individual sources — disabled models leave the blend. Any change recalculates everything.</p>
 
-    <h3>Accuracy, weighting &amp; bias</h3>
-    <p>Models are blended by how accurate they've recently been, scored against real observations. Each model's error is tracked <em>per metric and per lead time</em>; skill is sharpened (inverse-squared error), shrunk toward equal until enough evidence accumulates, and clamped so no model is silenced or dominates. Each model's systematic <strong>bias</strong> (e.g. always forecasting 0.8° too cold here) is also learned and subtracted before blending — for temperature, wind and cloud. Rain is scored on <em>occurrence</em> (did it rain when the model said so?) plus error on wet days, so a model can't look good by always predicting dry.</p>
-    <p><strong>Actual source</strong> sets the ground truth: <em>BOM</em> (station obs), <em>Open-Meteo</em> (model mean) or <em>Blend</em>. <strong>Weight method</strong>: <strong>Recency</strong> — recency-weighted error (plus server-learned weights and biases when BOM is the truth source). <strong>Per-day</strong> — scores each model per day over the last X days. <strong>Blend</strong> — the mean of the two.</p>
+    <h3>Accuracy &amp; weighting</h3>
+    <p>Models are blended by how accurate they've recently been at your location, scored per metric against Open-Meteo's analysis of hours already gone — the same ✓ Actual data the table shows. Skill is sharpened (inverse-squared error), shrunk toward equal until enough evidence accumulates, and clamped so no model is silenced or dominates.</p>
+    <p><strong>Weight method</strong>: <strong>Recency</strong> — errors decay with age, so the last couple of days matter most. <strong>Per-day</strong> — scores each model per day over the last X days, each day counting equally. <strong>Blend</strong> — the mean of the two. The <strong>learning window</strong> sets how many past days are fetched and scored. ☰ → Forecast accuracy shows the full per-model scorecard and the blend's day-by-day record.</p>
 
     <h3>Confidence</h3>
     <p>Confidence is a plain-English read on <em>how much the models agree</em>. When they all predict much the same thing it's <strong style="color:var(--text-primary)">High</strong>; when they diverge it falls to <strong style="color:var(--text-muted)">Medium</strong> or <strong style="color:var(--text-dim)">Low</strong>. It's computed per metric, per hour and per day. It measures <em>agreement, not certainty</em>.</p>
@@ -186,7 +186,7 @@
 </div>
 <div class="source-note">
   Data: <a href="https://open-meteo.com" target="_blank">Open-Meteo</a> ·
-  GFS (NOAA/USA) · ECMWF IFS 0.25° · ICON (DWD/Germany) · GEM (Canada) · UKMO (Met Office) · CMA (China) · JMA (Japan). Observations: BOM (AUS) ·
+  GFS (NOAA/USA) · ECMWF IFS 0.25° · ICON (DWD/Germany) · GEM (Canada) · UKMO (Met Office) · CMA (China) · JMA (Japan) ·
   No API key required. Auto-refreshes hourly.
 </div>
 </div>
@@ -221,9 +221,9 @@
   <div id="debug-lines" style="padding:8px 10px;overflow:auto;white-space:pre-wrap;word-break:break-word;flex:1 1 auto"></div>
 </div>
 
-<script src="engine.js?v=5"></script>
-<script src="app.js?v=6"></script>
-<script src="timeline.js?v=11"></script>
-<script src="insights.js?v=6"></script>
+<script src="engine.js?v=6"></script>
+<script src="app.js?v=7"></script>
+<script src="timeline.js?v=12"></script>
+<script src="insights.js?v=7"></script>
 </body>
 </html>

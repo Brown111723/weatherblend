@@ -3,10 +3,10 @@
 // ════════════════════════════════════════════════════════════════════════
 // Load order: engine.js FIRST, then app.js. This file owns:
 //   • all shared mutable state (prefs, weights, actuals, caches)
-//   • model fetching (Open-Meteo) + BOM observations via the Worker
-//   • the blend: per-metric per-horizon weights + bias correction
-//   • live accuracy scoring (recency / per-day) with shrinkage
-//   • server accuracy sync (/track/sync, /track/weights)
+//   • model fetching (Open-Meteo, forecast + past days)
+//   • the blend: per-metric accuracy weights
+//   • live accuracy scoring (recency / per-day) with shrinkage,
+//     verified against Open-Meteo's analysis of past hours
 // It calls these app.js functions at runtime (UI layer):
 //   renderCurrentBar, renderTable, buildSourcesPanel, renderSkeleton,
 //   setStatus, updatePills, showErr, scheduleAutoRefresh,
@@ -35,13 +35,13 @@ dbg('engine.js loaded');
 
 // ── Models ──────────────────────────────────────────────────────────────
 const MODELS = [
-  { key:'gfs_seamless',      ep:'/v1/forecast', label:'GFS',   short:'G', color:'#232019', desc:'NOAA · USA'      },
-  { key:'ecmwf_ifs025',      ep:'/v1/ecmwf',    label:'ECMWF', short:'E', color:'#332f28', desc:'ECMWF · 0.25°'   },
-  { key:'icon_seamless',     ep:'/v1/forecast', label:'ICON',  short:'I', color:'#413c33', desc:'DWD · Germany'   },
-  { key:'gem_seamless',      ep:'/v1/forecast', label:'GEM',   short:'C', color:'#4f4a40', desc:'Env. Canada'     },
-  { key:'ukmo_seamless',     ep:'/v1/forecast', label:'UKMO',  short:'U', color:'#5c584e', desc:'Met Office · UK' },
-  { key:'cma_grapes_global', ep:'/v1/forecast', label:'CMA',   short:'X', color:'#69645a', desc:'CMA · China'     },
-  { key:'jma_seamless',      ep:'/v1/forecast', label:'JMA',   short:'J', color:'#767065', desc:'JMA · Japan'     }
+  { key:'gfs_seamless',      ep:'/v1/forecast', label:'GFS',   short:'G', color:'#2563eb', desc:'NOAA · USA'      },
+  { key:'ecmwf_ifs025',      ep:'/v1/ecmwf',    label:'ECMWF', short:'E', color:'#059669', desc:'ECMWF · 0.25°'   },
+  { key:'icon_seamless',     ep:'/v1/forecast', label:'ICON',  short:'I', color:'#16a34a', desc:'DWD · Germany'   },
+  { key:'gem_seamless',      ep:'/v1/forecast', label:'GEM',   short:'C', color:'#7c3aed', desc:'Env. Canada'     },
+  { key:'ukmo_seamless',     ep:'/v1/forecast', label:'UKMO',  short:'U', color:'#dc2626', desc:'Met Office · UK' },
+  { key:'cma_grapes_global', ep:'/v1/forecast', label:'CMA',   short:'X', color:'#d97706', desc:'CMA · China'     },
+  { key:'jma_seamless',      ep:'/v1/forecast', label:'JMA',   short:'J', color:'#6366f1', desc:'JMA · Japan'     }
 ];
 const enabled    = new Set(MODELS.map(m=>m.key));
 const autoHidden = new Set();
@@ -65,10 +65,8 @@ let cachedForecastRain = null;
 let cachedHiLo = null;
 let modelWeights = {};
 let metricWeights = {temp:{},rain:{},wind:{},cloud:{}};
-let metricWeightsByH = {};
 let actualSources = null;
-let actualSource = 'bom';
-let learnDays = 60;                 // Phase 1: default window 35 → 60 days
+let learnDays = 14;                 // past days fetched per model (scores accuracy)
 let weightMethod = 'current';
 let weightDays = 3;
 let actualData = null;
@@ -79,25 +77,13 @@ let _lastCoordsKey = null;
 let state = { lat:null, lon:null, data:{}, status:{}, view:'1h', ss:{} };
 let autoRefreshTimer=null, nextRefreshAt=null;
 const AUTO_MS = 60*60*1000;
-// Learned (server) accuracy artefacts
-let historicalWeights=null, historicalWeightsByH=null;
-let historicalBiases=null,  historicalBiasesByH=null;    // Phase 1
-let activeBiases=null,      activeBiasesByH=null;        // what blending uses
-let accuracyStats=null, accuracyMeta=null, _trackStation=null;
-let _horizonCache={}, _horizonMetric='temp';
+// Client-computed accuracy artefacts (for the Forecast accuracy panel)
+let accuracyStats=null, accuracyMeta=null;
 
-// ── Phase-1 weighting constants (mirrors the Worker) ───────────────────
+// ── Weighting constants ─────────────────────────────────────────────────
 const SHRINK_K = 60;    // sample count before learned skill outranks equal
 const W_FLOOR  = 0.03;  // no model fully silenced
 const W_CAP    = 0.40;  // no model dominates
-// Fields eligible for bias correction. Wind DIRECTION and weather codes are
-// deliberately absent; rain is deliberately absent (subtracting a rain bias
-// can invent or erase precipitation).
-const BIAS_FIELDS = {
-  temperature_2m:'temp', temperature_2m_max:'temp', temperature_2m_min:'temp',
-  windspeed_10m:'wind',  windspeed_10m_max:'wind',
-  cloudcover:'cloud'
-};
 
 // Inverse-SQUARED-error skill, shrunk toward equal by n/(n+SHRINK_K),
 // clamped to [W_FLOOR, W_CAP], renormalised. errMap: key->err (lower better,
@@ -119,20 +105,6 @@ function _shrinkClampNorm(errMap, nMap, keys){
   const sum=keys.reduce((a,k)=>a+w[k],0)||1;
   keys.forEach(k=>w[k]/=sum);
   return w;
-}
-
-// Learned bias for one model at a lead time (°C / km/h / cloud-%).
-// bias = forecast − observed, so blending subtracts it.
-function biasOf(sec,key,horizon){
-  let src=null;
-  if(horizon!=null&&activeBiasesByH){
-    const eff=Math.min(7,Math.max(1,horizon));
-    const set=activeBiasesByH[eff];
-    if(set&&set[sec])src=set[sec];
-  }
-  if(!src&&activeBiases)src=activeBiases[sec];
-  const b=src?src[key]:null;
-  return (b!=null&&isFinite(b))?b:0;
 }
 
 // ── Time helpers (location-local wall clock) ────────────────────────────
@@ -204,7 +176,7 @@ function hVals(key,field,indices){
   });
 }
 
-// ── Weighted, bias-corrected blending ───────────────────────────────────
+// ── Weighted blending ───────────────────────────────────────────────────
 function fieldSec(field){
   if(/temperature/.test(field))return'temp';
   if(/precipitation/.test(field))return'rain';
@@ -217,27 +189,13 @@ function horizonOf(dateStr){
   if(!dateStr)return null;
   return Math.round((new Date(dateStr+'T12:00:00')-new Date(localTodayStr()+'T12:00:00'))/86400000);
 }
-// Weight map for a metric at a lead time; learned per-horizon sets take
-// precedence, else pooled.
-function weightsForH(sec,horizon){
-  if(horizon!=null && metricWeightsByH && Object.keys(metricWeightsByH).length){
-    const eff=Math.min(7,Math.max(1,horizon));
-    const set=metricWeightsByH[eff];
-    if(set && set[sec] && Object.keys(set[sec]).length)return set[sec];
-  }
-  return (metricWeights[sec]&&Object.keys(metricWeights[sec]).length)?metricWeights[sec]:null;
-}
-// The blend. `field` (optional) enables per-model bias correction for
-// temp / wind speed / cloud only — see BIAS_FIELDS.
+// The blend: accuracy-weighted mean of the enabled models' values.
+// `horizon` and `field` are accepted for call-site stability.
 function weightedAvgOf(modelValPairs,sec,horizon,field){
-  let pairs=modelValPairs.filter(p=>p.val!=null&&!isNaN(p.val));
+  const pairs=modelValPairs.filter(p=>p.val!=null&&!isNaN(p.val));
   if(!pairs.length)return null;
-  const bsec=field?BIAS_FIELDS[field]:null;
-  if(bsec&&(activeBiases||activeBiasesByH)){
-    pairs=pairs.map(p=>({key:p.key,val:p.val-biasOf(bsec,p.key,horizon)}));
-  }
-  const Wmap=sec?weightsForH(sec,horizon):null;
-  const W=(Wmap&&Object.keys(Wmap).length)?Wmap:modelWeights;
+  const Wmap=sec&&metricWeights[sec]&&Object.keys(metricWeights[sec]).length?metricWeights[sec]:null;
+  const W=Wmap||modelWeights;
   let res;
   if(!useWeightedAvg||!Object.keys(W).length){
     res=pairs.reduce((s,p)=>s+p.val,0)/pairs.length;
@@ -247,8 +205,9 @@ function weightedAvgOf(modelValPairs,sec,horizon,field){
       ? pairs.reduce((s,p)=>s+p.val,0)/pairs.length
       : pairs.reduce((s,p)=>s+p.val*(W[p.key]||0),0)/totalW;
   }
-  if(bsec==='wind')res=Math.max(0,res);
-  else if(bsec==='cloud')res=Math.max(0,Math.min(100,res));
+  const s=sec;
+  if(s==='wind')res=Math.max(0,res);
+  else if(s==='cloud')res=Math.max(0,Math.min(100,res));
   return res;
 }
 // Horizon-aware blended value at a ref index, window-aggregated to the view.
@@ -301,7 +260,7 @@ async function fetchAllModels(){
         +`&hourly=precipitation,wind_speed_10m,wind_direction_10m,temperature_2m,weather_code,cloud_cover,relative_humidity_2m`
         +`&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,`
         +`wind_speed_10m_max,wind_direction_10m_dominant,sunrise,sunset,uv_index_max`
-        +`&models=${m.key}&past_days=7&forecast_days=10&timezone=auto&wind_speed_unit=kmh`;
+        +`&models=${m.key}&past_days=${Math.max(7,Math.min(31,learnDays))}&forecast_days=10&timezone=auto&wind_speed_unit=kmh`;
       const res=await fetch(url,{signal:AbortSignal.timeout(20000)});if(!res.ok)throw new Error(`HTTP ${res.status}`);
       const json=await res.json();if(json.error)throw new Error(json.reason||'API error');
       normalizeOM(json);
@@ -334,21 +293,17 @@ async function fetchAllModels(){
   const t=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
   setStatus('ok',`${ok}/${MODELS.length} models · ${t}${failed.length?' · unavail: '+failed.join(', '):''}`);
 
-  // First paint waits for actuals + weights so it's internally consistent.
+  // Actuals + weights derive from the model data just fetched — no extra wait.
   try{ buildForecastRainCache(); buildHiLoCache(); buildSourcesPanel(); scheduleAutoRefresh(); }catch(e){ dbg('prep error: '+e.message); }
-  setStatus('spin','Finalising forecast…');
-  dbg('fetching BOM actuals + weights before first paint…');
   try{
-    await Promise.race([ fetchActualsAndComputeWeights(), new Promise(r=>setTimeout(r,6000)) ]);
-    dbg('actuals/weights ready'+(actualData?(' — '+actualData.source+' '+(actualData.stationName||'')):' — no actuals'));
+    computeActualsAndWeights();
+    dbg('actuals/weights ready'+(actualData?' — Open-Meteo analysis':' — no actuals'));
   }catch(e){ dbg('❌ actuals/weights error: '+e.message); }
   setStatus('ok',`${ok}/${MODELS.length} models · ${t}${failed.length?' · unavail: '+failed.join(', '):''}`);
   const _ck=`${state.lat!=null?state.lat.toFixed(3):'x'},${state.lon!=null?state.lon.toFixed(3):'x'}`;
   if(_ck!==_lastCoordsKey){ selDate=localTodayStr(); _lastCoordsKey=_ck; }
   try{ renderCurrentBar(); renderTable(); firstRenderDone=true; dbg('✓ rendered (weighted, with actuals)'); }
   catch(e){ dbg('❌ render error: '+e.message); }
-
-  syncAndLoadAccuracy().catch(e=>dbg('accuracy sync error: '+e.message));
 }
 
 // ── Current conditions endpoint (live now-card values) ──────────────────
@@ -489,205 +444,7 @@ function computeDaySummary(dateStr){
           aTHi,aTLo,aWHi,aWLo,aCHi,aCLo,aHasT,aHasW,aHasC};
 }
 
-// ── BOM observations (via Worker) ───────────────────────────────────────
-const BOM_WORKER_URL = 'https://weatherblend-bom.brown111723.workers.dev';
-function bomWorkerConfigured(){
-  return BOM_WORKER_URL && !/YOUR-SUBDOMAIN/.test(BOM_WORKER_URL);
-}
-function haversineKm(lat1, lon1, lat2, lon2){
-  const R=6371, toRad=d=>d*Math.PI/180;
-  const dLat=toRad(lat2-lat1), dLon=toRad(lon2-lon1);
-  const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
-  return R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-}
-function parseBomRain(val){
-  if(val==null||val==='-'||val==='')return 0;
-  if(typeof val==='number')return val;
-  const s=String(val).trim();
-  if(s.toLowerCase()==='trace')return 0.1;
-  const n=parseFloat(s);
-  return isNaN(n)?0:n;
-}
-async function bomWorkerObs(wmo, stateAbbr){
-  const u=`${BOM_WORKER_URL}?station=${encodeURIComponent(wmo)}&state=${encodeURIComponent(stateAbbr||'')}`;
-  const r=await fetch(u, {signal:AbortSignal.timeout(15000)});
-  if(!r.ok){
-    let why=''; try{ const j=await r.json(); why=j.error?(' ('+j.error+(j.tried?' tried '+j.tried.join(','):'')+')'):''; }catch{}
-    throw new Error('worker HTTP '+r.status+why);
-  }
-  const j=await r.json();
-  return j.data || j;
-}
-async function bomWorkerStations(){
-  const r=await fetch(`${BOM_WORKER_URL}?stations=1`, {signal:AbortSignal.timeout(20000)});
-  if(!r.ok)throw new Error('worker stations HTTP '+r.status);
-  return await r.text();
-}
-
-let bomStationsCache=null;
-async function loadBomStations(){
-  if(bomStationsCache)return bomStationsCache;
-  let text=null;
-  try{
-    const r=await fetch('stations.txt', {signal:AbortSignal.timeout(8000)});
-    if(r.ok){text=await r.text();dbg('stations.txt: loaded local file ('+text.length+' chars)');}
-  }catch(e){ dbg('stations.txt: local file not available ('+(e.message||e.name)+')'); }
-  if(!text){
-    if(bomWorkerConfigured()){
-      dbg('stations.txt: no local file — fetching via Worker…');
-      try{ text=await bomWorkerStations(); dbg('stations.txt: Worker loaded ('+text.length+' chars)'); }
-      catch(e){ dbg('❌ stations.txt via Worker failed: '+(e.message||e.name)); return []; }
-    } else {
-      dbg('❌ stations.txt: no local file and Worker URL not set');
-      return [];
-    }
-  }
-  const lines=text.split(/\r?\n/);
-  let sepIdx=-1;
-  for(let i=0;i<lines.length;i++){
-    if(/-{3,}/.test(lines[i]) && /^[\s-]+$/.test(lines[i])){ sepIdx=i; break; }
-  }
-  if(sepIdx<1){ dbg('❌ stations.txt: dashed separator line not found — unexpected format'); return []; }
-  const header=lines[sepIdx-1];
-  const cols=[]; let mm; const re=/-+/g;
-  while((mm=re.exec(lines[sepIdx]))!==null){ cols.push([mm.index, mm.index+mm[0].length]); }
-  const slice=(line,idx)=> (idx>=0 && idx<cols.length) ? line.slice(cols[idx][0], cols[idx][1]).trim() : '';
-  const label=idx=> slice(header,idx).toLowerCase();
-  let cLat=-1,cLon=-1,cSta=-1,cWmo=-1,cName=-1;
-  for(let i=0;i<cols.length;i++){
-    const l=label(i);
-    if(l==='lat')cLat=i;
-    else if(l==='lon'||l==='long'||l==='lng')cLon=i;
-    else if(l==='sta'||l==='state')cSta=i;
-    else if(l==='wmo')cWmo=i;
-    else if(l.includes('site name')||l==='name')cName=i;
-  }
-  dbg(`stations.txt: ${cols.length} cols; header="${header.trim().slice(0,60)}"; Lat=${cLat} Lon=${cLon} STA=${cSta} WMO=${cWmo} Name=${cName}`);
-  if(cLat<0||cLon<0||cWmo<0){ dbg('❌ stations.txt: could not map Lat/Lon/WMO columns from header'); return []; }
-  const out=[];
-  for(let i=sepIdx+1;i<lines.length;i++){
-    const ln=lines[i]; if(!ln||!ln.trim())continue;
-    const wmoStr=slice(ln,cWmo);
-    if(!/^\d{4,6}$/.test(wmoStr))continue;
-    const lat=parseFloat(slice(ln,cLat)), lon=parseFloat(slice(ln,cLon));
-    if(isNaN(lat)||isNaN(lon))continue;
-    out.push({ wmo:wmoStr, state:slice(ln,cSta).toUpperCase(), lat, lon, name:slice(ln,cName) });
-  }
-  dbg(`stations.txt: parsed ${out.length} WMO stations`);
-  bomStationsCache=out;
-  return out;
-}
-
-// BOM FWO observations JSON -> {hourly,daily} actuals
-function parseBomObs(json, stn){
-  const obs=json?.observations?.data;
-  if(!Array.isArray(obs)||!obs.length)return null;
-  obs.sort((a,b)=>(a.local_date_time_full||'').localeCompare(b.local_date_time_full||''));
-  const byHour={};
-  let latest=null;
-  for(const o of obs){
-    const raw=o.local_date_time_full;
-    if(!raw||raw.length<12)continue;
-    const yr=raw.slice(0,4),mo=raw.slice(4,6),dy=raw.slice(6,8),hr=raw.slice(8,10),min=parseInt(raw.slice(10,12),10);
-    const hourKey=`${yr}-${mo}-${dy}T${hr}:00`;
-    const t=parseFloat(o.air_temp);
-    const okt=(o.cloud_oktas==null||o.cloud_oktas==='')?null:parseFloat(o.cloud_oktas);
-    const cloudPct=(okt!=null&&!isNaN(okt))?Math.max(0,Math.min(100,okt/8*100)):null;
-    const wspd=(o.wind_spd_kmh==null||o.wind_spd_kmh==='')?null:parseFloat(o.wind_spd_kmh);
-    const rh=(o.rel_hum==null||o.rel_hum==='')?null:parseFloat(o.rel_hum);
-    const tempV=(!isNaN(t)&&String(o.air_temp).trim()!=='')?t:null;
-    const windV=(wspd!=null&&!isNaN(wspd))?wspd:null;
-    const rec={ temp:tempV, traceCum:parseBomRain(o.rain_trace), cloud:cloudPct, wind:windV };
-    if(min===0 || !(hourKey in byHour)) byHour[hourKey]=rec;
-    const u=o.aifstime_utc;
-    let ts=null;
-    if(u&&u.length>=12)ts=Date.UTC(+u.slice(0,4),+u.slice(4,6)-1,+u.slice(6,8),+u.slice(8,10),+u.slice(10,12),0);
-    const h12=((+hr)%12)||12, ap=(+hr)<12?'am':'pm';
-    if(ts!=null&&(latest==null||ts>=latest.ts)){
-      latest={ ts, label:`${h12}:${raw.slice(10,12)} ${ap}`, temp:tempV, wind:windV, cloud:cloudPct, humid:(rh!=null&&!isNaN(rh))?rh:null, traceCum:parseBomRain(o.rain_trace) };
-    }
-  }
-  try{
-    const n=locNowDate(), pp=x=>String(x).padStart(2,'0');
-    const nowKey=`${n.getFullYear()}-${pp(n.getMonth()+1)}-${pp(n.getDate())}T${pp(n.getHours())}:00`;
-    if(latest && !(nowKey in byHour) && (Date.now()-latest.ts)<=75*60*1000){
-      byHour[nowKey]={ temp:latest.temp, traceCum:latest.traceCum, cloud:latest.cloud, wind:latest.wind, _carried:true };
-      dbg(`BOM: ${nowKey} not posted yet — carried ${latest.label} reading into current hour`);
-    }
-  }catch(e){}
-  const keys=Object.keys(byHour).sort();
-  const hourly={time:[],temperature_2m:[],precipitation:[],cloudcover:[],windspeed_10m:[]};
-  let prevCum=null;
-  for(const k of keys){
-    const r=byHour[k];
-    let inc;
-    if(r.traceCum==null) inc=0;
-    else if(prevCum==null) inc=0;
-    else if(r.traceCum<prevCum) inc=r.traceCum;
-    else inc=r.traceCum-prevCum;
-    if(r.traceCum!=null) prevCum=r.traceCum;
-    hourly.time.push(k);
-    hourly.temperature_2m.push(r.temp);
-    hourly.precipitation.push(Math.max(0,inc));
-    hourly.cloudcover.push(r.cloud!=null?r.cloud:null);
-    hourly.windspeed_10m.push(r.wind!=null?r.wind:null);
-  }
-  const byDate={};
-  hourly.time.forEach((k,i)=>{
-    const d=k.slice(0,10);
-    if(!byDate[d])byDate[d]={temps:[],precip:0};
-    if(hourly.temperature_2m[i]!=null)byDate[d].temps.push(hourly.temperature_2m[i]);
-    byDate[d].precip+=hourly.precipitation[i]||0;
-  });
-  const daily={time:[],temperature_2m_max:[],temperature_2m_min:[],precipitation_sum:[]};
-  for(const d of Object.keys(byDate).sort()){
-    daily.time.push(d);
-    const ts=byDate[d].temps;
-    daily.temperature_2m_max.push(ts.length?Math.max(...ts):null);
-    daily.temperature_2m_min.push(ts.length?Math.min(...ts):null);
-    daily.precipitation_sum.push(byDate[d].precip);
-  }
-  return { hourly, daily, latest, source:'BOM', stationName:stn.name||('WMO '+stn.wmo), wmo:stn.wmo, state:stn.state, lat:stn.lat, lon:stn.lon };
-}
-
-async function fetchBOMActuals(){
-  try{
-    if(!bomWorkerConfigured()){
-      dbg('❌ BOM: Worker URL not set — edit BOM_WORKER_URL in engine.js. Skipping actuals.');
-      return null;
-    }
-    const lat=state.lat, lon=state.lon;
-    if(lat==null||lon==null){dbg('BOM: no coordinates');return null;}
-    const stations=await loadBomStations();
-    if(!stations.length){dbg('BOM: station list empty — cannot locate a station');return null;}
-    const ranked=stations
-      .map(s=>({...s, dist:haversineKm(lat,lon,s.lat,s.lon)}))
-      .sort((a,b)=>a.dist-b.dist);
-    if(!ranked.length){dbg('BOM: no stations found');return null;}
-    dbg(`BOM: nearest = ${ranked[0].name} (${ranked[0].state} WMO ${ranked[0].wmo}, ${ranked[0].dist.toFixed(0)}km)`);
-    for(const stn of ranked.slice(0,6)){
-      if(stn.dist>250){dbg('BOM: remaining stations >250km away, stopping');break;}
-      dbg(`BOM: trying WMO ${stn.wmo} (${stn.name}, ${stn.state}) via Worker`);
-      try{
-        setStatus('spin', `BOM: ${stn.name||stn.wmo}…`);
-        const j=await bomWorkerObs(stn.wmo, stn.state);
-        const parsed=parseBomObs(j, stn);
-        if(parsed && parsed.hourly.time.length){
-          dbg(`BOM: ✓ ${stn.name} — ${parsed.hourly.time.length} hourly obs, last ${parsed.hourly.time[parsed.hourly.time.length-1]}`);
-          return parsed;
-        }
-        dbg('BOM: no usable observations, trying next');
-      }catch(e){ dbg('BOM: '+(e.message||e.name)+' — trying next'); }
-    }
-    dbg('❌ BOM: no nearby station returned observations');
-    return null;
-  }catch(e){
-    dbg('❌ BOM actuals error: '+(e.message||e.name));
-    return null;
-  }
-}
-
-// ── Actuals series (BOM / Open-Meteo / Blend) ───────────────────────────
+// ── Actuals series (Open-Meteo analysis of past hours) ──────────────────
 function _dailyFromHourly(H){
   const byDay={};
   H.time.forEach((t,i)=>{
@@ -702,46 +459,34 @@ function _dailyFromHourly(H){
   Object.keys(byDay).sort().forEach(d=>{const o=byDay[d];D.time.push(d);D.temperature_2m_max.push(o.tmax);D.temperature_2m_min.push(o.tmin);D.precipitation_sum.push(o.hasP?o.psum:null);D.cloudcover_max.push(o.cmax);D.cloudcover_min.push(o.cmin);D.windspeed_10m_max.push(o.wmax);D.windspeed_10m_min.push(o.wmin);});
   return D;
 }
-function buildActualData(bom){
+// Open-Meteo's own past-hours data (each model's analysis of hours already
+// gone, equal-weight mean) is the observation series everything verifies
+// against: the ✓ Actual rows, the accuracy weights, and the receipts.
+function buildActualData(){
   const ref=refHourly();
-  if(!ref?.time){ actualSources=null; return bom; }
+  if(!ref?.time){ actualSources=null; actualData=null; return null; }
   const now=Date.now();
-  const bomMap={};
-  if(bom?.hourly?.time) bom.hourly.time.forEach((t,i)=>{bomMap[t]=i;});
-  const mk=()=>({time:[],temperature_2m:[],precipitation:[],cloudcover:[],windspeed_10m:[]});
-  const B=mk(), O=mk(), L=mk();
+  const O={time:[],temperature_2m:[],precipitation:[],cloudcover:[],windspeed_10m:[]};
   const FS=['temperature_2m','precipitation','cloudcover','windspeed_10m'];
   ref.time.forEach((t,i)=>{
     if(new Date(t).getTime()>now) return;
-    const bi=bomMap[t];
-    B.time.push(t);O.time.push(t);L.time.push(t);
+    O.time.push(t);
     FS.forEach(f=>{
-      let bomV=(bi!==undefined)?bom.hourly[f]?.[bi]:null; if(bomV==null||isNaN(bomV))bomV=null;
       let omV=meanAt(f,i); if(omV==null||isNaN(omV))omV=null;
-      const bInf=(bomV!=null)?bomV:omV;
-      const bl=(bomV!=null&&omV!=null)?(bomV+omV)/2:(bInf!=null?bInf:omV);
-      B[f].push(bInf); O[f].push(omV); L[f].push(bl);
+      O[f].push(omV);
     });
   });
-  actualSources={
-    bom:{hourly:B,daily:_dailyFromHourly(B)},
-    om:{hourly:O,daily:_dailyFromHourly(O)},
-    blend:{hourly:L,daily:_dailyFromHourly(L)},
-    _bom:bom, stationName: bom?.stationName || 'Open-Meteo (est.)'
-  };
+  actualSources={ om:{hourly:O,daily:_dailyFromHourly(O)}, stationName:'Open-Meteo' };
   return selectActual();
 }
 function selectActual(){
   if(!actualSources){actualData=null;return null;}
-  const src=actualSources[actualSource]||actualSources.bom;
-  actualData={hourly:src.hourly, daily:src.daily, _bom:actualSources._bom, stationName:actualSources.stationName, source:actualSource};
+  const src=actualSources.om;
+  actualData={hourly:src.hourly, daily:src.daily, stationName:actualSources.stationName, source:'om'};
   return actualData;
 }
 function selectedTruth(){
-  if(!actualSources)return null;
-  if(actualSource==='om')   return actualSources.om.hourly;
-  if(actualSource==='blend')return actualSources.blend.hourly;
-  return actualSources._bom?.hourly||null;
+  return actualSources?.om?.hourly||null;
 }
 
 // ── Live accuracy scoring (Phase 1: shrinkage + inverse-square) ─────────
@@ -842,11 +587,10 @@ function _setMetricWeights(w){
 }
 // Dispatch the active weighting method onto the global metricWeights.
 function applyWeights(){
-  activeBiases=null; activeBiasesByH=null;    // re-set below when applicable
   const truth=selectedTruth();
   if(weightMethod==='daily'){
     _setMetricWeights(computeMetricWeightsDaily(truth, weightDays));
-    dbg('weights: daily/'+weightDays+'d · source='+actualSource);
+    dbg('weights: daily/'+weightDays+'d');
   }else if(weightMethod==='blend'){
     computeMetricWeights(truth);
     const cur={temp:{...metricWeights.temp},rain:{...metricWeights.rain},wind:{...metricWeights.wind},cloud:{...metricWeights.cloud}};
@@ -854,49 +598,15 @@ function applyWeights(){
     const am=activeEnabled(), mix={temp:{},rain:{},wind:{},cloud:{}};
     ['temp','rain','wind','cloud'].forEach(s=>am.forEach(m=>mix[s][m.key]=((cur[s][m.key]||0)+(daily[s][m.key]||0))/2));
     _setMetricWeights(mix);
-    dbg('weights: blend(current+daily/'+weightDays+'d) · source='+actualSource);
+    dbg('weights: blend(current+daily/'+weightDays+'d)');
   }else{
     computeMetricWeights(truth);
-    applyHistoricalWeights();
   }
+  try{ computeAccuracyStats(); }catch(e){}
 }
-// Learned (server) weights + biases replace the live ones — only for the
-// Recency method scored against pure BOM truth.
-function applyHistoricalWeights(){
-  activeBiases=null; activeBiasesByH=null;
-  if(weightMethod!=='current')return;
-  if(actualSource!=='bom')return;
-  // Biases apply whenever learned artefacts exist (already shrunk server-side)
-  activeBiases=historicalBiases||null;
-  activeBiasesByH=historicalBiasesByH||null;
-  if(!historicalWeights)return;
-  const am=activeEnabled();
-  const normInto=(target,src)=>{
-    ['temp','rain','wind','cloud'].forEach(s=>{
-      const sw=src[s]||{}; const w={}; let any=false;
-      am.forEach(m=>{ if(sw[m.key]!=null){w[m.key]=sw[m.key];any=true;} });
-      if(any){ const sum=am.reduce((a,m)=>a+(w[m.key]||0),0)||1; target[s]={}; am.forEach(m=>target[s][m.key]=(w[m.key]||0)/sum); }
-    });
-  };
-  normInto(metricWeights, historicalWeights);
-  modelWeights={}; am.forEach(m=>modelWeights[m.key]=((metricWeights.temp[m.key]||0)+(metricWeights.rain[m.key]||0)+(metricWeights.wind[m.key]||0)+(metricWeights.cloud[m.key]||0))/4);
-  metricWeightsByH={};
-  if(historicalWeightsByH){
-    Object.keys(historicalWeightsByH).forEach(N=>{
-      const tgt={temp:{},rain:{},wind:{},cloud:{}};
-      normInto(tgt, historicalWeightsByH[N]||{});
-      metricWeightsByH[N]=tgt;
-    });
-  }
-}
-
-async function fetchActualsAndComputeWeights(){
+function computeActualsAndWeights(){
   try{
-    let bom=null;
-    if(state.lat&&state.lon) bom=await fetchBOMActuals();
-    actualData=buildActualData(bom);
-    if(bom) dbg('actuals: BOM '+(bom.stationName||'')+' + Open-Meteo · source='+actualSource);
-    else dbg('actuals: Open-Meteo past (no BOM) · source='+actualSource);
+    buildActualData();
     applyWeights();
   }catch(e){
     console.warn('Actuals/weights failed:',e.message);
@@ -908,102 +618,38 @@ async function fetchActualsAndComputeWeights(){
   }
 }
 
-// ── Server accuracy sync ────────────────────────────────────────────────
-// BOM-only completed-day actuals (never Open-Meteo — would be circular)
-function bomDailyActuals(){
-  const bom=actualSources?._bom; if(!bom?.hourly?.time)return [];
+// ── Accuracy stats for the panel (per model, vs Open-Meteo analysis) ─────
+// Hourly RMSE per metric over completed past hours, plus how often the
+// model called wet/dry days wrong (occurrence error, threshold 1mm/day).
+function computeAccuracyStats(){
+  const truth=selectedTruth();
+  const am=activeAll();
+  if(!truth?.time?.length||!am.length){ accuracyStats=null; accuracyMeta=null; return; }
+  const tMap={}; truth.time.forEach((t,i)=>{tMap[t]=i;});
   const today=localTodayStr();
-  const byDay={};
-  bom.hourly.time.forEach((t,i)=>{
-    const d=t.slice(0,10); if(d>=today)return;
-    const o=byDay[d]||(byDay[d]={tmax:null,tmin:null,rain:0,wind:null,cs:0,cn:0,hasR:false,hasT:false});
-    const tv=bom.hourly.temperature_2m?.[i]; if(tv!=null){o.tmax=o.tmax==null?tv:Math.max(o.tmax,tv);o.tmin=o.tmin==null?tv:Math.min(o.tmin,tv);o.hasT=true;}
-    const pv=bom.hourly.precipitation?.[i]; if(pv!=null){o.rain+=pv;o.hasR=true;}
-    const wv=bom.hourly.windspeed_10m?.[i]; if(wv!=null)o.wind=o.wind==null?wv:Math.max(o.wind,wv);
-    const cv=bom.hourly.cloudcover?.[i]; if(cv!=null){o.cs+=cv;o.cn++;}
-  });
-  return Object.keys(byDay).map(d=>{const o=byDay[d];return{target:d,tmax:o.hasT?o.tmax:null,tmin:o.hasT?o.tmin:null,rain:o.hasR?o.rain:null,wind:o.wind,cloud:o.cn?o.cs/o.cn:null,source:'bom'};}).filter(a=>a.tmax!=null||a.rain!=null);
-}
-// Phase 1: raw hourly BOM observations for the server archive (feeds
-// hour-of-day weighting once a few weeks accumulate).
-function bomHourlyPayload(){
-  const bom=actualSources?._bom; if(!bom?.hourly?.time)return [];
-  const h=bom.hourly, out=[];
-  h.time.forEach((t,i)=>{
-    const temp=h.temperature_2m?.[i], rain=h.precipitation?.[i], wind=h.windspeed_10m?.[i], cloud=h.cloudcover?.[i];
-    if(temp==null&&rain==null&&wind==null&&cloud==null)return;
-    out.push({ts:t,temp,rain,wind,cloud});
-  });
-  return out.slice(-96);
-}
-
-// Daily aggregates of the blend the app is currently displaying (today..+7),
-// pushed to /track/sync as model='blend' rows. These become the literal
-// "we said X°" record the receipts panel verifies against BOM actuals.
-function blendDailyForecastRows(){
-  try{
-    const ref=refHourly(); if(!ref?.time)return [];
-    const today=localTodayStr();
-    const by={};
-    ref.time.forEach((iso,i)=>{
-      const d=iso.slice(0,10); if(d<today)return;
-      const hz=horizonOf(d);
-      const t=wBlendAt('temperature_2m',i,hz), r=wBlendAt('precipitation',i,hz),
-            w=wBlendAt('windspeed_10m',i,hz), c=wBlendAt('cloudcover',i,hz);
-      const o=by[d]||(by[d]={tmax:null,tmin:null,rain:0,hasR:false,wind:null,cs:0,cn:0});
-      if(t!=null&&!isNaN(t)){o.tmax=o.tmax==null?t:Math.max(o.tmax,t);o.tmin=o.tmin==null?t:Math.min(o.tmin,t);}
-      if(r!=null&&!isNaN(r)){o.rain+=r;o.hasR=true;}
-      if(w!=null&&!isNaN(w)){o.wind=o.wind==null?w:Math.max(o.wind,w);}
-      if(c!=null&&!isNaN(c)){o.cs+=c;o.cn++;}
+  const METS=[['temp','temperature_2m'],['rain','precipitation'],['wind','windspeed_10m'],['cloud','cloudcover']];
+  const days=new Set(); let pairs=0;
+  const stats=am.map(m=>{
+    const mh=state.data[m.key]?.hourly;
+    const acc={temp:{se:0,n:0},rain:{se:0,n:0},wind:{se:0,n:0},cloud:{se:0,n:0}};
+    const dayR={};   // per-day rain sums: model vs observed
+    if(mh?.time)mh.time.forEach((t,i)=>{
+      const d=t.slice(0,10); if(d>=today)return;
+      const bi=tMap[t]; if(bi===undefined)return;
+      METS.forEach(([s,field])=>{
+        const mv=mh[field]?.[i], av=truth[field]?.[bi];
+        if(mv==null||av==null||isNaN(mv)||isNaN(av))return;
+        acc[s].se+=(mv-av)**2; acc[s].n++;
+        if(s==='temp'){days.add(d);pairs++;}
+        if(s==='rain'){const o=dayR[d]||(dayR[d]={f:0,a:0});o.f+=mv;o.a+=av;}
+      });
     });
-    return Object.keys(by).sort().slice(0,8).map(d=>{
-      const o=by[d];
-      return {target:d,model:'blend',
-        tmax:o.tmax!=null?+o.tmax.toFixed(1):null,
-        tmin:o.tmin!=null?+o.tmin.toFixed(1):null,
-        rain:o.hasR?+o.rain.toFixed(2):null,
-        wind:o.wind!=null?+o.wind.toFixed(1):null,
-        cloud:o.cn?+(o.cs/o.cn).toFixed(1):null};
-    });
-  }catch(e){ return []; }
+    const r={model:m.key};
+    METS.forEach(([s])=>{ r[s]=acc[s].n>=12?+Math.sqrt(acc[s].se/acc[s].n).toFixed(2):null; });
+    const dr=Object.values(dayR);
+    r.occErr=dr.length?+(dr.filter(o=>(o.f>=1)!==(o.a>=1)).length/dr.length).toFixed(2):null;
+    return r;
+  }).filter(r=>r.temp!=null||r.rain!=null);
+  accuracyStats=stats.length?stats:null;
+  accuracyMeta=stats.length?{days:days.size,pairs,window:Math.max(7,Math.min(31,learnDays)),source:'om'}:null;
 }
-
-async function syncAndLoadAccuracy(){
-  if(!bomWorkerConfigured())return;
-  const station=actualData?._bom?.wmo;
-  if(!station){ dbg('accuracy: no BOM station yet — skipping (needs observations)'); renderAccuracyPanel(); return; }
-  _trackStation=station;
-  const today=localTodayStr();
-  const actuals=bomDailyActuals();
-  const hourly=bomHourlyPayload();
-  const b=actualData?._bom||{};
-  const meta={lat:b.lat??state.lat, lon:b.lon??state.lon, state:b.state||'', name:b.stationName||''};
-
-  try{
-    await fetch(`${BOM_WORKER_URL}/track/sync`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({station,issued:today,forecasts:blendDailyForecastRows(),actuals,hourly,meta})});
-    dbg(`accuracy: synced ${actuals.length} daily + ${hourly.length} hourly actuals`);
-  }catch(e){ dbg('accuracy sync POST failed: '+e.message); }
-
-  try{
-    const ll=`&lat=${state.lat}&lon=${state.lon}`;
-    const r=await fetch(`${BOM_WORKER_URL}/track/weights?station=${encodeURIComponent(station)}${ll}&days=${learnDays}`,{signal:AbortSignal.timeout(30000)});
-    const j=await r.json();
-    accuracyMeta=j; accuracyStats=j&&j.stats||null; _horizonCache={};
-    if(j&&j.diag){ dbg(`accuracy diag: models OK [${(j.diag.modelsOK||[]).join(', ')||'none'}], failed [${(j.diag.modelsFailed||[]).join(', ')||'none'}], ERA5 ${j.diag.eraDays}d, BOM-obs ${j.diag.bomActualDays}d`); }
-    if(j&&j.weights&&j.mature){
-      historicalWeights=j.weights; historicalWeightsByH=j.weightsByHorizon||null;
-      historicalBiases=j.biases||null; historicalBiasesByH=j.biasesByHorizon||null;
-      applyHistoricalWeights();
-      const nH=historicalWeightsByH?Object.keys(historicalWeightsByH).length:0;
-      const nB=historicalBiases?Object.keys(historicalBiases.temp||{}).length:0;
-      dbg(`accuracy: USING learned weights — ${j.days} days, ${j.pairs} pairs, ${nH} lead-times, biases for ${nB} models (${j.engine||j.source||'?'}${j.cached?', cached':''})`);
-      if(Object.keys(state.data).length){ renderCurrentBar(); buildSourcesPanel(); renderTable(); }
-    }else{
-      historicalWeights=null; historicalWeightsByH=null; metricWeightsByH={};
-      historicalBiases=null; historicalBiasesByH=null; activeBiases=null; activeBiasesByH=null;
-      dbg(`accuracy: learning ${j&&j.days||0}/${j&&j.matureAt||14} days — live weighting for now`);
-    }
-  }catch(e){ dbg('accuracy weights GET failed: '+e.message); }
-  renderAccuracyPanel();
-      }

@@ -8,7 +8,7 @@
 // ════════════════════════════════════════════════════════════════════════
 
 // ── Quatrefoil palette: the single source of metric identity ────────────
-const QT={temp:'#1f8a5b',rain:'#2a6fdb',wind:'#6f8f1f',cloud:'#7c5cc4'};
+const QT={temp:'#7EE8A5',rain:'#5FA4FF',wind:'#A8E63E',cloud:'#C8A6FF'};
 const MET_COLOR=QT;
 
 // ── App-local state ─────────────────────────────────────────────────────
@@ -96,18 +96,10 @@ function buildSourcesPanel(){
     `<div class="config-row-label">Learning window</div>`+
     `<div class="learn-row">`+
     `<select class="learn-select" onchange="setLearnDays(this.value)">`+
-    [14,21,35,60,90].map(d=>`<option value="${d}"${learnDays===d?' selected':''}>${d} days</option>`).join('')+
+    [7,14,21,31].map(d=>`<option value="${d}"${learnDays===d?' selected':''}>${d} days</option>`).join('')+
     `</select>`+
-    `<span class="learn-hint">Days of history used to score model accuracy (60+ recommended)</span>`+
+    `<span class="learn-hint">Past days fetched per model to score accuracy (refetches data)</span>`+
     `</div></div>`+
-    `<div class="config-row">`+
-    `<div class="config-row-label">Actual source</div>`+
-    `<div class="seg" id="asrc-seg">`+
-    [['bom','BOM'],['om','Open-Meteo'],['blend','Blend']].map(([k,l])=>
-      `<button class="seg-btn${actualSource===k?' on':''}" data-src="${k}" onclick="setActualSource('${k}')">${l}</button>`).join('')+
-    `</div>`+
-    `<span class="learn-hint">Which observations feed the Actual rows &amp; the blend weights</span>`+
-    `</div>`+
     `<div class="config-row">`+
     `<div class="config-row-label">Weight method</div>`+
     `<div class="seg" id="wmethod-seg">`+
@@ -188,16 +180,6 @@ function toggleActuals(btn){
   if(btn){btn.classList.toggle('enabled',showActuals);btn.classList.toggle('disabled',!showActuals);}
   savePrefs(); _recalcAndRender();
 }
-function setActualSource(s){
-  if(s!=='bom'&&s!=='om'&&s!=='blend')return;
-  if(actualSource===s)return;
-  actualSource=s; savePrefs();
-  document.querySelectorAll('#asrc-seg .seg-btn').forEach(b=>b.classList.toggle('on',b.dataset.src===s));
-  if(actualSources){
-    selectActual();
-    _recalcAndRender();
-  }
-}
 // Full weight recompute + consistent re-render of every surface.
 function _recalcAndRender(){
   if(!Object.keys(state.data).length)return;
@@ -222,12 +204,11 @@ function setWeightDays(v){
 }
 function setLearnDays(v){
   const d=parseInt(v,10); if(isNaN(d))return;
-  learnDays=Math.max(14,Math.min(90,d));
+  learnDays=Math.max(7,Math.min(31,d));
   savePrefs();
-  historicalWeights=null; historicalWeightsByH=null; historicalBiases=null; historicalBiasesByH=null;
-  accuracyMeta=null; accuracyStats=null; _horizonCache={};
-  dbg('learning window → '+learnDays+' days; refetching weights…');
-  syncAndLoadAccuracy().then(()=>{ try{ renderCurrentBar(); renderTable(); }catch(e){} }).catch(e=>dbg('relearn error: '+e.message));
+  accuracyMeta=null; accuracyStats=null;
+  dbg('learning window → '+learnDays+' past days; refetching models…');
+  if(state.lat!=null&&state.lon!=null)fetchAllModels();
 }
 function applyDebugVisibility(){
   const p=document.getElementById('debug-panel');
@@ -339,7 +320,7 @@ function loadSavedLocation(){
 function savePrefs(){
   try{
     localStorage.setItem('wb_prefs',JSON.stringify({
-      showDetail,useWeightedAvg,verticalLayout,showDebug,showActuals,actualSource,learnDays,weightMethod,weightDays,showPredLine,confVisible:{...confVisible},
+      showDetail,useWeightedAvg,verticalLayout,showDebug,showActuals,learnDays,weightMethod,weightDays,showPredLine,confVisible:{...confVisible},
       secVisible:{...secVisible},
       secDetail:{...secDetail},
       enabled:[...enabled],
@@ -356,10 +337,9 @@ function loadPrefs(){
     if(p.verticalLayout!==undefined)verticalLayout=p.verticalLayout;
     if(p.showDebug!==undefined)showDebug=p.showDebug;
     if(p.showActuals!==undefined)showActuals=p.showActuals;
-    if(p.actualSource==='bom'||p.actualSource==='om'||p.actualSource==='blend')actualSource=p.actualSource;
     if(p.weightMethod==='current'||p.weightMethod==='daily'||p.weightMethod==='blend')weightMethod=p.weightMethod;
     if(p.weightDays!==undefined&&p.weightDays>=1&&p.weightDays<=7)weightDays=p.weightDays;
-    if(p.learnDays!==undefined&&p.learnDays>=14&&p.learnDays<=90)learnDays=p.learnDays;
+    if(p.learnDays!==undefined&&p.learnDays>=7&&p.learnDays<=31)learnDays=p.learnDays;
     if(p.showPredLine!==undefined)showPredLine=p.showPredLine;
     if(p.confVisible&&typeof p.confVisible==='object')Object.assign(confVisible,p.confVisible);
     else if(p.showConfidence===false)confVisible={temp:false,rain:false,wind:false,cloud:false};
@@ -541,8 +521,8 @@ function sunPhaseAt(iso){
 // ── The WeatherBlend glyph ──────────────────────────────────────────────
 function tempColor(t){
   if(t==null)return 'var(--text-primary)';
-  if(t<6)return '#a29e93'; if(t<13)return '#847f73'; if(t<20)return '#4d4a43';
-  if(t<27)return '#2e2b25'; if(t<33)return '#1c1a15'; return '#141311';
+  if(t<6)return '#60a5fa'; if(t<13)return '#5eead4'; if(t<20)return '#86efac';
+  if(t<27)return '#fcd34d'; if(t<33)return '#fb923c'; return '#f87171';
 }
 function _clamp01(x){return Math.max(0,Math.min(1,x));}
 function glyphRange(){
@@ -610,7 +590,7 @@ function buildTodayBoxes(){
 
   const cond=condCard({today:true, dateStr:localTodayStr(), icon:wxIcon(wcode,night,phase), condWord:wxDesc(wcode,!night),
     temp, feels, hi, lo, rain:rainToday, restOfDay:comp?.rainRemainToday, actualRain, wind, dir, cloud, code:wcode, night});
-  const dot=on=>on?'<span class="obs-dot" title="BOM observation">●</span>':'';
+  const dot=on=>on?'<span class="obs-dot" title="Observed (Open-Meteo)">●</span>':'';
   const _cdt=localTodayStr();
   const t=_ccBox('cc-mt','Temp',QT.temp,`<div class="cc-main">${_T(temp)}${dot(comp?.obsTemp)}${_confInline(_cdt,'temp')}</div><div class="cc-sub">Feels ${_T(feels)}</div><div class="cc-sub">↑ ${_T(hi)}　↓ ${_T(lo)}</div>`);
   const rainRemain=comp?.rainRemainToday??Math.max(0,rainToday-(actualRain||0));
@@ -737,10 +717,10 @@ function condCard(o){
 }
 
 // ── HERO sparklines ─────────────────────────────────────────────────────
-function _rampTemp(v){return v<5?'#a29e93':v<12?'#847f73':v<22?'#5c584f':v<30?'#332f28':'#141311';}
-function _rampRain(v){return v<0.05?'#c8c3b6':v<0.2?'#a29e93':v<0.5?'#847f73':v<1?'#5c584f':v<2?'#332f28':'#141311';}
-function _rampWind(v){return v<10?'#a29e93':v<20?'#847f73':v<35?'#5c584f':v<55?'#332f28':'#141311';}
-function _rampCloud(v){return v<12?'#c8c3b6':v<40?'#a29e93':v<70?'#77736a':'#4d4a43';}
+function _rampTemp(v){return v<5?'#60a5fa':v<12?'#38bdf8':v<22?'#4ade80':v<30?'#fbbf24':'#f87171';}
+function _rampRain(v){return v<0.05?'#1e3a5f':v<0.2?'#3b82f6':v<0.5?'#2563eb':v<1?'#1d4ed8':v<2?'#1e40af':'#172554';}
+function _rampWind(v){return v<10?'#22c55e':v<20?'#84cc16':v<35?'#eab308':v<55?'#f97316':'#ef4444';}
+function _rampCloud(v){return v<12?'#60a5fa':v<40?'#818cf8':v<70?'#a78bfa':'#8b5cf6';}
 function _scaleOf(vals,zeroBase){
   const v=vals.filter(x=>x!=null&&!isNaN(x));
   if(!v.length)return {mn:0,mx:1};
@@ -803,7 +783,7 @@ function _sparkline(vals,o){
   const dash =(o.split!=null&&o.split<1)?pts.map(p=> p&&p[0]>=cut-0.6?p:null):null;
   const firstX=pts.find(p=>p)[0], area=path(pts)+` L ${X(n-1).toFixed(1)} ${H-padB} L ${firstX.toFixed(1)} ${H-padB} Z`;
   const stops=vals.map((v,i)=> v==null?null:`<stop offset="${(n>1?i/(n-1):0)*100}%" stop-color="${o.ramp(v)}" stop-opacity="0.45"/>`).filter(Boolean).join('');
-  const grid=(o.ticks||[]).map(t=>{const gx=(t.frac*(W-2*padX)+padX).toFixed(1);return `<line x1="${gx}" y1="${padT-2}" x2="${gx}" y2="${H-padB+1}" stroke="#141311" stroke-width="1" opacity="0.18" stroke-dasharray="1.5 2" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;}).join('');
+  const grid=(o.ticks||[]).map(t=>{const gx=(t.frac*(W-2*padX)+padX).toFixed(1);return `<line x1="${gx}" y1="${padT-2}" x2="${gx}" y2="${H-padB+1}" stroke="#e7a755" stroke-width="1" opacity="0.25" stroke-dasharray="1.5 2" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;}).join('');
   let predLine='';
   if(o.showPred && o.fc && o.fc.length===n){
     const fcPts=o.fc.map((v,i)=> (v==null||X(i)>cut+0.6)?null:[X(i),Y(v)]);
@@ -928,7 +908,7 @@ document.addEventListener('pointerdown',_scrubStart);
 
 // ── Confidence (model agreement) ────────────────────────────────────────
 const CONF_FIELDS={temp:['temperature_2m',6,0.38],rain:['precipitation',4,0.30],wind:['windspeed_10m',16,0.15],cloud:['cloudcover',38,0.17]};
-function confColor(p){return p==null?'var(--text-dim)':p>=72?'#141311':p>=48?'var(--text-muted)':'var(--text-dim)';}
+function confColor(p){return p==null?'var(--text-dim)':p>=72?'#34d399':p>=48?'#fbbf24':'#fb7185';}
 function confLabel(p){return p>=72?'High':p>=48?'Medium':'Low';}
 function _spreadConf(vals,scale){
   if(!vals||vals.length<2)return null;
@@ -1050,7 +1030,7 @@ function initCarouselScroll(){
   },{passive:true});
 }
 
-// ── Canonical hourly values (observed past / bias-corrected forecast) ───
+// ── Canonical hourly values (observed past / blended forecast) ──────────
 // Kept from the old strip: the engine's current-conditions card AND the
 // fingerprint tiles both feed off this.
 function hourTileData(iso){
@@ -1117,7 +1097,7 @@ function renderDayBar(){
   const ref=refHourly(); if(!ref?.time){ bar.innerHTML=''; return; }
   const today=localTodayStr();
   const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  // Gather per-day series once (observed past + bias-corrected forecast)
+  // Gather per-day series once (observed past + blended forecast)
   const perDay={}; let gmn=Infinity,gmx=-Infinity;
   dates.forEach(d=>{
     const temps=[],rains=[];
@@ -1188,15 +1168,15 @@ function cloudCls(v){if(v==null)return"";if(v<=12)return"cl0";if(v<=25)return"cl
 function tempCls(v){if(v==null)return'';if(v<5)return'tc';if(v<12)return'tk';if(v<22)return'tm';if(v<30)return'tw';return'th';}
 
 // ── SVG weather icons ───────────────────────────────────────────────────
-const _sun='<circle cx="12" cy="12" r="4.6" fill="#232019"/><g stroke="#232019" stroke-width="1.7" stroke-linecap="round"><line x1="12" y1="1.6" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22.4"/><line x1="1.6" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22.4" y2="12"/><line x1="4.5" y1="4.5" x2="6.2" y2="6.2"/><line x1="17.8" y1="17.8" x2="19.5" y2="19.5"/><line x1="19.5" y1="4.5" x2="17.8" y2="6.2"/><line x1="6.2" y1="17.8" x2="4.5" y2="19.5"/></g>';
-const _moon='<path d="M20.5 14.2A8.5 8.5 0 1 1 9.8 3.5 6.7 6.7 0 0 0 20.5 14.2z" fill="#5c584f"/>';
-const _sunSm='<circle cx="8.2" cy="7.6" r="3.1" fill="#232019"/><g stroke="#232019" stroke-width="1.3" stroke-linecap="round"><line x1="8.2" y1="1.8" x2="8.2" y2="3.2"/><line x1="2.4" y1="7.6" x2="3.8" y2="7.6"/><line x1="4.1" y1="3.5" x2="5.1" y2="4.5"/><line x1="12.3" y1="3.5" x2="11.3" y2="4.5"/></g>';
-const _moonSm='<path d="M13.2 7.7A4.5 4.5 0 1 1 7.8 3.1 3.5 3.5 0 0 0 13.2 7.7z" fill="#5c584f"/>';
+const _sun='<circle cx="12" cy="12" r="4.6" fill="#fbbf24"/><g stroke="#fbbf24" stroke-width="1.7" stroke-linecap="round"><line x1="12" y1="1.6" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22.4"/><line x1="1.6" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22.4" y2="12"/><line x1="4.5" y1="4.5" x2="6.2" y2="6.2"/><line x1="17.8" y1="17.8" x2="19.5" y2="19.5"/><line x1="19.5" y1="4.5" x2="17.8" y2="6.2"/><line x1="6.2" y1="17.8" x2="4.5" y2="19.5"/></g>';
+const _moon='<path d="M20.5 14.2A8.5 8.5 0 1 1 9.8 3.5 6.7 6.7 0 0 0 20.5 14.2z" fill="#cbd5e1"/>';
+const _sunSm='<circle cx="8.2" cy="7.6" r="3.1" fill="#fbbf24"/><g stroke="#fbbf24" stroke-width="1.3" stroke-linecap="round"><line x1="8.2" y1="1.8" x2="8.2" y2="3.2"/><line x1="2.4" y1="7.6" x2="3.8" y2="7.6"/><line x1="4.1" y1="3.5" x2="5.1" y2="4.5"/><line x1="12.3" y1="3.5" x2="11.3" y2="4.5"/></g>';
+const _moonSm='<path d="M13.2 7.7A4.5 4.5 0 1 1 7.8 3.1 3.5 3.5 0 0 0 13.2 7.7z" fill="#cbd5e1"/>';
 function _cloud(c){return `<path d="M7 18.5h9.4a3.6 3.6 0 0 0 .42-7.16 5.3 5.3 0 0 0-10.2-1.2A4 4 0 0 0 7 18.5z" fill="${c}"/>`;}
-function _rain(n){const x=[8.5,12,15.5];let s='<g stroke="#232019" stroke-width="1.8" stroke-linecap="round">';for(let i=0;i<n;i++)s+=`<line x1="${x[i]}" y1="19.8" x2="${x[i]-1}" y2="22.6"/>`;return s+'</g>';}
-const _snow='<g fill="#5c584f"><circle cx="8.5" cy="20.9" r="1.15"/><circle cx="12" cy="22.1" r="1.15"/><circle cx="15.5" cy="20.9" r="1.15"/></g>';
-const _bolt='<polygon points="12.6,18.4 9.6,22.4 11.7,22.4 10.7,23.8 14,19.7 11.9,19.7 13.4,18.4" fill="#141311"/>';
-const _fog='<g stroke="#847f73" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="5.5" y1="12" x2="18.5" y2="12"/><line x1="4" y1="16" x2="17" y2="16"/><line x1="7" y1="20" x2="20" y2="20"/></g>';
+function _rain(n){const x=[8.5,12,15.5];let s='<g stroke="#60a5fa" stroke-width="1.8" stroke-linecap="round">';for(let i=0;i<n;i++)s+=`<line x1="${x[i]}" y1="19.8" x2="${x[i]-1}" y2="22.6"/>`;return s+'</g>';}
+const _snow='<g fill="#e2e8f0"><circle cx="8.5" cy="20.9" r="1.15"/><circle cx="12" cy="22.1" r="1.15"/><circle cx="15.5" cy="20.9" r="1.15"/></g>';
+const _bolt='<polygon points="12.6,18.4 9.6,22.4 11.7,22.4 10.7,23.8 14,19.7 11.9,19.7 13.4,18.4" fill="#facc15"/>';
+const _fog='<g stroke="#9aa7b8" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="5.5" y1="12" x2="18.5" y2="12"/><line x1="4" y1="16" x2="17" y2="16"/><line x1="7" y1="20" x2="20" y2="20"/></g>';
 function _horizonSun(col,dir){
   const ray=`<g stroke="${col}" stroke-width="1.4" stroke-linecap="round"><line x1="12" y1="3.5" x2="12" y2="5.6"/><line x1="4.6" y1="9.4" x2="6.1" y2="10.9"/><line x1="19.4" y1="9.4" x2="17.9" y2="10.9"/><line x1="2.4" y1="16" x2="4.2" y2="16"/><line x1="19.8" y1="16" x2="21.6" y2="16"/></g>`;
   const halfSun=`<path d="M6.6 16a5.4 5.4 0 0 1 10.8 0z" fill="${col}"/>`;
@@ -1208,9 +1188,9 @@ function _horizonSun(col,dir){
 }
 function wxIcon(c,night,phase){
   if(c==null)return'<span class="wx-dash">–</span>';
-  const n=!!night, GRAY='#8d897e', DARK='#57544c';
+  const n=!!night, GRAY='#94a3b8', DARK='#6b7a8f';
   if((phase==='dawn'||phase==='dusk') && c<=2){
-    const inner=_horizonSun('#232019', phase==='dawn'?'up':'down');
+    const inner=_horizonSun(phase==='dawn'?'#fcd34d':'#fb923c', phase==='dawn'?'up':'down');
     return `<svg class="wxi" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
   }
   let inner;
@@ -1321,7 +1301,7 @@ function buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled,r
       const cls=cloudCls(v);const nc=ci===nowCi?"now-col":"";
       return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(" ")}">${Math.round(v)}%</td>`,(ndCls[ci]+" "+pastCls[ci]).trim());
     }).join("");
-    const tag=({bom:'BOM',om:'Open-Meteo',blend:'Blend'})[actualSource]||'';
+    const tag='Open-Meteo';
     actRow=`<tr class="actual-row"><td class="row-label" style="color:${QT.cloud}">✓ Actual<span class="act-src">${tag}</span></td>${cells}</tr>`;
   }
   return`<tr class="sec-head-temp">${secHeadLabel('cloud','Cloud')}${avgCells}</tr>${typeof confRow==='function'?confRow('cloud'):''}${srcRows}`+actRow;
@@ -1707,7 +1687,7 @@ function renderHourly(){
       return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(' ')}">${fmtFn(v)}</td>`,ndCls[ci]);
     }).join('');
   }
-  const _srcTag=({bom:'BOM',om:'Open-Meteo',blend:'Blend'})[actualSource]||'';
+  const _srcTag='Open-Meteo';
   function actualRow1(field, fmtFn, clsFn, color){
     if(!actualData||!showActuals)return '';
     const cells=buildActualCells(actualData.hourly,field,indices,fmtFn,clsFn,nowCi);
@@ -1934,102 +1914,41 @@ const _MET_LABEL={temp:'Temp °',rain:'Rain mm',wind:'Wind',cloud:'Cloud %'};
 function renderAccuracyPanel(){
   const sub=document.getElementById('acc-sub'), body=document.getElementById('acc-body');
   if(!body)return;
-  const j=accuracyMeta;
-  if(!bomWorkerConfigured()){
+  const j=accuracyStats, meta=accuracyMeta;
+  if(!j||!j.length||!meta){
     sub.textContent='';
-    body.innerHTML='<div class="acc-status none">The accuracy tracker needs the BOM Worker configured (set BOM_WORKER_URL). Once forecasts and BOM observations are recorded, learned per-model accuracy appears here.</div>';
+    body.innerHTML='<div class="acc-status none">Model accuracy appears once enough past hours have loaded to score the models against Open-Meteo\u2019s analysis. Try again in a moment \u2014 or increase the learning window in \u2630 \u2192 Models &amp; sources.</div>';
     return;
   }
-  if(!j||j.error||(!j.stats||!j.stats.length)){
-    sub.textContent='';
-    const d=j&&j.days||0, need=j&&j.matureAt||14;
-    body.innerHTML=`<div class="acc-status none">No verified forecasts yet for this station${_trackStation?` (WMO ${_trackStation})`:''}. The tracker records today's forecasts now and verifies them against BOM observations once those days pass — check back after a few days. ${d?`(${d}/${need} days collected)`:''}</div>`;
-    return;
-  }
-  const mature=!!j.mature;
-  sub.textContent=`Station WMO ${j.station} · ${j.pairs} forecast–observation pairs over the last ${j.window} days`;
-  const statusCls=mature?'learned':'live';
-  const statusTxt=mature
-    ? `✓ Blend is using learned weights and bias corrections from ${j.days} days of verified forecasts.`
-    : `Learning — ${j.days}/${j.matureAt} verified days collected. Using live weighting until mature.`;
+  sub.textContent=`Scored against Open-Meteo\u2019s analysis of past hours \u00b7 ${meta.days} days \u00b7 ${meta.pairs.toLocaleString()} forecast\u2013observation pairs`;
   const METS=['temp','rain','wind','cloud'];
   const _modelKeys=new Set(MODELS.map(m=>m.key));
-  j.stats=(j.stats||[]).filter(s=>_modelKeys.has(s.model));
-  if(!j.stats.length){ body.innerHTML='<div class="acc-status none">No verified forecasts yet for this station. Check back after a few days.</div>'; return; }
-  const best={}; METS.forEach(m=>{ let bv=Infinity,bk=null; j.stats.forEach(s=>{ if(s[m]!=null&&s[m]<bv){bv=s[m];bk=s.model;} }); best[m]=bk; });
-  const wmap=(j&&j.weights)||{};
-  const bmap=(j&&j.biases)||{};
-  const colorOf=k=>(MODELS.find(m=>m.key===k)||{}).color||'#8d897e';
+  const stats=j.filter(s=>_modelKeys.has(s.model));
+  if(!stats.length){ body.innerHTML='<div class="acc-status none">No scored models yet \u2014 check back shortly.</div>'; return; }
+  const best={}; METS.forEach(m=>{ let bv=Infinity,bk=null; stats.forEach(s=>{ if(s[m]!=null&&s[m]<bv){bv=s[m];bk=s.model;} }); best[m]=bk; });
+  const wmap=metricWeights||{};
+  const colorOf=k=>(MODELS.find(m=>m.key===k)||{}).color||'#64748b';
   const shortOf=k=>(MODELS.find(m=>m.key===k)||{}).short||'?';
   const labelOf=k=>(MODELS.find(m=>m.key===k)||{}).label||k;
-  const fmt=(v,m)=>v==null?'<span class="acc-na">–</span>':(m==='cloud'||m==='wind'?Math.round(v):v.toFixed(1));
-  const biasCell=(s,m)=>{
-    const bm={temp:bmap.temp,wind:bmap.wind,cloud:bmap.cloud}[m];
-    const b=bm?bm[s.model]:null;
-    if(b==null||!isFinite(b)||b===0)return '';
-    const big=Math.abs(b)>=(m==='temp'?0.3:m==='wind'?2:5);
-    const v=m==='cloud'?Math.round(b):(+b).toFixed(1);
-    return `<div class="acc-w"${big?' style="color:var(--text-primary);font-weight:700"':''}>${b>0?'+':''}${v} bias</div>`;
-  };
+  const fmt=(v,m)=>v==null?'<span class="acc-na">\u2013</span>':(m==='cloud'||m==='wind'?Math.round(v):v.toFixed(1));
   const rainCell=s=> s.occErr!=null?`<div class="acc-w">occ ${Math.round(s.occErr*100)}% off</div>`:'';
-  const rows=j.stats.slice().sort((a,b)=>(a.temp??99)-(b.temp??99)).map(s=>{
+  const rows=stats.slice().sort((a,b)=>(a.temp??99)-(b.temp??99)).map(s=>{
     const cells=METS.map(m=>{
       const w=(wmap[m]||{})[s.model];
       const wTxt=w!=null?`<div class="acc-w">${Math.round(w*100)}%</div>`:'';
-      const extra=m==='rain'?rainCell(s):biasCell(s,m);
+      const extra=m==='rain'?rainCell(s):'';
       const cls='acc-err'+(best[m]===s.model?' acc-best':'');
       return `<td><span class="${cls}">${fmt(s[m],m)}</span>${wTxt}${extra}</td>`;
     }).join('');
     return `<tr><td><span class="acc-mdot" style="background:${colorOf(s.model)}">${shortOf(s.model)}</span>${labelOf(s.model)}</td>${cells}</tr>`;
   }).join('');
   body.innerHTML=`
-    <div class="acc-status ${statusCls}">${statusTxt}</div>
+    <div class="acc-status learned">\u2713 The blend is weighting models by how accurate each has been here over the learning window.</div>
     <table class="acc-table">
       <thead><tr><th>Model</th>${METS.map(m=>`<th>${_MET_LABEL[m]}</th>`).join('')}</tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <div class="acc-note">Figures are average error (RMSE) vs BOM observations — lower is better; the greenest value leads each column. Under each: that model's blend weight, then its learned <em>bias</em> (forecast − observed) which the blend now subtracts before averaging. Rain shows how often the model called wet/dry days wrong ("occ"); rain weights use occurrence + wet-day error, not RMSE. Only BOM-observed days are scored.</div>
-    <div class="acc-h-head"><span>Error by lead time</span>
-      <span class="acc-h-tabs">
-        ${METS.map(m=>`<button class="acc-h-tab${m===_horizonMetric?' active':''}" data-m="${m}" onclick="loadHorizon('${m}')">${m[0].toUpperCase()+m.slice(1)}</button>`).join('')}
-      </span>
-    </div>
-    <div id="acc-horizon"><div class="acc-na" style="padding:8px 2px">Loading…</div></div>`;
-  loadHorizon(_horizonMetric);
+    <div class="acc-note">Figures are average error (RMSE) vs Open-Meteo\u2019s analysis of hours already gone \u2014 lower is better; the greenest value leads each column. Under each: that model\u2019s current blend weight. Rain also shows how often the model called wet/dry days wrong (\u201cocc\u201d). Change the learning window in \u2630 \u2192 Models &amp; sources.</div>`;
 }
 
-const _HBUCKETS=[[1,1,'1d'],[2,2,'2d'],[3,3,'3d'],[4,5,'4–5d'],[6,7,'6–7d']];
-async function loadHorizon(metric){
-  _horizonMetric=metric;
-  document.querySelectorAll('.acc-h-tab').forEach(b=>b.classList.toggle('active',b.dataset.m===metric));
-  const host=document.getElementById('acc-horizon'); if(!host)return;
-  if(!_trackStation){host.innerHTML='<div class="acc-na" style="padding:8px 2px">No station yet.</div>';return;}
-  let j=_horizonCache[metric];
-  if(!j){
-    host.innerHTML='<div class="acc-na" style="padding:8px 2px">Loading…</div>';
-    try{ const ll=`&lat=${state.lat}&lon=${state.lon}`; const r=await fetch(`${BOM_WORKER_URL}/track/horizon?station=${encodeURIComponent(_trackStation)}${ll}&days=${learnDays}&metric=${metric}`,{signal:AbortSignal.timeout(30000)}); j=await r.json(); _horizonCache[metric]=j; }
-    catch(e){ host.innerHTML='<div class="acc-na" style="padding:8px 2px">Could not load lead-time data.</div>'; return; }
-  }
-  host.innerHTML=horizonMatrixHTML(j,metric);
-}
-function horizonMatrixHTML(j,metric){
-  const rows=(j&&j.rows)||[];
-  if(!rows.length) return '<div class="acc-na" style="padding:8px 2px">Not enough verified forecasts yet to break this down by lead time.</div>';
-  const byModel={};
-  rows.forEach(r=>{ (byModel[r.model]||(byModel[r.model]={}))[r.h]={rmse:r.rmse,n:r.n}; });
-  const fmt=v=>v==null?'–':((metric==='cloud'||metric==='wind')?Math.round(v):v.toFixed(1));
-  const colorOf=k=>(MODELS.find(m=>m.key===k)||{}).color||'#8d897e';
-  const shortOf=k=>(MODELS.find(m=>m.key===k)||{}).short||'?';
-  const models=Object.keys(byModel).sort((a,b)=>MODELS.findIndex(m=>m.key===a)-MODELS.findIndex(m=>m.key===b));
-  const cell={};
-  models.forEach(mk=>{ cell[mk]=_HBUCKETS.map(([lo,hi])=>{
-    let sw=0,sn=0; for(let h=lo;h<=hi;h++){const c=byModel[mk][h]; if(c&&c.rmse!=null&&c.n){sw+=c.rmse*c.rmse*c.n; sn+=c.n;}}
-    return sn?Math.sqrt(sw/sn):null;
-  });});
-  const best=_HBUCKETS.map((_,bi)=>{ let bv=Infinity,bk=null; models.forEach(mk=>{const v=cell[mk][bi]; if(v!=null&&v<bv){bv=v;bk=mk;}}); return bk; });
-  const head=`<tr><th>Model</th>${_HBUCKETS.map(b=>`<th>${b[2]}</th>`).join('')}</tr>`;
-  const tb=models.map(mk=>`<tr><td><span class="acc-mdot" style="background:${colorOf(mk)}">${shortOf(mk)}</span></td>${cell[mk].map((v,bi)=>`<td><span class="acc-err${best[bi]===mk?' acc-best':''}">${fmt(v)}</span></td>`).join('')}</tr>`).join('');
-  return `<table class="acc-table acc-h-table"><thead>${head}</thead><tbody>${tb}</tbody></table>
-          <div class="acc-note">Same RMSE-vs-BOM measure, split by how many days ahead the forecast was made. Watch the error grow with lead time — and see which model holds up best at long range.</div>`;
-}
 // ═══ end app.js (phase 2) 

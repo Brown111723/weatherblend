@@ -1,38 +1,32 @@
 // ════════════════════════════════════════════════════════════════════════
-// WeatherBlend — timeline.js  (mono minimalist UI)
+// WeatherBlend — timeline.js  (quatrefoil dark UI · merged hero chart)
 // ════════════════════════════════════════════════════════════════════════
 // Load order: engine.js → app.js → timeline.js.
-// Replaces the cards UI with the monochrome redesign:
-//   · compressed week overview — flowing temp line + rain bars, DOW labels,
-//     selected day boxed, red NOW line on today; tap either the chart or a
-//     label to select, drag/swipe horizontally to scroll the window across
-//     the full table range (≈7 days back, 10 ahead)
-//   · hour section — hero temp + feels-like; rain (day total, hourly while
-//     scrubbing) / wind + cardinal / cloud figures; sunrise/sunset times on
-//     the top axis line shared with the NOW time label
-//   · four static sparklines on one hour grid: consistent line weight all
-//     day, night shown by a dimmed BACKGROUND band before sunrise / after
-//     sunset; per-hour confidence as a soft blurred ribbon; rain as bars;
-//     cloud fixed to a 0–100% scale
-//   · one red NOW line: exact current time when idle (today only),
-//     hour-snapped while scrubbing; slow drag scrubs, quick flick slides
-//     to the next/prev day with a slide transition
-//   · secondary metrics — same NOW line, scrubbable, figures track the
-//     scrub hour like the main metrics
+//   · compressed week overview — glowing temp line + rain bars, DOW labels,
+//     selected day boxed, NOW line on today; tap to select, drag to slide
+//     the window (animated) across the full table range
+//   · hour section — hero temp + feels-like; rain / wind / cloud figures
+//   · ONE merged day chart: the temperature mountain (observed solid,
+//     forecast dashed, model-agreement ribbon, hi/lo labelled on the
+//     curve), rain bars rising from the floor, a soft cloud band across
+//     the top of the sky, night shading, and a dot riding the curve at
+//     NOW / the scrub hour. Wind stays in the figures — swipe or scrub
+//     anywhere on the chart or the figures to read any hour.
+//   · quick flick slides to the next/prev day; slow drag scrubs hours
 // Geometry is fraction-based on a fixed 0..23 hour grid, so the scrub
-// position matches the sparklines identically on mobile and desktop.
+// position matches the chart identically on mobile and desktop.
 // Honors Show/Confidence toggles and model changes via renderCurrentBar().
 // ════════════════════════════════════════════════════════════════════════
 
-const TL_NOW = '#a3392c';
-const TL_SVGW = 480, TL_SVGH = 40, TL_PAD = 4;    // hour-lane svg (fraction grid)
+const TL_NOW = '#f87171';
+const TL_SVGW = 480, TL_SVGH = 176;               // merged hour chart (fraction grid)
 const TL_WKW = 700, TL_WKH = 38;                  // week-overview svg (compressed)
 const TL_RAIN_CEIL_MIN = 0.5;                     // rain lane ceiling floor
 
 const TL = {
   days: [], n: 0, idx: [], temp: [], rain: [], wind: [], cloud: [], wdir: [],
   fc: { temp: [], rain: [], wind: [], cloud: [] },    // pure blend (no actual substitution)
-  act: { temp: [], rain: [], wind: [], cloud: [] },   // observed only (BOM/selected actuals)
+  act: { temp: [], rain: [], wind: [], cloud: [] },   // observed only (Open-Meteo analysis)
   confH: { temp: [], rain: [], wind: [], cloud: [] }, dayConf: {},
   lanes: [], suns: [], streamT0: 0, nowH: null,
   sel: 0, hourSel: 12, scrubbing: false, startOff: 0, _canPrev: false, _canNext: false,
@@ -189,15 +183,15 @@ function tlWeekHTML() {
   const bars = TL.rain.map((v, gi) => {
     if (!v || v < 0.05) return '';
     const hgt = Math.max(1, (Math.log1p(v) / Math.log1p(rmx)) * (rBase - rTop));
-    return '<rect x="' + (X(gi + 0.5) - bw / 2).toFixed(1) + '" y="' + (rBase - hgt).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + hgt.toFixed(1) + '" fill="var(--text-muted,#6f6c64)" opacity="0.5"/>';
+    return '<rect x="' + (X(gi + 0.5) - bw / 2).toFixed(1) + '" y="' + (rBase - hgt).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + hgt.toFixed(1) + '" fill="var(--q-rain,#5FA4FF)" opacity="0.6"/>';
   }).join('');
   const colW = W / TL.days.length;
-  const selBox = '<rect x="' + (TL.sel * colW + 1).toFixed(1) + '" y="1.5" width="' + (colW - 2).toFixed(1) + '" height="' + (H - 3).toFixed(1) + '" rx="5" fill="none" stroke="var(--text-primary,#141311)" stroke-width="1.3"/>';
-  const seps = TL.days.map((d, i) => i === 0 ? '' : '<line x1="' + (i * colW).toFixed(1) + '" y1="3" x2="' + (i * colW).toFixed(1) + '" y2="' + (H - 3) + '" stroke="var(--border,#dedad0)" stroke-width="1"/>').join('');
+  const selBox = '<rect x="' + (TL.sel * colW + 1).toFixed(1) + '" y="1.5" width="' + (colW - 2).toFixed(1) + '" height="' + (H - 3).toFixed(1) + '" rx="5" fill="none" stroke="var(--text-primary,#f4f7fd)" stroke-width="1.3"/>';
+  const seps = TL.days.map((d, i) => i === 0 ? '' : '<line x1="' + (i * colW).toFixed(1) + '" y1="3" x2="' + (i * colW).toFixed(1) + '" y2="' + (H - 3) + '" stroke="var(--border,#1f2733)" stroke-width="1"/>').join('');
   const now = (TL.nowH != null && TL.nowH >= 0 && TL.nowH <= n)
     ? '<line x1="' + X(TL.nowH).toFixed(1) + '" y1="2" x2="' + X(TL.nowH).toFixed(1) + '" y2="' + (H - 2) + '" stroke="' + TL_NOW + '" stroke-width="1.4"/>' : '';
   const svg = '<svg class="tlm-wk-svg" viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none">'
-    + seps + '<path d="' + line + '" fill="none" stroke="var(--text-primary,#141311)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>'
+    + seps + '<path d="' + line + '" fill="none" stroke="var(--q-temp,#7EE8A5)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" opacity="0.9"/>'
     + bars + selBox + now + '</svg>';
   const labels = '<div class="tlm-wk-labels">' + TL.days.map((d, i) =>
     '<button type="button" class="tlm-wk-day' + (i === TL.sel ? ' sel' : '') + '" data-di="' + i + '">'
@@ -205,116 +199,154 @@ function tlWeekHTML() {
   return '<div class="tlm-week" id="tlm-week">' + svg + labels + '</div>';
 }
 
-// ── hour section: hero + 3 metrics + top axis + sparklines ──────────────
-function tlLaneMeta() {
-  return {
-    temp: { label: 'Temp', arr: TL.temp, fmt: v => tempDisp(v) + '°' },
-    rain: { label: 'Rain', arr: TL.rain, fmt: v => (v < 0.05 ? '0' : v.toFixed(1)) },
-    wind: { label: 'Wind', arr: TL.wind, fmt: v => Math.round(v) },
-    cloud: { label: 'Cloud', arr: TL.cloud, fmt: v => Math.round(v) + '%' },
-  };
-}
-// shared per-lane range across hybrid, forecast, and actual series so the
-// sparkline scale and the ceil/floor labels always agree
-function tlLaneRange(m) {
+// ── hour section: hero + figures + the merged day chart ─────────────────
+// Everything on one canvas: temp mountain + rain bars + cloud band + night.
+// Scales are shared across hybrid / forecast / actual series so the shape
+// never jumps when observations arrive.
+function tlChartRange() {
   const s = TL.sel * 24; let hi = null, lo = null;
-  const scan = arr => {
+  [TL.temp, TL.fc.temp, TL.act.temp].forEach(arr => {
     if (!arr) return;
     for (let k = s; k < s + 24; k++) {
       const v = arr[k]; if (v == null || isNaN(v)) continue;
       hi = hi == null ? v : Math.max(hi, v); lo = lo == null ? v : Math.min(lo, v);
     }
-  };
-  scan(TL[m]); scan(TL.fc[m]); scan(TL.act[m]);
+  });
   return [hi, lo];
 }
-function tlLineSparkSVG(m) {
+function tlMainChartSVG() {
+  const W = TL_SVGW, H = TL_SVGH;
   const s = TL.sel * 24;
-  const hyb = [], fc = [], act = [];
-  for (let h = 0; h < 24; h++) { hyb.push(TL[m][s + h]); fc.push(TL.fc[m][s + h]); act.push(TL.act[m][s + h]); }
+  const PT = 34, TB = 122;              // temp band
+  const RB = H - 8, RH = 46;            // rain baseline + max bar height
+  const CY = 6, CH = 5;                 // cloud band
+  const X = i => (i / 23) * W;
+
+  const hyb = [], fc = [], act = [], rainF = [], rainA = [], cloudArr = [];
+  for (let h = 0; h < 24; h++) {
+    hyb.push(TL.temp[s + h]); fc.push(TL.fc.temp[s + h]); act.push(TL.act.temp[s + h]);
+    rainF.push(TL.fc.rain[s + h]); rainA.push(TL.act.rain[s + h]); cloudArr.push(TL.cloud[s + h]);
+  }
   const actN = act.filter(v => v != null && !isNaN(v)).length;
-  const dual = actN >= 2;                       // observed hours exist → two lines
-  const base = dual ? fc : hyb;                 // forecast carries the day; hybrid when no obs
-  const good = base.map((v, i) => [i, v]).filter(p => p[1] != null && !isNaN(p[1]));
-  if (good.length < 2) return '<svg viewBox="0 0 ' + TL_SVGW + ' ' + TL_SVGH + '" width="100%" height="' + TL_SVGH + '" style="display:block"></svg>';
-  const [hiR, loR] = tlLaneRange(m);
-  const mn = m === 'cloud' ? 0 : loR;
-  const mx = m === 'cloud' ? 100 : hiR;
-  const span = (mx - mn) || 1;
-  const dispB = m === 'temp' ? tlSmooth(base) : base;
-  const dispA = m === 'temp' ? tlSmooth(act) : act;
-  const Y = v => TL_SVGH - TL_PAD - ((v - mn) / span) * (TL_SVGH - TL_PAD * 2);
+  const dual = actN >= 2;
+  const base = dual ? fc : hyb;
+
+  const [hiR, loR] = tlChartRange();
+  const mn = loR, mx = hiR, span = (mx - mn) || 1;
+  const Y = v => TB - ((v - mn) / span) * (TB - PT);
+  const dispB = tlSmooth(base), dispA = tlSmooth(act), dispH = tlSmooth(hyb);
+  const primArr = dual ? act : hyb;      // what the eye follows (and the dot rides)
+  const primDisp = dual ? dispA : dispH;
+
+  // per-hour dot track for the NOW/scrub marker (fraction of H)
+  TL._dotY = [];
+  for (let h = 0; h < 24; h++) {
+    let v = primDisp[h]; if (v == null || isNaN(v)) v = dispB[h];
+    if (v == null || isNaN(v)) { TL._dotY.push(null); continue; }
+    TL._dotY.push(Y(v) / H);
+  }
+
+  // night shading (before sunrise / after sunset)
+  const sun = tlSunFrac();
+  const night =
+    '<rect x="0" y="0" width="' + (sun.rise * W).toFixed(1) + '" height="' + (H - 4) + '" fill="#05070c" opacity="0.42"/>' +
+    '<rect x="' + (sun.set * W).toFixed(1) + '" y="0" width="' + ((1 - sun.set) * W).toFixed(1) + '" height="' + (H - 4) + '" fill="#05070c" opacity="0.42"/>';
+
+  // cloud band across the top of the sky
+  const segw = W / 23;
+  const clouds = cloudArr.map((v, i) => {
+    if (v == null || v < 15) return '';
+    const op = 0.10 + 0.42 * Math.min(1, v / 100);
+    return '<rect x="' + (X(i) - segw / 2).toFixed(1) + '" y="' + CY + '" width="' + segw.toFixed(1) + '" height="' + CH + '" rx="2.5" fill="var(--q-cloud,#C8A6FF)" opacity="' + op.toFixed(2) + '"/>';
+  }).join('');
+
+  // temperature: area under the primary line, ribbon around the base line
   const ptsOf = (arr, disp) => arr.map((v, i) => [i, v]).filter(p => p[1] != null && !isNaN(p[1]))
-    .map(([i]) => [(i / 23) * TL_SVGW, Y(disp[i] != null ? disp[i] : arr[i])]);
-  const basePts = good.map(([i]) => [(i / 23) * TL_SVGW, Y(dispB[i] != null ? dispB[i] : base[i])]);
-  const baseLine = tlPath(basePts);
-  // confidence ribbon follows the forecast/base line (agreement is a model property)
-  const MAXW = 6.5;
+    .map(([i]) => [X(i), Y(disp[i] != null ? disp[i] : arr[i])]);
+  const basePts = ptsOf(base, dispB);
+  if (basePts.length < 2) return '<svg class="tlm-mainsvg" viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none"></svg>';
+  const primPts = ptsOf(primArr, primDisp);
+  const areaSrc = primPts.length >= 2 ? primPts : basePts;
+  const area = tlPath(areaSrc)
+    + ' L ' + areaSrc[areaSrc.length - 1][0].toFixed(1) + ' ' + (RB - 2)
+    + ' L ' + areaSrc[0][0].toFixed(1) + ' ' + (RB - 2) + ' Z';
+
+  // model-agreement ribbon (follows the forecast/base line)
+  const MAXW = 7;
   const top = [], bot = [];
-  good.forEach(([i]) => {
-    const x = (i / 23) * TL_SVGW, y = Y(dispB[i] != null ? dispB[i] : base[i]);
-    const c = TL.confH[m][s + i]; const cv = c != null ? c : 100;
+  base.forEach((v, i) => {
+    if (v == null || isNaN(v)) return;
+    const x = X(i), y = Y(dispB[i] != null ? dispB[i] : v);
+    const c = TL.confH.temp[s + i]; const cv = c != null ? c : 100;
     const hw = 1 + (1 - cv / 100) * MAXW;
     top.push([x, y - hw]); bot.push([x, y + hw]);
   });
-  const ribbon = tlPath(top) + ' L ' + bot[bot.length - 1][0].toFixed(1) + ' ' + bot[bot.length - 1][1].toFixed(1)
-    + ' ' + tlPath(bot.slice().reverse()).slice(1) + ' Z';
-  const fid = 'tlmB_' + m;
+  const ribbon = top.length >= 2 ? tlPath(top) + ' L ' + bot[bot.length - 1][0].toFixed(1) + ' ' + bot[bot.length - 1][1].toFixed(1)
+    + ' ' + tlPath(bot.slice().reverse()).slice(1) + ' Z' : '';
+
   let lines;
+  const baseLine = tlPath(basePts);
   if (dual) {
-    const actPts = ptsOf(act, dispA);
-    const actLine = tlPath(actPts);
+    const actLine = tlPath(primPts);
     lines =
-      '<path d="' + baseLine + '" fill="none" stroke="var(--text-primary,#141311)" stroke-width="1.4" stroke-dasharray="5 4" stroke-linecap="round" stroke-linejoin="round" opacity="0.42"/>'
-      + (actLine ? '<path d="' + actLine + '" fill="none" stroke="var(--text-primary,#141311)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.92"/>' : '');
+      '<path d="' + baseLine + '" fill="none" stroke="var(--q-temp,#7EE8A5)" stroke-width="1.5" stroke-dasharray="5 4" stroke-linecap="round" stroke-linejoin="round" opacity="0.4"/>'
+      + (actLine ? '<path d="' + actLine + '" fill="none" stroke="var(--q-temp,#7EE8A5)" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" filter="url(#tlmGlow)"/>' : '');
   } else {
-    lines = '<path d="' + baseLine + '" fill="none" stroke="var(--text-primary,#141311)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.92"/>';
+    lines = '<path d="' + baseLine + '" fill="none" stroke="var(--q-temp,#7EE8A5)" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" filter="url(#tlmGlow)"/>';
   }
-  return '<svg viewBox="0 0 ' + TL_SVGW + ' ' + TL_SVGH + '" width="100%" height="' + TL_SVGH + '" style="display:block;overflow:visible">'
-    + '<defs><filter id="' + fid + '" x="-20%" y="-60%" width="140%" height="220%"><feGaussianBlur stdDeviation="2.4"/></filter></defs>'
-    + '<path d="' + ribbon + '" fill="var(--text-primary,#141311)" stroke="none" opacity="0.16" filter="url(#' + fid + ')"/>'
-    + lines
-    + '</svg>';
-}
-function tlRainSparkSVG() {
-  const s = TL.sel * 24;
-  const fc = [], act = [];
-  for (let h = 0; h < 24; h++) { fc.push(TL.fc.rain[s + h]); act.push(TL.act.rain[s + h]); }
-  const hasAct = act.some(v => v != null && v >= 0.05);
-  const mx = Math.max(TL_RAIN_CEIL_MIN, ...fc.map(v => v || 0), ...act.map(v => v || 0));
-  const bw = (TL_SVGW / 24) * 0.6;
+
+  // hi/lo labelled on the curve itself
+  let mkLab = '';
+  {
+    let hiV = null, hiI = null, loV = null, loI = null;
+    primArr.forEach((v, i) => {
+      if (v == null || isNaN(v)) return;
+      if (hiV == null || v > hiV) { hiV = v; hiI = i; }
+      if (loV == null || v < loV) { loV = v; loI = i; }
+    });
+    const lab = (v, i, above) => {
+      if (v == null) return '';
+      const x = Math.max(16, Math.min(W - 16, X(i)));
+      const yv = Y(primDisp[i] != null ? primDisp[i] : v);
+      const y = above ? Math.max(13, yv - 10) : Math.min(H - 26, yv + 17);
+      return '<text x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" text-anchor="middle" class="tlm-clab' + (above ? '' : ' lo') + '">' + tempDisp(v) + '°</text>';
+    };
+    mkLab = lab(hiV, hiI, true) + lab(loV, loI, false);
+  }
+
+  // rain: forecast bars conf-scaled ahead of now, ghosted behind observed
+  const hasAct = rainA.some(v => v != null && v >= 0.05);
+  const rmx = Math.max(TL_RAIN_CEIL_MIN, ...rainF.map(v => v || 0), ...rainA.map(v => v || 0));
+  const bw = (W / 24) * 0.58;
   const nowH = TL.nowH - s;
   const rect = (i, v, op) => {
-    const hgt = Math.max(1.5, (Math.log1p(v) / Math.log1p(mx)) * (TL_SVGH - TL_PAD * 2));
-    const x = (i / 23) * TL_SVGW - bw / 2;
-    return '<rect x="' + x.toFixed(1) + '" y="' + (TL_SVGH - TL_PAD - hgt).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + hgt.toFixed(1) + '" rx="1" fill="var(--text-primary,#141311)" opacity="' + op.toFixed(2) + '"/>';
+    const hgt = Math.max(2, (Math.log1p(v) / Math.log1p(rmx)) * RH);
+    return '<rect x="' + (X(i) - bw / 2).toFixed(1) + '" y="' + (RB - hgt).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + hgt.toFixed(1) + '" rx="1.5" fill="var(--q-rain,#5FA4FF)" opacity="' + op.toFixed(2) + '"/>';
   };
-  // forecast bars all day: conf-scaled ahead of now, ghosted behind observed hours
-  const fbars = fc.map((v, i) => {
+  const fbars = rainF.map((v, i) => {
     if (!v || v < 0.05) return '';
     const future = i > nowH;
     const conf = TL.confH.rain[s + i]; const cv = conf != null ? conf : 100;
-    const op = future ? (0.28 + 0.5 * cv / 100) : (hasAct ? 0.22 : 0.85);
+    const op = future ? (0.30 + 0.5 * cv / 100) : (hasAct ? 0.20 : 0.85);
     return rect(i, v, op);
   }).join('');
-  // observed bars drawn on top, full strength
-  const abars = act.map((v, i) => (v == null || v < 0.05) ? '' : rect(i, v, 0.85)).join('');
-  return '<svg viewBox="0 0 ' + TL_SVGW + ' ' + TL_SVGH + '" width="100%" height="' + TL_SVGH + '" style="display:block;overflow:visible">'
-    + '<line x1="0" y1="' + (TL_SVGH - TL_PAD) + '" x2="' + TL_SVGW + '" y2="' + (TL_SVGH - TL_PAD) + '" stroke="var(--border,#dedad0)" stroke-width="1"/>'
-    + fbars + abars + '</svg>';
-}
-function tlSparkSVG(m) { return m === 'rain' ? tlRainSparkSVG() : tlLineSparkSVG(m); }
-function tlLaneCeilFloor(m) {
-  const meta = tlLaneMeta()[m];
-  const [hi, lo] = tlLaneRange(m);
-  if (m === 'rain') {
-    const ceil = Math.max(TL_RAIN_CEIL_MIN, hi != null ? hi : 0);
-    return '<span class="tlm-ceil">' + ceil.toFixed(1) + '</span><span class="tlm-floor">0.0</span>';
-  }
-  if (m === 'cloud') return '<span class="tlm-ceil">100%</span><span class="tlm-floor">0%</span>';
-  const hiT = hi != null ? meta.fmt(hi) : '';
-  const loT = lo != null ? meta.fmt(lo) : '';
-  return '<span class="tlm-ceil">' + hiT + '</span><span class="tlm-floor">' + loT + '</span>';
+  const abars = rainA.map((v, i) => (v == null || v < 0.05) ? '' : rect(i, v, 0.9)).join('');
+  const floor = '<line x1="0" y1="' + RB + '" x2="' + W + '" y2="' + RB + '" stroke="var(--border2,#2b3647)" stroke-width="1"/>';
+
+  return '<svg class="tlm-mainsvg" viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none" style="display:block;overflow:visible">'
+    + '<defs>'
+    + '<linearGradient id="tlmGradT" x1="0" y1="0" x2="0" y2="1">'
+    + '<stop offset="0" stop-color="var(--q-temp,#7EE8A5)" stop-opacity="0.30"/>'
+    + '<stop offset="1" stop-color="var(--q-temp,#7EE8A5)" stop-opacity="0.02"/>'
+    + '</linearGradient>'
+    + '<filter id="tlmGlow" x="-30%" y="-90%" width="160%" height="280%"><feDropShadow dx="0" dy="0" stdDeviation="3.2" flood-color="var(--q-temp,#7EE8A5)" flood-opacity="0.55"/></filter>'
+    + '<filter id="tlmRib" x="-20%" y="-60%" width="140%" height="220%"><feGaussianBlur stdDeviation="2.6"/></filter>'
+    + '</defs>'
+    + night + clouds
+    + '<path d="' + area + '" fill="url(#tlmGradT)" stroke="none"/>'
+    + (ribbon ? '<path d="' + ribbon + '" fill="var(--q-temp,#7EE8A5)" stroke="none" opacity="0.14" filter="url(#tlmRib)"/>' : '')
+    + fbars + abars + floor + lines + mkLab
+    + '</svg>';
 }
 function tlHourHTML() {
   const IC = { temp: MI_TEMP, rain: MI_RAIN, wind: MI_WIND, cloud: MI_CLOUD };
@@ -329,31 +361,22 @@ function tlHourHTML() {
       + '<span class="tlm-mconf" id="tlm-conf-' + m + '"></span></div>').join('')
     + '</div></div>';
 
-  // top axis: sunrise/sunset times + NOW label share this line
+  // top axis: sunrise/sunset times + NOW label share this line (full width)
   const sun = tlSunFrac();
-  const axis = '<div class="tlm-axis"><span class="tlm-axpad"></span><div class="tlm-axtrack">'
+  const axis = '<div class="tlm-axis"><div class="tlm-axtrack">'
     + (sun.riseMs ? '<span class="tlm-suntime" style="left:' + (sun.rise * 100).toFixed(1) + '%">' + wxIcon(0, false, null) + '<b>' + tlClock(sun.riseMs) + '</b></span>' : '')
     + (sun.setMs ? '<span class="tlm-suntime" style="left:' + (sun.set * 100).toFixed(1) + '%">' + wxIcon(0, true, null) + '<b>' + tlClock(sun.setMs) + '</b></span>' : '')
-    + '</div><span class="tlm-axpad-r"></span></div>';
-
-  let lanes = '<div class="tlm-lanes">' + TL.lanes.map(m =>
-    '<div class="tlm-lane"><span class="tlm-lic tlm-ic-' + m + '">' + IC[m] + '</span>'
-    + '<span class="tlm-lspark">' + tlSparkSVG(m) + '</span>'
-    + '<span class="tlm-lscale">' + tlLaneCeilFloor(m) + '</span></div>').join('') + '</div>';
-
-  // dimmed background before sunrise / after sunset (the line stays crisp)
-  const nightBg = '<div class="tlm-nightbg">'
-    + '<div class="tlm-night" style="left:0;width:' + (sun.rise * 100).toFixed(1) + '%"></div>'
-    + '<div class="tlm-night" style="left:' + (sun.set * 100).toFixed(1) + '%;width:' + ((1 - sun.set) * 100).toFixed(1) + '%"></div></div>';
+    + '</div></div>';
 
   const vis = tlNowVisible();
   const L = (tlNowFrac() * 100).toFixed(2) + '%';
   const overlay = '<div class="tlm-overlay" id="tlm-overlay">'
     + '<div class="tlm-now" id="tlm-now" style="left:' + L + ';display:' + (vis ? 'block' : 'none') + '"></div>'
+    + '<div class="tlm-dot" id="tlm-dot" style="left:' + L + ';display:none"></div>'
     + '<div class="tlm-nowlab" id="tlm-nowlab" style="left:' + L + ';display:' + (vis ? 'block' : 'none') + '"></div>'
     + '</div>';
 
-  return hero + axis + '<div class="tlm-chart">' + nightBg + lanes + overlay + '</div>';
+  return hero + axis + '<div class="tlm-chart">' + tlMainChartSVG() + overlay + '</div>';
 }
 
 // fill hero + metric figures for the current ref hour
@@ -394,10 +417,25 @@ function tlHeads() {
 }
 function tlSyncNow() {
   const vis = tlNowVisible();
-  const L = (tlNowFrac() * 100).toFixed(2) + '%';
+  const frac = tlNowFrac();
+  const L = (frac * 100).toFixed(2) + '%';
   const now = document.getElementById('tlm-now'), lab = document.getElementById('tlm-nowlab');
   if (now) { now.style.left = L; now.style.display = vis ? 'block' : 'none'; }
   if (lab) { lab.style.left = L; lab.style.display = vis ? 'block' : 'none'; }
+  // the dot rides the temperature curve at the marked hour
+  const dot = document.getElementById('tlm-dot');
+  if (dot) {
+    let y = null;
+    if (vis && TL._dotY && TL._dotY.length === 24) {
+      const hf = Math.max(0, Math.min(23, frac * 23));
+      const h0 = Math.floor(hf), h1 = Math.min(23, h0 + 1), t = hf - h0;
+      const y0 = TL._dotY[h0], y1 = TL._dotY[h1];
+      if (y0 != null && y1 != null) y = y0 + (y1 - y0) * t;
+      else if (y0 != null) y = y0;
+    }
+    if (y != null) { dot.style.left = L; dot.style.top = (y * 100).toFixed(2) + '%'; dot.style.display = 'block'; }
+    else dot.style.display = 'none';
+  }
   document.querySelectorAll('.tl-sec-now').forEach(el => { el.style.left = L; el.style.display = vis ? 'block' : 'none'; });
 }
 
@@ -546,7 +584,7 @@ function tlSpark(vals) {
   vals.forEach((v, i) => { if (v == null || isNaN(v)) return; pts.push([(i / (vals.length - 1)) * W, H - 3 - ((v - mn) / rng) * (H - 6)]); });
   const d = tlPath(pts);
   return '<svg class="tl-sec-spark" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">'
-    + '<path d="' + d + '" fill="none" stroke="var(--text-muted,#6f6c64)" stroke-width="1.2" stroke-linecap="round" opacity="0.8" vector-effect="non-scaling-stroke"/></svg>';
+    + '<path d="' + d + '" fill="none" stroke="var(--text-muted,#93a6c0)" stroke-width="1.2" stroke-linecap="round" opacity="0.8" vector-effect="non-scaling-stroke"/></svg>';
 }
 function tlAqiWord(v) { return v == null ? '' : v <= 50 ? 'good' : v <= 100 ? 'moderate' : v <= 150 ? 'poor' : 'bad'; }
 function tlSecRender() {
