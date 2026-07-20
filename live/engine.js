@@ -49,8 +49,20 @@ const autoHidden = new Set();
 // ── Shared state (single home for every cross-file global) ─────────────
 // UI prefs (rendered by app.js, persisted in prefs)
 let showDetail = false;
-const secVisible = { temp:true, wind:true, rain:true, cloud:true };
-const secDetail  = { temp:false, rain:false, wind:false, cloud:false };
+// ── Secondary metrics (table sections, off by default) ─────────────────
+// Same treatment as the main four: blended head row, per-model source rows
+// and a ✓ Actual row. Weighting piggybacks on the nearest main metric's
+// skill scores (snow→rain, gusts→wind, humidity→cloud); pressure and UV
+// fall back to the overall model weights.
+const XMET = [
+  { key:'snow',  field:'snowfall',             label:'Snow',     unit:'cm',   color:'#BFE8FF' },
+  { key:'gust',  field:'wind_gusts_10m',       label:'Gusts',    unit:'km/h', color:'#FFB86B' },
+  { key:'humid', field:'relative_humidity_2m', label:'Humidity', unit:'%',    color:'#4ED6B8' },
+  { key:'press', field:'surface_pressure',     label:'Pressure', unit:'hPa',  color:'#F09AD0' },
+  { key:'uv',    field:'uv_index',             label:'UV',       unit:'',     color:'#FFD75E' }
+];
+const secVisible = { temp:true, wind:true, rain:true, cloud:true, snow:false, gust:false, humid:false, press:false, uv:false };
+const secDetail  = { temp:false, rain:false, wind:false, cloud:false, snow:false, gust:false, humid:false, press:false, uv:false };
 let useWeightedAvg = true;
 let verticalLayout = false;
 let showDebug = false;
@@ -141,6 +153,8 @@ function normalizeOM(j){
     map(j.hourly,'windspeed_10m','wind_speed_10m');
     map(j.hourly,'winddirection_10m','wind_direction_10m');
     map(j.hourly,'weathercode','weather_code');
+    map(j.hourly,'wind_gusts_10m','windgusts_10m');
+    map(j.hourly,'surface_pressure','surface_pressure_hpa');
   }
   if(j && j.daily){
     map(j.daily,'windspeed_10m_max','wind_speed_10m_max');
@@ -162,7 +176,7 @@ function hVals(key,field,indices){
   const arr=d.hourly[field];if(!arr)return indices.map(()=>null);
   const step=state.view==='3h'?3:state.view==='8h'?8:1;
   if(step===1)return indices.map(i=>arr[i]??null);
-  const isSum=(field==='precipitation');
+  const isSum=(field==='precipitation'||field==='snowfall');
   const isFirst=(field==='weathercode'||field==='winddirection_10m');
   if(isFirst)return indices.map(i=>arr[i]??null);
   return indices.map(i=>{
@@ -180,8 +194,10 @@ function hVals(key,field,indices){
 function fieldSec(field){
   if(/temperature/.test(field))return'temp';
   if(/precipitation/.test(field))return'rain';
+  if(/snowfall/.test(field))return'rain';
   if(/wind/.test(field))return'wind';
   if(/cloud/.test(field))return'cloud';
+  if(/humidity/.test(field))return'cloud';
   return null;
 }
 // Lead time (whole days) of a date from today: today=0, tomorrow=1, …
@@ -215,7 +231,7 @@ function wBlendAt(field,i,horizon){
   const step=state.view==='3h'?3:state.view==='8h'?8:1;
   const a=activeEnabled(); if(!a.length)return null;
   const isFirst=(field==='winddirection_10m'||field==='weathercode');
-  const isSum=(field==='precipitation');
+  const isSum=(field==='precipitation'||field==='snowfall');
   const pairs=a.map(m=>{
     const arr=state.data[m.key]?.hourly?.[field];
     if(!arr)return {key:m.key,val:null};
@@ -254,17 +270,25 @@ async function fetchAllModels(){
   locationOffsetSec=null;
 
   await Promise.all(MODELS.map(async m=>{
-    try{
-      const url=`https://api.open-meteo.com${m.ep}`
-        +`?latitude=${state.lat}&longitude=${state.lon}`
-        +`&hourly=precipitation,wind_speed_10m,wind_direction_10m,temperature_2m,weather_code,cloud_cover,relative_humidity_2m`
-        +`&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,`
-        +`wind_speed_10m_max,wind_direction_10m_dominant,sunrise,sunset,uv_index_max`
-        +`&models=${m.key}&past_days=${Math.max(7,Math.min(31,learnDays))}&forecast_days=10&timezone=auto&wind_speed_unit=kmh`;
-      const res=await fetch(url,{signal:AbortSignal.timeout(20000)});if(!res.ok)throw new Error(`HTTP ${res.status}`);
+    const baseH='precipitation,wind_speed_10m,wind_direction_10m,temperature_2m,weather_code,cloud_cover,relative_humidity_2m';
+    const extraH=',apparent_temperature,snowfall,wind_gusts_10m,surface_pressure,uv_index';
+    const buildUrl=h=>`https://api.open-meteo.com${m.ep}`
+      +`?latitude=${state.lat}&longitude=${state.lon}`
+      +`&hourly=${h}`
+      +`&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,`
+      +`wind_speed_10m_max,wind_direction_10m_dominant,sunrise,sunset,uv_index_max`
+      +`&models=${m.key}&past_days=${Math.max(7,Math.min(31,learnDays))}&forecast_days=10&timezone=auto&wind_speed_unit=kmh`;
+    const tryFetch=async h=>{
+      const res=await fetch(buildUrl(h),{signal:AbortSignal.timeout(20000)});if(!res.ok)throw new Error(`HTTP ${res.status}`);
       const json=await res.json();if(json.error)throw new Error(json.reason||'API error');
       normalizeOM(json);
       if(!json.hourly?.temperature_2m?.some(v=>v!=null))throw new Error('No data');
+      return json;
+    };
+    try{
+      let json;
+      try{ json=await tryFetch(baseH+extraH); }
+      catch(e1){ dbg(m.key+': extras failed ('+e1.message+') — retrying base fields'); json=await tryFetch(baseH); }
       state.data[m.key]=json;state.status[m.key]='ok';
       if(locationOffsetSec==null&&typeof json.utc_offset_seconds==='number')locationOffsetSec=json.utc_offset_seconds;
       if(!state.ss.loaded&&json.daily?.sunrise){
@@ -376,6 +400,13 @@ function computeCurrentFromHourly(){
   const wcode = cur.code!=null?cur.code:(state.data[onlyEnabled[0].key]?.hourly?.weathercode?.[nowIdx]??null);
   const cloud = cur.cloud!=null?cur.cloud:wAt('cloudcover',nowIdx);
   const rainNow=_rcell(cur.rain!=null?cur.rain:wAt('precipitation',nowIdx));
+  // Feels-like from the same current-hour data as everything else (Open-Meteo
+  // analysis for past hours where available, blended forecast otherwise).
+  let feels=wAt('apparent_temperature',nowIdx);
+  if(actualData?.hourly?.time){
+    const ai=actualData.hourly.time.indexOf(curIso);
+    if(ai>=0){const av=actualData.hourly.apparent_temperature?.[ai];if(av!=null)feels=av;}
+  }
 
   let tHi=null,tLo=null,rainTot=0,rainRemain=0,windHi=null,windLo=null,cloudHi=null,cloudLo=null;
   ref.time.forEach((t,i)=>{
@@ -400,7 +431,7 @@ function computeCurrentFromHourly(){
   }
   const rainToday=rainTot;
 
-  return {temp,wind,windDir,wcode,hi,lo,rainToday,rainRemainToday:rainRemain,cloud,windHi,windLo,cloudHi,cloudLo,actualRainToday,rainNow,
+  return {temp,feels,wind,windDir,wcode,hi,lo,rainToday,rainRemainToday:rainRemain,cloud,windHi,windLo,cloudHi,cloudLo,actualRainToday,rainNow,
           obsTemp:!!cur.isAct,obsWind:!!cur.isAct,obsCloud:!!cur.isAct,obsTime:null,obsHumid:null};
 }
 
@@ -466,8 +497,8 @@ function buildActualData(){
   const ref=refHourly();
   if(!ref?.time){ actualSources=null; actualData=null; return null; }
   const now=Date.now();
-  const O={time:[],temperature_2m:[],precipitation:[],cloudcover:[],windspeed_10m:[]};
-  const FS=['temperature_2m','precipitation','cloudcover','windspeed_10m'];
+  const FS=['temperature_2m','precipitation','cloudcover','windspeed_10m','apparent_temperature','snowfall','wind_gusts_10m','surface_pressure','uv_index','relative_humidity_2m'];
+  const O={time:[]}; FS.forEach(f=>O[f]=[]);
   ref.time.forEach((t,i)=>{
     if(new Date(t).getTime()>now) return;
     O.time.push(t);

@@ -32,6 +32,13 @@ const MI_VERT='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 const MI_CHECK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6.5 9.5 17 4 11.5"/></svg>';
 const MI_TREND='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 11 13 14.5 21 6.5"/><polyline points="15.5 6.5 21 6.5 21 12"/></svg>';
 const MI_BUG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="7" width="8" height="11" rx="4"/><path d="M9.5 7a2.5 2.5 0 0 1 5 0"/><line x1="12" y1="11" x2="12" y2="18"/><line x1="8" y1="11" x2="3.5" y2="9"/><line x1="8" y1="15" x2="4" y2="17"/><line x1="16" y1="11" x2="20.5" y2="9"/><line x1="16" y1="15" x2="20" y2="17"/></svg>';
+// Secondary metric icons
+const MI_SNOW='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><line x1="12" y1="3" x2="12" y2="21"/><line x1="4.2" y1="7.5" x2="19.8" y2="16.5"/><line x1="19.8" y1="7.5" x2="4.2" y2="16.5"/><path d="M9.6 4.6 12 7l2.4-2.4"/><path d="M9.6 19.4 12 17l2.4 2.4"/></svg>';
+const MI_GUST='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 9h11a2.4 2.4 0 1 0-2.3-3.1"/><path d="M2.5 14h16.5a2.4 2.4 0 1 1-2.3 3.1"/><line x1="16.5" y1="9" x2="21" y2="9"/></svg>';
+const MI_HUMID='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3.2c2.7 3.7 4.9 6.5 4.9 9.3a4.9 4.9 0 0 1-9.8 0c0-2.8 2.2-5.6 4.9-9.3z"/><path d="M9.8 13.5a2.3 2.3 0 0 0 2.2 2.2"/></svg>';
+const MI_PRESS='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="13" r="8.2"/><line x1="12" y1="13" x2="16.2" y2="8.8"/><line x1="12" y1="4.8" x2="12" y2="6.6"/><line x1="3.8" y1="13" x2="5.6" y2="13"/><line x1="18.4" y1="13" x2="20.2" y2="13"/></svg>';
+const MI_UV='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><line x1="12" y1="2.4" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="21.6"/><line x1="2.4" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="21.6" y2="12"/><line x1="5.2" y1="5.2" x2="7" y2="7"/><line x1="17" y1="17" x2="18.8" y2="18.8"/><line x1="18.8" y1="5.2" x2="17" y2="7"/><line x1="7" y1="17" x2="5.2" y2="18.8"/></svg>';
+const XICON={snow:MI_SNOW,gust:MI_GUST,humid:MI_HUMID,press:MI_PRESS,uv:MI_UV};
 
 // ── Boot ────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded',()=>{
@@ -73,6 +80,7 @@ function buildSourcesPanel(){
     ti("tog-rain",e(secVisible.rain),MI_RAIN,"toggleSection('rain',document.getElementById('tog-rain'))","Rain","qt-rain")+
     ti("tog-wind",e(secVisible.wind),MI_WIND,"toggleSection('wind',document.getElementById('tog-wind'))","Wind","qt-wind")+
     ti("tog-cloud",e(secVisible.cloud),MI_CLOUD,"toggleSection('cloud',document.getElementById('tog-cloud'))","Cloud","qt-cloud")+
+    XMET.map(x=>ti("tog-"+x.key,e(secVisible[x.key]),XICON[x.key],`toggleSection('${x.key}',document.getElementById('tog-${x.key}'))`,x.label,"qt-"+x.key)).join("")+
     ti("detail-in-panel",e(showDetail),MI_EYE,"toggleDetail()","Sources")+
     `</div></div>`+
     `<div class="config-row">`+
@@ -154,7 +162,7 @@ function toggleModel(key){
 }
 function toggleDetail(){
   showDetail=!showDetail; updateDetailBtn();
-  ['temp','rain','wind','cloud'].forEach(s=>secDetail[s]=showDetail);
+  Object.keys(secDetail).forEach(s=>secDetail[s]=showDetail);
   savePrefs();
   document.querySelectorAll('.src-row').forEach(r=>{
     if(!r.classList.contains('perm-hidden'))r.classList.toggle('src-hidden',!showDetail);
@@ -576,7 +584,7 @@ const _T=(v,suf='°')=>v!=null?tempDisp(v)+suf:'—';
 function buildTodayBoxes(){
   const comp=computeCurrentFromHourly();
   const c=cachedCurrent?.c;
-  const temp=comp?.temp??c?.temperature_2m, feels=c?.apparent_temperature;
+  const temp=comp?.temp??c?.temperature_2m, feels=comp?.feels??c?.apparent_temperature;
   const wind=comp?.wind??c?.windspeed_10m, windDir=comp?.windDir??c?.winddirection_10m;
   const wcode=comp?.wcode??c?.weathercode;
   const hi=comp?.hi??cachedHiLo?.hi, lo=comp?.lo??cachedHiLo?.lo;
@@ -947,6 +955,7 @@ function updateDateUI(){
 function renderCurrentBar(){
   const bar=document.getElementById('curr-bar');
   if(!bar)return;
+  if(bar._touch){ bar._pendingRender=true; return; }
   const dates=carouselDates();
   if(!dates.length)return;
   const today=localTodayStr();
@@ -955,13 +964,24 @@ function renderCurrentBar(){
   bar.innerHTML=dates.map(d=>`<div class="cc-page" data-date="${d}"><div class="cc-grid">${pageGridHTML(d)}</div></div>`).join('');
   bar.classList.add('loaded');
   requestAnimationFrame(()=>centerCarousel('auto'));
-  if(!bar._resizeBound){ bar._resizeBound=true; window.addEventListener('resize',()=>centerCarousel('auto')); }
+  if(!bar._resizeBound){
+    bar._resizeBound=true;
+    let _lastW=window.innerWidth;
+    // Only re-centre on genuine width changes — mobile browsers fire resize
+    // when the URL bar collapses during a scroll, which was jolting the cards.
+    window.addEventListener('resize',()=>{
+      if(window.innerWidth===_lastW)return;
+      _lastW=window.innerWidth;
+      centerCarousel('auto');
+    });
+  }
   updateDateUI();
   renderDayBar();
 }
 function centerCarousel(behavior='auto'){
   const bar=document.getElementById('curr-bar');if(!bar)return;
   const pg=bar.querySelector('.cc-page[data-date="'+selDate+'"]');if(!pg)return;
+  if(Math.abs(bar.scrollLeft-pg.offsetLeft)<2)return;
   _suppressCarousel=Date.now()+500;
   bar.scrollTo({left:pg.offsetLeft,behavior});
 }
@@ -1017,6 +1037,13 @@ function onTableScroll(){
 function initCarouselScroll(){
   const bar=document.getElementById('curr-bar');if(!bar||bar._scrollInit)return;
   bar._scrollInit=true;
+  bar.addEventListener('pointerdown',()=>{bar._touch=true;},{passive:true});
+  const _touchDone=()=>{
+    bar._touch=false;
+    if(bar._pendingRender){ bar._pendingRender=false; setTimeout(()=>renderCurrentBar(),350); }
+  };
+  bar.addEventListener('pointerup',_touchDone,{passive:true});
+  bar.addEventListener('pointercancel',_touchDone,{passive:true});
   let tmr;
   bar.addEventListener('scroll',()=>{
     if(Date.now()<_suppressCarousel)return;
@@ -1166,6 +1193,17 @@ function rainCls(v){if(!v||v<0.05)return'r0';if(v<0.2)return'r1';if(v<0.5)return
 function windCls(v){if(!v||v<10)return'wc';if(v<20)return'wl';if(v<35)return'wm';if(v<55)return'wh';return'wx';}
 function cloudCls(v){if(v==null)return"";if(v<=12)return"cl0";if(v<=25)return"cl1";if(v<=50)return"cl2";if(v<=75)return"cl3";if(v<=87)return"cl4";return"cl5";}
 function tempCls(v){if(v==null)return'';if(v<5)return'tc';if(v<12)return'tk';if(v<22)return'tm';if(v<30)return'tw';return'th';}
+function snowCls(v){if(!v||v<0.05)return'sn0';if(v<0.5)return'sn1';if(v<2)return'sn2';return'sn3';}
+function humidCls(v){if(v==null)return'';if(v<40)return'hu0';if(v<65)return'hu1';if(v<85)return'hu2';return'hu3';}
+function uvCls(v){if(v==null||v<0.5)return'uv0';if(v<3)return'uv1';if(v<6)return'uv2';if(v<8)return'uv3';return'uv4';}
+// Per-metric cell formatting for the secondary sections
+const XSTYLE={
+  snow:{fmt:v=>v<0.05?'<span class="empty">0</span>':v.toFixed(1),cls:snowCls},
+  gust:{fmt:v=>String(Math.round(v)),cls:windCls},
+  humid:{fmt:v=>Math.round(v)+'%',cls:humidCls},
+  press:{fmt:v=>String(Math.round(v)),cls:()=>''},
+  uv:{fmt:v=>v<0.05?'<span class="empty">0</span>':(Math.round(v*10)/10).toString(),cls:uvCls}
+};
 
 // ── SVG weather icons ───────────────────────────────────────────────────
 const _sun='<circle cx="12" cy="12" r="4.6" fill="#fbbf24"/><g stroke="#fbbf24" stroke-width="1.7" stroke-linecap="round"><line x1="12" y1="1.6" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22.4"/><line x1="1.6" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22.4" y2="12"/><line x1="4.5" y1="4.5" x2="6.2" y2="6.2"/><line x1="17.8" y1="17.8" x2="19.5" y2="19.5"/><line x1="19.5" y1="4.5" x2="17.8" y2="6.2"/><line x1="6.2" y1="17.8" x2="4.5" y2="19.5"/></g>';
@@ -1250,7 +1288,7 @@ function srcRowClass(m,sec){
   return`data-row src-row${sec?' src-'+sec:''}${(!isOn||!open)?' src-hidden':''}${!isOn?' perm-hidden':''}`;
 }
 function secHeadLabel(sec,content){
-  const ic={temp:MI_TEMP,rain:MI_RAIN,wind:MI_WIND,cloud:MI_CLOUD}[sec]||'';
+  const ic={temp:MI_TEMP,rain:MI_RAIN,wind:MI_WIND,cloud:MI_CLOUD,...XICON}[sec]||'';
   return`<td class="row-label sec-toggle" onclick="toggleSecDetail('${sec}')">${ic?`<span class="shl-ic" style="color:var(--q-${sec})">${ic}</span>`:''}${content}</td>`;
 }
 function toggleSecDetail(sec){
@@ -1301,10 +1339,9 @@ function buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled,r
       const cls=cloudCls(v);const nc=ci===nowCi?"now-col":"";
       return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(" ")}">${Math.round(v)}%</td>`,(ndCls[ci]+" "+pastCls[ci]).trim());
     }).join("");
-    const tag='Open-Meteo';
-    actRow=`<tr class="actual-row"><td class="row-label" style="color:${QT.cloud}">✓ Actual<span class="act-src">${tag}</span></td>${cells}</tr>`;
+    actRow=`<tr class="actual-row"><td class="row-label" style="color:${QT.cloud}">✓ Actual</td>${cells}</tr>`;
   }
-  return`<tr class="sec-head-temp">${secHeadLabel('cloud','Cloud')}${avgCells}</tr>${typeof confRow==='function'?confRow('cloud'):''}${srcRows}`+actRow;
+  return`<tr class="sec-head-cloud">${secHeadLabel('cloud','Cloud')}${avgCells}</tr>${typeof confRow==='function'?confRow('cloud'):''}${srcRows}`+actRow+`<tr class="spacer"><td colspan="${C}"></td></tr>`;
 }
 
 // ── Vertical layout ─────────────────────────────────────────────────────
@@ -1333,11 +1370,29 @@ function renderVertical_buildColDef(){
     cols.push({id:'cloud',  hdr:_vh(MI_CLOUD,'cloud'), hdrCls:''});
     if(actualData&&showActuals) cols.push({id:'act_cl', hdr:'✓'+_vh(MI_CLOUD,'cloud'), hdrCls:''});
   }
+  XMET.forEach(x=>{
+    if(!secVisible[x.key])return;
+    cols.push({id:'x_'+x.key, hdr:_vh(XICON[x.key],x.key), hdrCls:''});
+    if(actualData&&showActuals) cols.push({id:'xa_'+x.key, hdr:'✓'+_vh(XICON[x.key],x.key), hdrCls:''});
+  });
   return{cols,actMap,nowMs};
 }
 function renderVertical_cellVal(colId,i,onlyEnabled,actMap,nowMs,ref){
   const isPast=new Date(ref.time[i]).getTime()<nowMs;
   const hz=horizonOf(ref.time[i].slice(0,10));
+  if(colId.startsWith('x_')||colId.startsWith('xa_')){
+    const key=colId.replace(/^xa?_/,'');
+    const x=XMET.find(o=>o.key===key); if(!x)return'<td>–</td>';
+    const st=XSTYLE[key];
+    if(colId.startsWith('xa_')){
+      if(!isPast)return'<td class="empty">–</td>';
+      const ai=actMap[ref.time[i]];
+      const v=ai!==undefined?actualData.hourly[x.field]?.[ai]:null;
+      return`<td class="${v!=null?st.cls(v):''}">${v!=null?st.fmt(v):'–'}</td>`;
+    }
+    const v=weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.hourly?.[x.field]?.[i]??null})),fieldSec(x.field),hz,x.field);
+    return`<td class="${v!=null?st.cls(v):''}">${v!=null?st.fmt(v):'—'}</td>`;
+  }
   switch(colId){
     case'temp':{
       const v=weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.hourly?.temperature_2m?.[i]??null})),'temp',hz,'temperature_2m');
@@ -1516,12 +1571,38 @@ function positionNowOverlay(){
       const tbl=wrap.querySelector('.ftable');
       const fullH=tbl?tbl.offsetHeight:wrap.scrollHeight;
       const nowTh=wrap.querySelector('.hour-header th.now-col');
-      if(nowTh&&ovV){
+      if(ovV)ovV.style.display='none';
+      // Red now line: one segment per visible band (icon row + each metric
+      // section), so it never bleeds across the gaps between sections.
+      const segKey=nowTh?(nowTh.offsetLeft+'|'+fullH):'none';
+      if(wrap._nowSegKey!==segKey){
+        wrap._nowSegKey=segKey;
+        wrap.querySelectorAll('.now-seg').forEach(e=>e.remove());
+        if(nowTh&&tbl){
+          const left=nowTh.offsetLeft;
+          tbl.querySelectorAll('tbody').forEach(tb=>{
+            if(tb.classList.contains('sec-off'))return;
+            let top=null,bot=null;
+            tb.querySelectorAll('tr').forEach(r=>{
+              if(r.classList.contains('spacer')||r.classList.contains('hour-header'))return;
+              if(r.offsetHeight<=0)return;
+              const t=r.offsetTop,b=t+r.offsetHeight;
+              if(top==null||t<top)top=t;
+              if(bot==null||b>bot)bot=b;
+            });
+            if(top!=null&&bot>top){
+              const s=document.createElement('div');
+              s.className='now-seg';
+              s.style.left=left+'px';
+              s.style.top=top+'px';
+              s.style.height=(bot-top)+'px';
+              wrap.appendChild(s);
+            }
+          });
+        }
+      }
+      if(nowTh){
         const leftEdge=nowTh.offsetLeft;
-        ovV.style.left=leftEdge+'px';
-        ovV.style.top='0';
-        ovV.style.height=fullH+'px';
-        ovV.style.display='block';
         const labelW=98;
         pastV.style.left=labelW+'px';
         pastV.style.top='0';
@@ -1529,7 +1610,6 @@ function positionNowOverlay(){
         pastV.style.height=fullH+'px';
         pastV.style.display='block';
       } else {
-        if(ovV)ovV.style.display='none';
         if(pastV)pastV.style.display='none';
       }
       wrap.querySelectorAll('.hour-header th.day-start').forEach(th=>{
@@ -1543,6 +1623,8 @@ function positionNowOverlay(){
       if(ovH)ovH.style.display='none';
       if(pastH)pastH.style.display='none';
     } else {
+      wrap.querySelectorAll('.now-seg').forEach(e=>e.remove());
+      wrap._nowSegKey='none';
       const nowRow=document.getElementById('now-row');
       if(nowRow&&ovH){
         const topEdge=nowRow.offsetTop;
@@ -1687,12 +1769,39 @@ function renderHourly(){
       return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(' ')}">${fmtFn(v)}</td>`,ndCls[ci]);
     }).join('');
   }
-  const _srcTag='Open-Meteo';
   function actualRow1(field, fmtFn, clsFn, color){
     if(!actualData||!showActuals)return '';
     const cells=buildActualCells(actualData.hourly,field,indices,fmtFn,clsFn,nowCi);
-    return `<tr class="actual-row"><td class="row-label" style="color:${color}">✓ Actual<span class="act-src">${_srcTag}</span></td>${cells}</tr>`;
+    return `<tr class="actual-row"><td class="row-label" style="color:${color}">✓ Actual</td>${cells}</tr>`;
   }
+  // ── Secondary metric sections (off by default; content only built when on) ──
+  const xSections=XMET.map(x=>{
+    if(!secVisible[x.key])return secGroup(x.key,'');
+    const st=XSTYLE[x.key];
+    const wsec=fieldSec(x.field);
+    const avg=indices.map(i=>wBlendAt(x.field,i,horizonOf(ref.time[i].slice(0,10))));
+    const avgCells=avg.map((v,ci)=>{
+      const cls=v!=null?st.cls(v):'';
+      const nc=ci===nowCi?'now-col':'';
+      return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(' ')}">${v!=null?st.fmt(v):'<span class="empty">—</span>'}</td>`,(ndCls[ci]+' '+pastCls[ci]).trim());
+    }).join('');
+    const modelRows=allActive.map(m=>{
+      const vv=hVals(m.key,x.field,indices);
+      const cells=vv.map((v,ci)=>{
+        const cls=v!=null?st.cls(v):'';
+        const nc=ci===nowCi?'now-col':'';
+        return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(' ')}">${v!=null?st.fmt(v):'—'}</td>`,ndCls[ci]);
+      }).join('');
+      return`<tr class="${srcRowClass(m,x.key)}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span>${wsec?wBadge(wsec,m.key):''}</span></td>${cells}</tr>`;
+    }).join('');
+    return secGroup(x.key,`
+      <tr class="sec-head-x sec-head-${x.key}">${secHeadLabel(x.key,x.label)}${avgCells}</tr>
+      ${modelRows}
+      ${actualRow1(x.field,st.fmt,st.cls,x.color)}
+      <tr class="spacer"><td colspan="${C}"></td></tr>
+    `);
+  }).join('');
+
   document.querySelector('.ftable').innerHTML=`
     <tbody>
       <tr class="hour-header"><th class="row-label corner-cell"></th>${hdrCells}</tr>
@@ -1722,7 +1831,8 @@ function renderHourly(){
       ${actualRow1('windspeed_10m',v=>Math.round(v)+'',windCls,QT.wind)}
       <tr class="spacer"><td colspan="${C}"></td></tr>
     `)}
-    ${secGroup("cloud",buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled,ref,actMap,confRow))}`;
+    ${secGroup("cloud",buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled,ref,actMap,confRow))}
+    ${xSections}`;
   requestAnimationFrame(()=>scrollTableToSelected());
   positionNowOverlay();
 }
@@ -1855,7 +1965,7 @@ function renderDaily(){
       <tr class="spacer"><td colspan="${C}"></td></tr>
     `)}
     ${secGroup('cloud',`
-      <tr class="sec-head-temp">${secHeadLabel('cloud','Cloud')}${avgCloudCells}</tr>
+      <tr class="sec-head-cloud">${secHeadLabel('cloud','Cloud')}${avgCloudCells}</tr>
       ${cloudModelRows}
     `)}`;
 

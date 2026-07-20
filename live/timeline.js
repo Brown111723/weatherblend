@@ -154,8 +154,8 @@ function tlBuild() {
 }
 function tlDefaultHour() {
   const d = TL.days[TL.sel];
-  if (d && d.isToday && TL.nowH != null) return Math.max(0, Math.min(23, Math.round(TL.nowH - TL.sel * 24)));
-  if (TL.nowH != null) return ((Math.round(TL.nowH) % 24) + 24) % 24;
+  if (d && d.isToday && TL.nowH != null) return Math.max(0, Math.min(23, Math.floor(TL.nowH - TL.sel * 24)));
+  if (TL.nowH != null) return ((Math.floor(TL.nowH) % 24) + 24) % 24;
   return 12;
 }
 function tlRefHour() { return TL.sel * 24 + Math.max(0, Math.min(23, TL.hourSel)); }
@@ -391,9 +391,21 @@ function tlHeads() {
     set('tlm-temp', hi != null ? tempDisp(hi) + '°' : '—');
     set('tlm-feels', lo != null ? 'Low ' + tempDisp(lo) + '°' : '');
   } else {
+    // Feels-like from the same current-hour data as everything else:
+    // observed analysis where available, blended forecast otherwise.
     let feels = null;
-    if (d.isToday && !TL.scrubbing && cachedCurrent && cachedCurrent.c && cachedCurrent.c.apparent_temperature != null) feels = cachedCurrent.c.apparent_temperature;
-    else if (t != null && TL.wind[h] != null) feels = t - TL.wind[h] * 0.11;
+    const gi = TL.idx ? TL.idx[h] : null;
+    if (gi != null) {
+      const iso = d.date + 'T' + String(Math.max(0, Math.min(23, TL.hourSel))).padStart(2, '0') + ':00';
+      try {
+        if (typeof actualData !== 'undefined' && actualData && actualData.hourly && actualData.hourly.time) {
+          const ai = actualData.hourly.time.indexOf(iso);
+          if (ai >= 0) feels = actualData.hourly.apparent_temperature ? (actualData.hourly.apparent_temperature[ai] ?? null) : null;
+        }
+        if (feels == null && typeof wBlendAt === 'function') feels = wBlendAt('apparent_temperature', gi, (typeof horizonOf === 'function') ? horizonOf(d.date) : 0);
+      } catch (e) {}
+    }
+    if (feels == null && t != null && TL.wind[h] != null) feels = t - TL.wind[h] * 0.11;
     set('tlm-temp', t != null ? tempDisp(t) + '°' : '—');
     set('tlm-feels', feels != null ? 'Feels like ' + tempDisp(feels) + '°' : '');
   }
@@ -440,31 +452,55 @@ function tlSyncNow() {
 }
 
 // ── scrub / swipe gesture (shared by hour chart + secondary metrics) ─────
-// Slow drag = scrub hours; on the hour chart a quick flick slides days.
+// Quick horizontal start = day swipe: the card follows the finger (damped,
+// rubber-banded at the ends), committing on distance or velocity and
+// springing back otherwise. Hold ≥140ms = scrub hours, as before.
 function tlBindScrubOn(el, fracEl, allowSwipe) {
   if (!el) return;
-  let down = false, decided = null, startX = 0, startT = 0;
-  const HOLD_MS = 140, SWIPE_DX = 34;
+  let down = false, decided = null, startX = 0, startY = 0, startT = 0, lastX = 0, lastT = 0, vel = 0;
+  const HOLD_MS = 140, SWIPE_DX = 14, COMMIT_DX = 48, COMMIT_V = 0.45;
+  const hourEl = () => document.getElementById('tlm-hour');
+  const blocked = dx => (dx > 0 && TL.sel <= 0) || (dx < 0 && TL.sel >= TL.days.length - 1);
+  const follow = dx => {
+    const h = hourEl(); if (!h) return;
+    const damp = blocked(dx) ? 0.22 : 0.55;
+    const t = Math.max(-90, Math.min(90, dx * damp));
+    h.style.transition = 'none';
+    h.style.transform = 'translateX(' + t.toFixed(1) + 'px)';
+    h.style.opacity = String(1 - Math.min(0.35, Math.abs(t) / 260));
+  };
+  const spring = () => {
+    const h = hourEl(); if (!h) return;
+    h.style.transition = 'transform .2s cubic-bezier(.2,.7,.3,1), opacity .2s';
+    h.style.transform = 'translateX(0)';
+    h.style.opacity = '1';
+  };
   const hourFromX = clientX => {
     const r = (fracEl || el).getBoundingClientRect();
     const frac = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
     return Math.round(frac * 23);
   };
   el.addEventListener('pointerdown', ev => {
-    down = true; decided = null; startX = ev.clientX; startT = performance.now();
+    down = true; decided = null;
+    startX = lastX = ev.clientX; startY = ev.clientY;
+    startT = lastT = performance.now(); vel = 0;
     try { el.setPointerCapture(ev.pointerId); } catch (e) {}
   });
   el.addEventListener('pointermove', ev => {
     if (!down) return;
-    const moved = ev.clientX - startX;
+    const nowT = performance.now(), x = ev.clientX;
+    const moved = x - startX;
     if (decided == null) {
-      const dt = performance.now() - startT;
-      if (allowSwipe && dt < HOLD_MS && Math.abs(moved) > SWIPE_DX) decided = 'swipe';
+      const dt = nowT - startT, my = Math.abs(ev.clientY - startY);
+      if (allowSwipe && dt < HOLD_MS && Math.abs(moved) > SWIPE_DX && Math.abs(moved) > my * 1.2) decided = 'swipe';
       else if (dt >= HOLD_MS) decided = 'scrub';
       else return;
     }
+    const dT = nowT - lastT;
+    if (dT > 0) { vel = (x - lastX) / dT; lastX = x; lastT = nowT; }
+    if (decided === 'swipe') { follow(moved); return; }
     if (decided === 'scrub') {
-      TL.scrubbing = true; TL.hourSel = hourFromX(ev.clientX);
+      TL.scrubbing = true; TL.hourSel = hourFromX(x);
       tlSyncNow(); tlHeads(); tlSecHeads();
     }
   });
@@ -474,14 +510,23 @@ function tlBindScrubOn(el, fracEl, allowSwipe) {
   };
   el.addEventListener('pointerup', ev => {
     if (!down) return; down = false;
-    const dt = performance.now() - startT, dx = (ev.clientX ?? startX) - startX;
-    if (allowSwipe && (decided === 'swipe' || (decided == null && dt < HOLD_MS && Math.abs(dx) > SWIPE_DX))) {
+    const dx = (ev.clientX ?? startX) - startX;
+    if (decided === 'swipe') {
       const ni = TL.sel + (dx < 0 ? 1 : -1);
-      if (ni >= 0 && ni < TL.days.length) { setSelectedDay(TL.days[ni].date, { behavior: 'smooth' }); return; }
+      if ((Math.abs(dx) >= COMMIT_DX || Math.abs(vel) >= COMMIT_V) && !blocked(dx) && ni >= 0 && ni < TL.days.length) {
+        setSelectedDay(TL.days[ni].date, { behavior: 'smooth' });
+        return;
+      }
+      spring();
+      return;
     }
     settle();
   });
-  el.addEventListener('pointercancel', () => { down = false; settle(); });
+  el.addEventListener('pointercancel', () => {
+    if (!down) return; down = false;
+    if (decided === 'swipe') { spring(); return; }
+    settle();
+  });
 }
 
 // ── week overview interactions: tap = select, drag = scroll window ──────
@@ -655,9 +700,9 @@ function tlSelect(i) {
     tlBindScrub(); tlHeads(); tlSecRender();
   };
   if (!dir) { swap(); return; }
-  // slide out, swap content, slide in from the other side
-  hourEl.style.transition = 'transform .15s ease, opacity .15s ease';
-  hourEl.style.transform = 'translateX(' + (-dir * 26) + 'px)';
+  // slide out (continuing forward from any follow-drag offset), swap, slide in
+  hourEl.style.transition = 'transform .13s ease-in, opacity .13s ease-in';
+  hourEl.style.transform = 'translateX(' + (-dir * 64) + 'px)';
   hourEl.style.opacity = '0';
   setTimeout(() => {
     swap();
@@ -668,7 +713,7 @@ function tlSelect(i) {
       hourEl.style.transform = 'translateX(0)';
       hourEl.style.opacity = '1';
     }));
-  }, 150);
+  }, 130);
 }
 function tlBindScrub() {
   const ov = document.getElementById('tlm-overlay');
