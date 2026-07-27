@@ -21,17 +21,10 @@
 
 /* ── hour section ── */
 .tlm-hour{padding-top:14px;margin-top:14px;border-top:1px solid var(--border,#1f2733);}
-.tlm-hero{display:flex;align-items:flex-start;gap:14px;padding:2px 0 20px;touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:ew-resize;}
-.tlm-hero-l{flex:0 0 auto;}
-.tlm-temp{font-size:62px;font-weight:500;letter-spacing:-2.5px;line-height:.9;color:var(--text-primary,#f4f7fd);}
-.tlm-feels{font-size:14px;font-weight:500;color:var(--text-muted,#93a6c0);margin-top:6px;}
-.tlm-metrics{flex:1;display:flex;flex-direction:column;gap:14px;padding-top:6px;}
-.tlm-metric{display:flex;align-items:center;justify-content:flex-end;gap:9px;}
-.tlm-mic{display:flex;}
-.tlm-mic svg{width:18px;height:18px;}
-.tlm-mfig{font-size:21px;font-weight:600;letter-spacing:-.5px;color:var(--text-primary,#f4f7fd);white-space:nowrap;}
-.tlm-mconf{font-size:12px;font-weight:600;color:var(--text-dim,#5f6f82);}
-.tlm-mdir{font-size:13px;font-weight:600;color:var(--text-muted,#93a6c0);}
+.tlm-mfig{font-size:22px;font-weight:600;letter-spacing:-.5px;color:#fff;white-space:nowrap;text-shadow:0 1px 7px rgba(0,0,0,.85),0 0 3px rgba(0,0,0,.75);}
+.tlm-mconf{font-size:12px;font-weight:600;color:rgba(255,255,255,.72);text-shadow:0 1px 5px rgba(0,0,0,.85);}
+.tlm-msub{font-size:12px;font-weight:600;color:rgba(255,255,255,.72);text-shadow:0 1px 5px rgba(0,0,0,.85);}
+.tlm-mdir{font-size:13px;font-weight:600;color:rgba(255,255,255,.78);}
 /* metric icon colours — the quatrefoil */
 .tlm-ic-temp{color:var(--q-temp,#7EE8A5)!important;}
 .tlm-ic-rain{color:var(--q-rain,#5FA4FF)!important;}
@@ -40,19 +33,17 @@
 
 /* ── the atmospheric canvas ── */
 .tlm-chart{position:relative;}
-.tlm-canvas{position:relative;height:104px;border-radius:10px;overflow:hidden;}
 .tlm-lay{position:absolute;inset:0;}
-.tlm-hilo{position:absolute;transform:translateX(-50%);font-size:12px;font-weight:700;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.75),0 0 2px rgba(0,0,0,.9);white-space:nowrap;}
-.tlm-hilo.hi{top:7px;}
-.tlm-hilo.lo{bottom:7px;color:rgba(255,255,255,.82);}
-.tlm-bands{display:flex;flex-direction:column;gap:5px;margin-top:6px;}
-.tlm-band{position:relative;height:19px;border-radius:5px;overflow:hidden;background:#101725;}
-.tlm-band-lab{position:absolute;left:7px;top:50%;transform:translateY(-50%);font-size:9.5px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;text-shadow:0 1px 4px rgba(0,0,0,.8);pointer-events:none;}
+.tlm-bands{display:flex;flex-direction:column;gap:7px;}
+.tlm-mband{position:relative;height:52px;border-radius:9px;overflow:hidden;background:#101725;display:flex;align-items:center;justify-content:space-between;padding:0 13px;}
+.tlm-mscrim{position:absolute;inset:0;background:linear-gradient(90deg,rgba(6,9,15,.52) 0%,rgba(6,9,15,.06) 22%,rgba(6,9,15,.06) 52%,rgba(6,9,15,.58) 100%);pointer-events:none;}
+.tlm-mname{position:relative;font-size:10px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;text-shadow:0 1px 5px rgba(0,0,0,.9);white-space:nowrap;}
+.tlm-mval{position:relative;display:flex;align-items:baseline;gap:7px;min-width:0;}
 
 /* overlay: NOW line + the dot riding the temp curve. Full chart width —
    the hour grid runs edge to edge, identical on mobile and desktop. */
 .tlm-overlay{position:absolute;left:0;right:0;top:0;bottom:0;cursor:ew-resize;touch-action:pan-y;z-index:2;}
-.tlm-now{position:absolute;top:0;bottom:0;width:1.5px;background:var(--now,#f87171);transform:translateX(-50%);box-shadow:0 0 0 3px rgba(248,113,113,.16);}
+.tlm-now{position:absolute;top:0;bottom:0;width:1.5px;background:var(--now,#f87171);transform:translateX(-50%);box-shadow:0 0 0 3px rgba(248,113,113,.16);z-index:4;}
 .tlm-nowlab{position:absolute;top:-22px;transform:translateX(-50%);font-size:10.5px;font-weight:700;color:var(--now,#f87171);white-space:nowrap;letter-spacing:.2px;z-index:3;background:var(--bg,#0c0f15);padding:0 3px;border-radius:4px;}
 
 /* top axis: sunrise / sunset times + NOW label share this line */

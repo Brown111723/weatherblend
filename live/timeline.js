@@ -47,34 +47,48 @@ const TL_TRAMP = [
   [15, '#A8E63E'], [20, '#DCE04A'], [25, '#FFC95E'], [30, '#FFA24E'],
   [35, '#FF6B4E'], [42, '#E8402E']
 ];
+const TL_ARAMP = [
+  [0, '#2E4A3A'], [25, '#4ED6A0'], [50, '#A8E63E'], [100, '#FFD75E'],
+  [150, '#FFA24E'], [200, '#FF5E7A']
+];
 const TL_URAMP = [
   [0, '#2E4A3A'], [2, '#4ED6A0'], [5, '#A8E63E'], [7, '#FFD75E'],
   [9, '#FFA24E'], [12, '#FF5E7A']
 ];
-const TL_VOID = 'rgb(22,28,40)';
 function tlHex(h) { return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]; }
-function tlRampColor(v, ramp) {
-  if (v == null || isNaN(v)) return TL_VOID;
-  if (v <= ramp[0][0]) return 'rgb(' + tlHex(ramp[0][1]).join(',') + ')';
+function tlMix(a, b, t) { return [0, 1, 2].map(k => a[k] + (b[k] - a[k]) * Math.max(0, Math.min(1, t))); }
+function tlRgb(c) { return 'rgb(' + c.map(v => Math.round(Math.max(0, Math.min(255, v)))).join(',') + ')'; }
+function tlRampRgb(v, ramp) {
+  if (v == null || isNaN(v)) return tlHex('#161C28');
+  if (v <= ramp[0][0]) return tlHex(ramp[0][1]);
   const last = ramp[ramp.length - 1];
-  if (v >= last[0]) return 'rgb(' + tlHex(last[1]).join(',') + ')';
+  if (v >= last[0]) return tlHex(last[1]);
   for (let i = 0; i < ramp.length - 1; i++) {
     if (v >= ramp[i][0] && v <= ramp[i + 1][0]) {
       const t = (v - ramp[i][0]) / (ramp[i + 1][0] - ramp[i][0]);
-      const a = tlHex(ramp[i][1]), b = tlHex(ramp[i + 1][1]);
-      return 'rgb(' + [0, 1, 2].map(k => Math.round(a[k] + (b[k] - a[k]) * t)).join(',') + ')';
+      return tlMix(tlHex(ramp[i][1]), tlHex(ramp[i + 1][1]), t);
     }
   }
-  return TL_VOID;
+  return tlHex('#161C28');
 }
-function tlTempColor(v) { return tlRampColor(v, TL_TRAMP); }
-function tlRainVeil(v) {
-  const a = (v == null || v < 0.05) ? 0 : Math.min(0.80, 0.16 + 0.62 * Math.log1p(v) / Math.log1p(8));
-  return 'rgba(70,58,190,' + a.toFixed(3) + ')';
-}
-function tlCloudVeil(v) {
-  const a = (v == null || v < 8) ? 0 : Math.min(0.34, 0.34 * (v / 100));
-  return 'rgba(200,166,255,' + a.toFixed(3) + ')';
+function tlRampColor(v, ramp) { return tlRgb(tlRampRgb(v, ramp)); }
+function tlTempColor(v) { return tlRgb(tlRampRgb(v, TL_TRAMP)); }
+
+// The blended view — one colour per hour rather than stacked translucent
+// veils, which turned every warm overcast day the same shade of pink.
+// The grammar: vivid means clear, grey means overcast, deep blue and dark
+// means wet, and a green lift means windy.
+const TL_GREY = [132, 142, 163], TL_WET = [38, 72, 205], TL_DEEP = [7, 13, 40], TL_GUSTY = [168, 230, 62];
+function tlBlendColor(t, r, c, w) {
+  let col = tlRampRgb(t, TL_TRAMP);
+  if (c != null && !isNaN(c)) col = tlMix(col, TL_GREY, 0.46 * Math.min(1, c / 100));
+  if (r != null && !isNaN(r) && r >= 0.05) {
+    const f = Math.min(1, 0.18 + 0.82 * Math.log1p(r) / Math.log1p(6));
+    col = tlMix(col, TL_WET, 0.88 * f);
+    col = tlMix(col, TL_DEEP, 0.32 * f);
+  }
+  if (w != null && !isNaN(w)) col = tlMix(col, TL_GUSTY, 0.16 * Math.min(1, Math.max(0, (w - 15) / 45)));
+  return tlRgb(col);
 }
 function tlAlphaVeil(hex, lo, hi) {
   const rgb = tlHex(hex).join(',');
@@ -219,8 +233,10 @@ function tlDayRange(arr) { const s = TL.sel * 24; let hi = null, lo = null; for 
 // ── week overview: one continuous painting across the whole window ──────
 function tlWeekHTML() {
   const n = TL.n || 168;
-  const temp = [], rain = [], cloud = [];
-  for (let i = 0; i < n; i++) { temp.push(TL.temp[i]); rain.push(TL.rain[i]); cloud.push(TL.cloud[i]); }
+  const colorAt = i => tlBlendColor(TL.temp[i], TL.rain[i], TL.cloud[i], TL.wind[i]);
+  const stops = [];
+  for (let i = 0; i < n; i++) stops.push(colorAt(i) + ' ' + ((i / (n - 1)) * 100).toFixed(2) + '%');
+  const grad = 'linear-gradient(90deg,' + stops.join(',') + ')';
   const colW = 100 / (TL.days.length || 7);
   const seps = TL.days.map((d, i) => i === 0 ? ''
     : '<div class="tlm-wk-sep" style="left:' + (i * colW).toFixed(3) + '%"></div>').join('');
@@ -228,9 +244,7 @@ function tlWeekHTML() {
   const now = (TL.nowH != null && TL.nowH >= 0 && TL.nowH <= n)
     ? '<div class="tlm-wk-now" style="left:' + ((TL.nowH / n) * 100).toFixed(3) + '%"></div>' : '';
   const canvas = '<div class="tlm-wk-canvas">'
-    + '<div class="tlm-lay" style="background:' + tlGrad(temp, tlTempColor) + '"></div>'
-    + '<div class="tlm-lay" style="background:' + tlGrad(cloud, tlCloudVeil) + '"></div>'
-    + '<div class="tlm-lay" style="background:' + tlGrad(rain, tlRainVeil) + '"></div>'
+    + '<div class="tlm-lay" style="background:' + grad + '"></div>'
     + seps + sel + now + '</div>';
   const labels = '<div class="tlm-wk-labels">' + TL.days.map((d, i) =>
     '<button type="button" class="tlm-wk-day' + (i === TL.sel ? ' sel' : '') + '" data-di="' + i + '">'
@@ -238,71 +252,49 @@ function tlWeekHTML() {
   return '<div class="tlm-week" id="tlm-week">' + canvas + labels + '</div>';
 }
 
-// ── hour section: the atmospheric canvas ────────────────────────────────
-// The day is painted rather than plotted: temperature sets the base hue
-// hour by hour, cloud and rain wash over it, night darkens the ends. The
-// forecast-vs-observed comparison lives in the accuracy panel now, so this
-// surface carries mood and the scrub line only.
-function tlCanvasHTML() {
-  const s = TL.sel * 24;
-  const temp = [], rain = [], cloud = [], wind = [];
-  for (let h = 0; h < 24; h++) {
-    temp.push(TL.temp[s + h]); rain.push(TL.rain[s + h]);
-    cloud.push(TL.cloud[s + h]); wind.push(TL.wind[s + h]);
-  }
-  const sun = tlSunFrac();
-  let hiV = null, hiI = 0, loV = null, loI = 0;
-  temp.forEach((v, i) => {
-    if (v == null || isNaN(v)) return;
-    if (hiV == null || v > hiV) { hiV = v; hiI = i; }
-    if (loV == null || v < loV) { loV = v; loI = i; }
-  });
-  const lab = (v, i, cls) => {
-    if (v == null) return '';
-    const L = Math.max(7, Math.min(93, (i / 23) * 100));
-    return '<span class="tlm-hilo ' + cls + '" style="left:' + L.toFixed(1) + '%">' + tempDisp(v) + '\u00b0</span>';
-  };
-  const canvas = '<div class="tlm-canvas">'
-    + '<div class="tlm-lay" style="background:' + tlGrad(temp, tlTempColor) + '"></div>'
-    + '<div class="tlm-lay" style="background:' + tlGrad(cloud, tlCloudVeil) + '"></div>'
-    + '<div class="tlm-lay" style="background:' + tlGrad(rain, tlRainVeil) + '"></div>'
-    + '<div class="tlm-lay" style="background:' + tlNightGrad(sun.rise, sun.set) + '"></div>'
-    + lab(hiV, hiI, 'hi') + lab(loV, loI, 'lo')
-    + '</div>';
-
-  // one thin band per non-temp lane, sharing the canvas grid exactly so the
-  // scrub line crosses all of them in a single unbroken stroke
-  const WV = Math.max(12, ...wind.map(v => v || 0));
-  const BAND = {
-    rain: { name: 'Rain', fn: tlRainBand },
-    wind: { name: 'Wind', fn: tlAlphaVeil('#A8E63E', 0, WV) },
-    cloud: { name: 'Cloud', fn: tlAlphaVeil('#C8A6FF', 0, 100) }
-  };
-  const src = { rain, wind, cloud };
-  const bands = TL.lanes.filter(m => m !== 'temp' && BAND[m]).map(m =>
-    '<div class="tlm-band"><div class="tlm-lay" style="background:' + tlGrad(src[m], BAND[m].fn) + '"></div>'
-    + '<span class="tlm-band-lab tlm-ic-' + m + '">' + BAND[m].name + '</span></div>').join('');
-
-  return canvas + (bands ? '<div class="tlm-bands">' + bands + '</div>' : '');
-}
+// ── hour section: one equal band per metric ─────────────────────────────
+// Each metric is painted across the 24 hours on its own fixed scale, so
+// bands are comparable day to day, and carries its own figure inside. The
+// forecast-vs-observed comparison lives in the accuracy panel now.
+const TL_BANDS = [
+  { key: 'temp', name: 'Temp' }, { key: 'rain', name: 'Rain' },
+  { key: 'wind', name: 'Wind' }, { key: 'cloud', name: 'Cloud' }
+];
 function tlRainBand(v) {
   const a = (v == null || v < 0.05) ? 0 : Math.min(0.95, 0.22 + 0.73 * Math.log1p(v) / Math.log1p(8));
   return 'rgba(95,164,255,' + a.toFixed(3) + ')';
 }
+function tlBandGrad(key, arr) {
+  if (key === 'temp') return tlGrad(arr, tlTempColor);
+  if (key === 'rain') return tlGrad(arr, tlRainBand);
+  if (key === 'wind') return tlGrad(arr, tlAlphaVeil('#A8E63E', 0, 60));
+  return tlGrad(arr, tlAlphaVeil('#C8A6FF', 0, 100));
+}
+function tlBandsHTML() {
+  const s = TL.sel * 24;
+  const data = { temp: [], rain: [], wind: [], cloud: [] };
+  for (let h = 0; h < 24; h++) {
+    data.temp.push(TL.temp[s + h]); data.rain.push(TL.rain[s + h]);
+    data.wind.push(TL.wind[s + h]); data.cloud.push(TL.cloud[s + h]);
+  }
+  const sun = tlSunFrac();
+  const night = tlNightGrad(sun.rise, sun.set);
+  const lanes = TL_BANDS.filter(b => TL.lanes.indexOf(b.key) >= 0);
+  return '<div class="tlm-bands">' + lanes.map(b => {
+    const val = b.key === 'temp'
+      ? '<span class="tlm-mfig" id="tlm-temp">\u2014</span><span class="tlm-msub" id="tlm-feels"></span>'
+      : '<span class="tlm-mfig" id="tlm-fig-' + b.key + '"></span><span class="tlm-mconf" id="tlm-conf-' + b.key + '"></span>';
+    return '<div class="tlm-mband">'
+      + '<div class="tlm-lay" style="background:' + tlBandGrad(b.key, data[b.key]) + '"></div>'
+      + '<div class="tlm-lay" style="background:' + night + '"></div>'
+      + '<div class="tlm-mscrim"></div>'
+      + '<span class="tlm-mname tlm-ic-' + b.key + '">' + b.name + '</span>'
+      + '<span class="tlm-mval">' + val + '</span>'
+      + '</div>';
+  }).join('') + '</div>';
+}
 
 function tlHourHTML() {
-  const IC = { temp: MI_TEMP, rain: MI_RAIN, wind: MI_WIND, cloud: MI_CLOUD };
-  const sideM = TL.lanes.filter(m => m !== 'temp');
-
-  let hero = '<div class="tlm-hero">'
-    + '<div class="tlm-hero-l"><div class="tlm-temp" id="tlm-temp">—</div><div class="tlm-feels" id="tlm-feels"></div></div>'
-    + '<div class="tlm-metrics">'
-    + sideM.map(m =>
-      '<div class="tlm-metric"><span class="tlm-mic tlm-ic-' + m + '">' + IC[m] + '</span>'
-      + '<span class="tlm-mfig" id="tlm-fig-' + m + '"></span>'
-      + '<span class="tlm-mconf" id="tlm-conf-' + m + '"></span></div>').join('')
-    + '</div></div>';
-
   // top axis: sunrise/sunset times + NOW label share this line (full width)
   const sun = tlSunFrac();
   const axis = '<div class="tlm-axis"><div class="tlm-axtrack">'
@@ -317,7 +309,7 @@ function tlHourHTML() {
     + '<div class="tlm-nowlab" id="tlm-nowlab" style="left:' + L + ';display:' + (vis ? 'block' : 'none') + '"></div>'
     + '</div>';
 
-  return hero + axis + '<div class="tlm-chart">' + tlCanvasHTML() + overlay + '</div>';
+  return axis + '<div class="tlm-chart">' + tlBandsHTML() + overlay + '</div>';
 }
 
 // fill hero + metric figures for the current ref hour
@@ -556,6 +548,8 @@ function tlSecBand(vals, kind, hex) {
   let fn;
   if (kind === 'dew') fn = tlTempColor;
   else if (kind === 'uv') fn = v => tlRampColor(v, TL_URAMP);
+  else if (kind === 'aqi') fn = v => tlRampColor(v, TL_ARAMP);
+  else if (kind === 'fix0100') fn = tlAlphaVeil(hex, 0, 100);
   else {
     const mn = Math.min(...good), mx = Math.max(...good);
     fn = tlAlphaVeil(hex, mn, mx === mn ? mn + 1 : mx);
@@ -579,12 +573,12 @@ function tlSecRender() {
   const S = TL.sec;
   const rows = [
     ['UV index', dayVals(S.uv, S.im), v => v.toFixed(0), 'uv', '#FFD75E'],
-    ['Humidity', dayVals(S.hum, S.im), v => Math.round(v) + '%', 'lin', '#4ED6B8'],
+    ['Humidity', dayVals(S.hum, S.im), v => Math.round(v) + '%', 'fix0100', '#4ED6B8'],
     ['Pressure', dayVals(S.pres, S.im), v => Math.round(v) + ' hPa', 'lin', '#F09AD0'],
     ['Visibility', dayVals(S.vis, S.im).map(v => v != null ? v / 1000 : null), v => v.toFixed(0) + ' km', 'lin', '#BFE8FF'],
     ['Dew point', dayVals(S.dew, S.im), v => tempDisp(Math.round(v)) + '°', 'dew', '#4EC8D6'],
   ];
-  if (S.aqi && S.aqiIm) rows.push(['Air quality', dayVals(S.aqi, S.aqiIm), v => Math.round(v) + ' ' + tlAqiWord(v), 'lin', '#A8E63E']);
+  if (S.aqi && S.aqiIm) rows.push(['Air quality', dayVals(S.aqi, S.aqiIm), v => Math.round(v) + ' ' + tlAqiWord(v), 'aqi', '#A8E63E']);
   TL._secRows = rows.map(([name, vals, fmt]) => ({ name, vals, fmt }));
   const vis = tlNowVisible();
   const L = (tlNowFrac() * 100).toFixed(2) + '%';
@@ -649,9 +643,6 @@ function tlSelect(i) {
 function tlBindScrub() {
   const ov = document.getElementById('tlm-overlay');
   tlBindScrubOn(ov, null, true);
-  // hero + metric figures: same gesture surface as the sparklines — quick
-  // flick changes day, hold-drag scrubs hours (x mapped to the chart grid)
-  tlBindScrubOn(document.querySelector('#tlm-hour .tlm-hero'), ov, true);
 }
 
 // ── render root + wiring ────────────────────────────────────────────────
