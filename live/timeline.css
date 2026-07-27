@@ -10,7 +10,10 @@
 
 /* ── continuous week overview (compressed) ── */
 .tlm-week{margin-bottom:2px;cursor:pointer;touch-action:pan-y;user-select:none;-webkit-user-select:none;will-change:transform;}
-.tlm-wk-svg{display:block;width:100%;height:38px;overflow:visible;}
+.tlm-wk-canvas{position:relative;width:100%;height:44px;border-radius:8px;overflow:hidden;}
+.tlm-wk-sep{position:absolute;top:0;bottom:0;width:1px;background:rgba(0,0,0,.34);}
+.tlm-wk-sel{position:absolute;top:0;bottom:0;border:1.3px solid var(--text-primary,#f4f7fd);border-radius:7px;box-shadow:0 0 0 2px rgba(0,0,0,.30) inset;}
+.tlm-wk-now{position:absolute;top:0;bottom:0;width:1.4px;background:var(--now,#f87171);transform:translateX(-50%);}
 .tlm-wk-labels{display:grid;grid-template-columns:repeat(7,1fr);margin-top:1px;}
 .tlm-wk-day{display:flex;justify-content:center;padding:4px 0 2px;border:none;background:transparent;cursor:pointer;font-family:inherit;color:var(--text-dim,#5f6f82);}
 .tlm-wk-dow{font-size:9.5px;font-weight:700;letter-spacing:.6px;}
@@ -35,18 +38,21 @@
 .tlm-ic-wind{color:var(--q-wind,#A8E63E)!important;}
 .tlm-ic-cloud{color:var(--q-cloud,#C8A6FF)!important;}
 
-/* ── the merged day chart ── */
+/* ── the atmospheric canvas ── */
 .tlm-chart{position:relative;}
-.tlm-mainsvg{display:block;width:100%;height:176px;overflow:visible;border-radius:10px;}
-/* hi/lo labels drawn on the curve */
-.tlm-clab{fill:var(--text-primary,#f4f7fd);font-size:13px;font-weight:700;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;paint-order:stroke;stroke:var(--bg,#0c0f15);stroke-width:3px;stroke-linejoin:round;}
-.tlm-clab.lo{fill:var(--text-muted,#93a6c0);}
+.tlm-canvas{position:relative;height:104px;border-radius:10px;overflow:hidden;}
+.tlm-lay{position:absolute;inset:0;}
+.tlm-hilo{position:absolute;transform:translateX(-50%);font-size:12px;font-weight:700;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.75),0 0 2px rgba(0,0,0,.9);white-space:nowrap;}
+.tlm-hilo.hi{top:7px;}
+.tlm-hilo.lo{bottom:7px;color:rgba(255,255,255,.82);}
+.tlm-bands{display:flex;flex-direction:column;gap:5px;margin-top:6px;}
+.tlm-band{position:relative;height:19px;border-radius:5px;overflow:hidden;background:#101725;}
+.tlm-band-lab{position:absolute;left:7px;top:50%;transform:translateY(-50%);font-size:9.5px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;text-shadow:0 1px 4px rgba(0,0,0,.8);pointer-events:none;}
 
 /* overlay: NOW line + the dot riding the temp curve. Full chart width —
    the hour grid runs edge to edge, identical on mobile and desktop. */
 .tlm-overlay{position:absolute;left:0;right:0;top:0;bottom:0;cursor:ew-resize;touch-action:pan-y;z-index:2;}
-.tlm-now{position:absolute;top:0;bottom:4px;width:1.5px;background:var(--now,#f87171);transform:translateX(-50%);box-shadow:0 0 0 3px rgba(248,113,113,.14);}
-.tlm-dot{position:absolute;width:11px;height:11px;border-radius:50%;background:#fff;border:2px solid var(--q-temp,#7EE8A5);box-shadow:0 0 10px 2px rgba(126,232,165,.55);transform:translate(-50%,-50%);pointer-events:none;z-index:3;}
+.tlm-now{position:absolute;top:0;bottom:0;width:1.5px;background:var(--now,#f87171);transform:translateX(-50%);box-shadow:0 0 0 3px rgba(248,113,113,.16);}
 .tlm-nowlab{position:absolute;top:-22px;transform:translateX(-50%);font-size:10.5px;font-weight:700;color:var(--now,#f87171);white-space:nowrap;letter-spacing:.2px;z-index:3;background:var(--bg,#0c0f15);padding:0 3px;border-radius:4px;}
 
 /* top axis: sunrise / sunset times + NOW label share this line */
@@ -72,6 +78,6 @@
 .tl-sec-row{display:flex;align-items:baseline;gap:7px;min-width:0;}
 .tl-sec-name{font-size:9.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text-dim,#5f6f82);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .tl-sec-val{margin-left:auto;font-size:12.5px;font-weight:600;color:var(--text-muted,#93a6c0);white-space:nowrap;}
-.tl-sec-spark{display:block;width:100%;height:22px;}
+.tl-sec-band{position:relative;width:100%;height:18px;border-radius:4px;overflow:hidden;background:#101725;}
 .tl-sec-sparkwrap{position:relative;touch-action:pan-y;cursor:ew-resize;}
 .tl-sec-now{position:absolute;top:-2px;bottom:-2px;width:1.5px;background:var(--now,#f87171);transform:translateX(-50%);pointer-events:none;}
