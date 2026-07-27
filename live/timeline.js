@@ -29,21 +29,21 @@ const TL = {
   act: { temp: [], rain: [], wind: [], cloud: [] },   // observed only (Open-Meteo analysis)
   confH: { temp: [], rain: [], wind: [], cloud: [] }, dayConf: {},
   lanes: [], suns: [], streamT0: 0, nowH: null,
-  sel: 0, hourSel: 12, scrubbing: false, startOff: 0, _canPrev: false, _canNext: false,
-  sec: null, secKey: null, secOpen: false, _secRows: null,
+  sel: 0, hourSel: 12, scrubbing: false,
+  x: {}, sec: null, secKey: null, secOpen: false, _secRows: null,
 };
 
 // ── helpers ─────────────────────────────────────────────────────────────
 // light smoothing (weighted 3-pt moving average, run twice) for a calmer line
 function tlClock(ms) { const d = new Date(ms); let h = d.getHours(); const m = d.getMinutes(); const ap = h < 12 ? 'am' : 'pm'; h = h % 12 || 12; return h + ':' + String(m).padStart(2, '0') + ap; }
 
-// ── colour canvas ───────────────────────────────────────────────────────
-// Temperature drives a cold-blue → hot-red ramp that deliberately passes
-// through the quatrefoil's lime and gold on the way, so mild days land on
-// colours the rest of the app already uses. Rain and cloud are painted over
-// the top as veils rather than hues, so they never fight cold temperatures.
+// ── colour system ───────────────────────────────────────────────────────
+// Temperature owns the blue→cyan→lime→gold→red ramp. Rain is deliberately
+// kept OFF that ramp — it shifts toward violet and darkens — so a cold dry
+// hour (cyan) can never be mistaken for a wet one (violet). Cloud only
+// desaturates. Vivid = clear, grey = overcast, violet = wet.
 const TL_TRAMP = [
-  [-10, '#3B5BD9'], [0, '#4A8FE0'], [5, '#4EC8D6'], [10, '#5FD6A8'],
+  [-10, '#3E7ADF'], [0, '#4AA5E8'], [5, '#4EC8D6'], [10, '#5FD6A8'],
   [15, '#A8E63E'], [20, '#DCE04A'], [25, '#FFC95E'], [30, '#FFA24E'],
   [35, '#FF6B4E'], [42, '#E8402E']
 ];
@@ -74,20 +74,38 @@ function tlRampRgb(v, ramp) {
 function tlRampColor(v, ramp) { return tlRgb(tlRampRgb(v, ramp)); }
 function tlTempColor(v) { return tlRgb(tlRampRgb(v, TL_TRAMP)); }
 
-// The blended view — one colour per hour rather than stacked translucent
-// veils, which turned every warm overcast day the same shade of pink.
-// The grammar: vivid means clear, grey means overcast, deep blue and dark
-// means wet, and a green lift means windy.
-const TL_GREY = [132, 142, 163], TL_WET = [38, 72, 205], TL_DEEP = [7, 13, 40], TL_GUSTY = [168, 230, 62];
-function tlBlendColor(t, r, c, w) {
-  let col = tlRampRgb(t, TL_TRAMP);
+const TL_GREY = [132, 142, 163], TL_WET = [140, 66, 198], TL_DEEP = [42, 16, 74];
+const TL_GUSTY = [168, 230, 62], TL_SNOW = [226, 244, 255], TL_UVC = [255, 215, 94], TL_HUM = [78, 214, 184];
+const TL_XON = k => (typeof secVisible !== 'undefined' && secVisible[k] && TL.x && TL.x[k]);
+// one colour per hour for the week strip, mixed rather than layered
+function tlBlendAt(i) {
+  let col = tlRampRgb(TL.temp[i], TL_TRAMP);
+  const c = TL.cloud[i];
   if (c != null && !isNaN(c)) col = tlMix(col, TL_GREY, 0.46 * Math.min(1, c / 100));
+  if (TL_XON('snow')) {
+    const s = TL.x.snow[i];
+    if (s != null && s >= 0.05) col = tlMix(col, TL_SNOW, 0.85 * Math.min(1, 0.25 + 0.75 * Math.log1p(s) / Math.log1p(3)));
+  }
+  const r = TL.rain[i];
   if (r != null && !isNaN(r) && r >= 0.05) {
     const f = Math.min(1, 0.18 + 0.82 * Math.log1p(r) / Math.log1p(6));
-    col = tlMix(col, TL_WET, 0.88 * f);
-    col = tlMix(col, TL_DEEP, 0.32 * f);
+    col = tlMix(col, TL_WET, 0.90 * f);
+    col = tlMix(col, TL_DEEP, 0.34 * f);
   }
+  const w = TL.wind[i];
   if (w != null && !isNaN(w)) col = tlMix(col, TL_GUSTY, 0.16 * Math.min(1, Math.max(0, (w - 15) / 45)));
+  if (TL_XON('gust')) {
+    const g = TL.x.gust[i];
+    if (g != null) col = tlMix(col, TL_GUSTY, 0.14 * Math.min(1, Math.max(0, (g - 35) / 50)));
+  }
+  if (TL_XON('uv')) {
+    const u = TL.x.uv[i];
+    if (u != null && u > 0) col = tlMix(col, TL_UVC, 0.14 * Math.min(1, u / 11));
+  }
+  if (TL_XON('humid')) {
+    const hm = TL.x.humid[i];
+    if (hm != null) col = tlMix(col, TL_HUM, 0.10 * Math.min(1, Math.max(0, (hm - 60) / 40)));
+  }
   return tlRgb(col);
 }
 function tlAlphaVeil(hex, lo, hi) {
@@ -114,13 +132,6 @@ function tlGrad(vals, colorFn) {
   for (let i = 0; i < n; i++) stops.push(colorFn(f[i]) + ' ' + ((i / (n - 1)) * 100).toFixed(2) + '%');
   return 'linear-gradient(90deg,' + stops.join(',') + ')';
 }
-function tlNightGrad(rise, set) {
-  const D = 'rgba(4,7,14,.50)', C = 'rgba(4,7,14,0)';
-  const r = Math.max(0, Math.min(1, rise)) * 100, s = Math.max(0, Math.min(1, set)) * 100;
-  return 'linear-gradient(90deg,' + D + ' 0%,' + D + ' ' + Math.max(0, r - 5).toFixed(1) + '%,'
-    + C + ' ' + Math.min(100, r + 4).toFixed(1) + '%,' + C + ' ' + Math.max(0, s - 4).toFixed(1) + '%,'
-    + D + ' ' + Math.min(100, s + 5).toFixed(1) + '%,' + D + ' 100%)';
-}
 
 // selected day's sunrise/sunset as a fraction of the day (0..1), + ms
 function tlSunFrac() {
@@ -144,15 +155,19 @@ function tlBuild() {
   const today = localTodayStr();
   if (!selDate || !dates.includes(selDate)) selDate = dates.includes(today) ? today : dates[0];
   let ti = dates.indexOf(today); if (ti < 0) ti = 0;
-  const maxStart = Math.max(0, dates.length - 7);
-  const start = Math.max(0, Math.min(ti - 1 + (TL.startOff || 0), maxStart));
-  TL.startOff = start - (ti - 1); TL._canPrev = start > 0; TL._canNext = start < maxStart;
-  const days = dates.slice(start, start + 7);
+  // the whole range is rendered — the strip is a native horizontal scroller
+  const days = dates.slice();
   const im = {}; ref.time.forEach((t, i) => { im[t] = i; });
+  const aim = {};
+  if (typeof actualData !== 'undefined' && actualData && actualData.hourly && actualData.hourly.time) {
+    actualData.hourly.time.forEach((t, i) => { aim[t] = i; });
+  }
+  const XM = (typeof XMET !== 'undefined') ? XMET : [];
   const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   TL.days = days.map(d => ({ date: d, dow: DOW[new Date(d + 'T12:00').getDay()], isToday: d === today, past: d < today }));
   TL.n = days.length * 24;
   TL.idx = []; TL.temp = []; TL.rain = []; TL.wind = []; TL.cloud = []; TL.wdir = [];
+  TL.x = {}; XM.forEach(m => { TL.x[m.key] = []; });
   ['temp', 'rain', 'wind', 'cloud'].forEach(k => { TL.confH[k] = []; TL.fc[k] = []; TL.act[k] = []; });
   TL.dayConf = {};
   days.forEach(d => {
@@ -161,12 +176,15 @@ function tlBuild() {
     for (let h = 0; h < 24; h++) {
       const iso = d + 'T' + String(h).padStart(2, '0') + ':00';
       const idx = im[iso]; TL.idx.push(idx != null ? idx : null);
+      const ai = aim[iso];
+      const AH = (typeof actualData !== 'undefined' && actualData) ? actualData.hourly : null;
+      const actOf = f => (ai != null && AH && AH[f] && AH[f][ai] != null) ? AH[f][ai] : null;
       const td = idx != null ? hourTileData(iso) : null;
       TL.temp.push(td && td.temp != null ? td.temp : null);
       TL.rain.push(td && td.rain != null ? _rcell(td.rain) : null);
       TL.wind.push(td && td.wind != null ? td.wind : null);
       TL.cloud.push(td && td.cloud != null ? td.cloud : null);
-      // pure forecast (blend, never actual-substituted) — one line of the pair
+      // pure forecast (blend, never actual-substituted) — kept for the accuracy panel
       let fT = null, fR = null, fW = null, fC = null;
       if (idx != null && typeof wBlendAt === 'function') {
         try {
@@ -176,21 +194,17 @@ function tlBuild() {
       }
       TL.fc.temp.push(fT); TL.fc.rain.push(fR != null ? _rcell(fR) : null);
       TL.fc.wind.push(fW); TL.fc.cloud.push(fC);
-      // observed only (whatever actuals source is selected) — the other line
-      let aT = null, aR = null, aW = null, aC = null;
-      try {
-        if (typeof actualData !== 'undefined' && actualData && actualData.hourly && actualData.hourly.time) {
-          const ai = actualData.hourly.time.indexOf(iso);
-          if (ai >= 0) {
-            aT = actualData.hourly.temperature_2m ? (actualData.hourly.temperature_2m[ai] ?? null) : null;
-            aR = actualData.hourly.precipitation ? (actualData.hourly.precipitation[ai] ?? null) : null;
-            aW = actualData.hourly.windspeed_10m ? (actualData.hourly.windspeed_10m[ai] ?? null) : null;
-            aC = actualData.hourly.cloudcover ? (actualData.hourly.cloudcover[ai] ?? null) : null;
-          }
-        }
-      } catch (e) {}
+      const aT = actOf('temperature_2m'), aR = actOf('precipitation');
       TL.act.temp.push(aT); TL.act.rain.push(aR != null ? _rcell(aR) : null);
-      TL.act.wind.push(aW); TL.act.cloud.push(aC);
+      TL.act.wind.push(actOf('windspeed_10m')); TL.act.cloud.push(actOf('cloudcover'));
+      // secondary metrics: observed where we have it, blended forecast otherwise
+      XM.forEach(m => {
+        let v = actOf(m.field);
+        if (v == null && idx != null && typeof wBlendAt === 'function') {
+          try { v = wBlendAt(m.field, idx, hz); } catch (e) { v = null; }
+        }
+        TL.x[m.key].push(v);
+      });
       let wd = null;
       try { if (idx != null && typeof wBlendAt === 'function') wd = wBlendAt('winddirection_10m', idx, hz); } catch (e) {}
       TL.wdir.push(wd);
@@ -206,9 +220,10 @@ function tlBuild() {
   });
   let lanes = ['temp', 'rain', 'wind', 'cloud'].filter(m => secVisible[m]);
   if (!lanes.length) lanes = ['temp', 'rain', 'wind', 'cloud'];
+  XM.forEach(m => { if (secVisible[m.key]) lanes.push(m.key); });
   TL.lanes = lanes;
   let si = TL.days.findIndex(o => o.date === selDate);
-  if (si < 0) { si = Math.max(0, Math.min(TL.days.length - 1, ti - start)); selDate = TL.days[si].date; }
+  if (si < 0) { si = Math.max(0, Math.min(TL.days.length - 1, ti)); selDate = TL.days[si].date; }
   TL.sel = si;
   TL.scrubbing = false;
   TL.hourSel = tlDefaultHour();
@@ -230,14 +245,13 @@ function tlNowFrac() {
 function tlNowVisible() { return (TL.days[TL.sel] && TL.days[TL.sel].isToday) || TL.scrubbing; }
 function tlDayRange(arr) { const s = TL.sel * 24; let hi = null, lo = null; for (let k = s; k < s + 24; k++) { const v = arr[k]; if (v == null) continue; hi = hi == null ? v : Math.max(hi, v); lo = lo == null ? v : Math.min(lo, v); } return [hi, lo]; }
 
-// ── week overview: one continuous painting across the whole window ──────
+// ── week strip: a native horizontal scroller over the whole range ───────
 function tlWeekHTML() {
-  const n = TL.n || 168;
-  const colorAt = i => tlBlendColor(TL.temp[i], TL.rain[i], TL.cloud[i], TL.wind[i]);
+  const n = TL.n || 168, nd = TL.days.length || 7;
   const stops = [];
-  for (let i = 0; i < n; i++) stops.push(colorAt(i) + ' ' + ((i / (n - 1)) * 100).toFixed(2) + '%');
+  for (let i = 0; i < n; i++) stops.push(tlBlendAt(i) + ' ' + ((i / (n - 1)) * 100).toFixed(2) + '%');
   const grad = 'linear-gradient(90deg,' + stops.join(',') + ')';
-  const colW = 100 / (TL.days.length || 7);
+  const colW = 100 / nd;
   const seps = TL.days.map((d, i) => i === 0 ? ''
     : '<div class="tlm-wk-sep" style="left:' + (i * colW).toFixed(3) + '%"></div>').join('');
   const sel = '<div class="tlm-wk-sel" style="left:' + (TL.sel * colW).toFixed(3) + '%;width:' + colW.toFixed(3) + '%"></div>';
@@ -246,116 +260,166 @@ function tlWeekHTML() {
   const canvas = '<div class="tlm-wk-canvas">'
     + '<div class="tlm-lay" style="background:' + grad + '"></div>'
     + seps + sel + now + '</div>';
-  const labels = '<div class="tlm-wk-labels">' + TL.days.map((d, i) =>
-    '<button type="button" class="tlm-wk-day' + (i === TL.sel ? ' sel' : '') + '" data-di="' + i + '">'
-    + '<span class="tlm-wk-dow">' + (d.isToday ? 'TODAY' : d.dow.toUpperCase()) + '</span></button>').join('') + '</div>';
-  return '<div class="tlm-week" id="tlm-week">' + canvas + labels + '</div>';
+  const labels = '<div class="tlm-wk-labels" style="grid-template-columns:repeat(' + nd + ',1fr)">'
+    + TL.days.map((d, i) =>
+      '<button type="button" class="tlm-wk-day' + (i === TL.sel ? ' sel' : '') + '" data-di="' + i + '">'
+      + '<span class="tlm-wk-dow">' + (d.isToday ? 'TODAY' : d.dow.toUpperCase()) + '</span></button>').join('')
+    + '</div>';
+  // seven days fill the viewport; the rest scrolls
+  const trackW = (nd / 7) * 100;
+  return '<div class="tlm-week" id="tlm-week"><div class="tlm-wk-track" style="width:' + trackW.toFixed(2) + '%">'
+    + canvas + labels + '</div></div>';
+}
+function tlWeekScrollTo(smooth) {
+  const wk = document.getElementById('tlm-week'); if (!wk) return;
+  const track = wk.querySelector('.tlm-wk-track'); if (!track) return;
+  const colW = track.offsetWidth / (TL.days.length || 1);
+  if (!colW) return;
+  const max = Math.max(0, wk.scrollWidth - wk.clientWidth);
+  const target = Math.max(0, Math.min(max, colW * TL.sel - (wk.clientWidth - colW) / 2));
+  if (Math.abs(wk.scrollLeft - target) < 2) return;
+  wk.scrollTo({ left: target, behavior: smooth ? 'smooth' : 'auto' });
+}
+// keep the selection box and labels in step without rebuilding the gradient
+function tlWeekSync() {
+  const wk = document.getElementById('tlm-week'); if (!wk) return;
+  const colW = 100 / (TL.days.length || 1);
+  const sel = wk.querySelector('.tlm-wk-sel');
+  if (sel) sel.style.left = (TL.sel * colW).toFixed(3) + '%';
+  wk.querySelectorAll('.tlm-wk-day').forEach((b, i) => b.classList.toggle('sel', i === TL.sel));
+  tlWeekScrollTo(true);
 }
 
-// ── hour section: one equal band per metric ─────────────────────────────
-// Each metric is painted across the 24 hours on its own fixed scale, so
-// bands are comparable day to day, and carries its own figure inside. The
-// forecast-vs-observed comparison lives in the accuracy panel now.
-const TL_BANDS = [
-  { key: 'temp', name: 'Temp' }, { key: 'rain', name: 'Rain' },
-  { key: 'wind', name: 'Wind' }, { key: 'cloud', name: 'Cloud' }
-];
+// ── hour section: one equal band per chosen metric ──────────────────────
+// Every metric is painted across the 24 hours on a fixed scale, so bands
+// are comparable day to day, and carries its own figure inside.
+const TL_XSTYLE = {
+  snow:  { name: 'Snow',     fmt: v => (v < 0.05 ? '0' : v.toFixed(1)) + ' cm', grad: () => tlAlphaVeil('#BFE8FF', 0, 2) },
+  gust:  { name: 'Gusts',    fmt: v => Math.round(v) + ' km/h',                 grad: () => tlAlphaVeil('#FFB86B', 0, 80) },
+  humid: { name: 'Humidity', fmt: v => Math.round(v) + '%',                     grad: () => tlAlphaVeil('#4ED6B8', 0, 100) },
+  press: { name: 'Pressure', fmt: v => Math.round(v) + ' hPa',                  grad: () => tlAlphaVeil('#F09AD0', 985, 1035) },
+  uv:    { name: 'UV',       fmt: v => String(Math.round(v * 10) / 10),         grad: () => (v => tlRampColor(v, TL_URAMP)) }
+};
+const TL_MAIN = { temp: 'Temp', rain: 'Rain', wind: 'Wind', cloud: 'Cloud' };
 function tlRainBand(v) {
   const a = (v == null || v < 0.05) ? 0 : Math.min(0.95, 0.22 + 0.73 * Math.log1p(v) / Math.log1p(8));
   return 'rgba(95,164,255,' + a.toFixed(3) + ')';
+}
+function tlDirArrow(deg) {
+  if (deg == null || isNaN(deg)) return '';
+  // meteorological direction is where the wind comes FROM — point it the way it blows
+  return '<svg class="tlm-darr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" '
+    + 'stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(' + Math.round((deg + 180) % 360) + 'deg)">'
+    + '<line x1="12" y1="20.5" x2="12" y2="4.5"/><polyline points="5.5 11 12 4.5 18.5 11"/></svg>';
+}
+function tlLaneSeries(key) {
+  const s = TL.sel * 24, out = [];
+  const src = (key === 'temp') ? TL.temp : (key === 'rain') ? TL.rain
+    : (key === 'wind') ? TL.wind : (key === 'cloud') ? TL.cloud
+      : (TL.x && TL.x[key]) ? TL.x[key] : null;
+  for (let h = 0; h < 24; h++) out.push(src ? src[s + h] : null);
+  return out;
 }
 function tlBandGrad(key, arr) {
   if (key === 'temp') return tlGrad(arr, tlTempColor);
   if (key === 'rain') return tlGrad(arr, tlRainBand);
   if (key === 'wind') return tlGrad(arr, tlAlphaVeil('#A8E63E', 0, 60));
-  return tlGrad(arr, tlAlphaVeil('#C8A6FF', 0, 100));
+  if (key === 'cloud') return tlGrad(arr, tlAlphaVeil('#C8A6FF', 0, 100));
+  const st = TL_XSTYLE[key];
+  return st ? tlGrad(arr, st.grad()) : 'none';
 }
 function tlBandsHTML() {
-  const s = TL.sel * 24;
-  const data = { temp: [], rain: [], wind: [], cloud: [] };
-  for (let h = 0; h < 24; h++) {
-    data.temp.push(TL.temp[s + h]); data.rain.push(TL.rain[s + h]);
-    data.wind.push(TL.wind[s + h]); data.cloud.push(TL.cloud[s + h]);
-  }
-  const sun = tlSunFrac();
-  const night = tlNightGrad(sun.rise, sun.set);
-  const lanes = TL_BANDS.filter(b => TL.lanes.indexOf(b.key) >= 0);
-  return '<div class="tlm-bands">' + lanes.map(b => {
-    const val = b.key === 'temp'
-      ? '<span class="tlm-mfig" id="tlm-temp">\u2014</span><span class="tlm-msub" id="tlm-feels"></span>'
-      : '<span class="tlm-mfig" id="tlm-fig-' + b.key + '"></span><span class="tlm-mconf" id="tlm-conf-' + b.key + '"></span>';
+  const order = ['temp', 'rain', 'wind', 'cloud'].concat(Object.keys(TL_XSTYLE));
+  const lanes = order.filter(k => TL.lanes.indexOf(k) >= 0);
+  const [dayHi] = tlDayRange(TL.temp);
+  return '<div class="tlm-bands">' + lanes.map(key => {
+    const arr = tlLaneSeries(key);
+    const name = TL_MAIN[key] || (TL_XSTYLE[key] ? TL_XSTYLE[key].name : key);
+    // the temp label takes the colour of the day's high
+    const lab = key === 'temp'
+      ? '<span class="tlm-mname" style="color:' + tlTempColor(dayHi) + '">' + name + '</span>'
+      : '<span class="tlm-mname tlm-ic-' + key + '">' + name + '</span>';
+    const val = key === 'temp'
+      ? '<span class="tlm-mstack"><span class="tlm-mfig" id="tlm-temp">\u2014</span>'
+        + '<span class="tlm-msub" id="tlm-feels"></span></span>'
+        + '<span class="tlm-mhilo" id="tlm-hilo"></span>'
+      : '<span class="tlm-mfig" id="tlm-fig-' + key + '"></span>'
+        + '<span class="tlm-mconf" id="tlm-conf-' + key + '"></span>';
     return '<div class="tlm-mband">'
-      + '<div class="tlm-lay" style="background:' + tlBandGrad(b.key, data[b.key]) + '"></div>'
-      + '<div class="tlm-lay" style="background:' + night + '"></div>'
-      + '<div class="tlm-mscrim"></div>'
-      + '<span class="tlm-mname tlm-ic-' + b.key + '">' + b.name + '</span>'
-      + '<span class="tlm-mval">' + val + '</span>'
-      + '</div>';
+      + '<div class="tlm-lay" style="background:' + tlBandGrad(key, arr) + '"></div>'
+      + '<div class="tlm-mscrim"></div>' + lab
+      + '<span class="tlm-mval">' + val + '</span></div>';
   }).join('') + '</div>';
 }
 
 function tlHourHTML() {
-  // top axis: sunrise/sunset times + NOW label share this line (full width)
+  // sun icons + the scrub clock share one line, no times on the sun marks
   const sun = tlSunFrac();
-  const axis = '<div class="tlm-axis"><div class="tlm-axtrack">'
-    + (sun.riseMs ? '<span class="tlm-suntime" style="left:' + (sun.rise * 100).toFixed(1) + '%">' + wxIcon(0, false, null) + '<b>' + tlClock(sun.riseMs) + '</b></span>' : '')
-    + (sun.setMs ? '<span class="tlm-suntime" style="left:' + (sun.set * 100).toFixed(1) + '%">' + wxIcon(0, true, null) + '<b>' + tlClock(sun.setMs) + '</b></span>' : '')
-    + '</div></div>';
-
   const vis = tlNowVisible();
   const L = (tlNowFrac() * 100).toFixed(2) + '%';
+  const axis = '<div class="tlm-axis"><div class="tlm-axtrack">'
+    + (sun.riseMs ? '<span class="tlm-suntime" style="left:' + (sun.rise * 100).toFixed(1) + '%">' + wxIcon(0, false, null) + '</span>' : '')
+    + (sun.setMs ? '<span class="tlm-suntime" style="left:' + (sun.set * 100).toFixed(1) + '%">' + wxIcon(0, true, null) + '</span>' : '')
+    + '<span class="tlm-nowlab" id="tlm-nowlab" style="left:' + L + ';display:' + (vis ? 'block' : 'none') + '"></span>'
+    + '</div></div>';
+
   const overlay = '<div class="tlm-overlay" id="tlm-overlay">'
     + '<div class="tlm-now" id="tlm-now" style="left:' + L + ';display:' + (vis ? 'block' : 'none') + '"></div>'
-    + '<div class="tlm-nowlab" id="tlm-nowlab" style="left:' + L + ';display:' + (vis ? 'block' : 'none') + '"></div>'
     + '</div>';
 
   return axis + '<div class="tlm-chart">' + tlBandsHTML() + overlay + '</div>';
 }
 
-// fill hero + metric figures for the current ref hour
+// fill the figures inside each band for the current ref hour
 function tlHeads() {
   const d = TL.days[TL.sel]; if (!d) return;
   const h = tlRefHour();
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.innerHTML = v; };
   const t = TL.temp[h];
-  if (!d.isToday && !TL.scrubbing) {
-    // future days: forecast high/low for the day · past days: observed high/low
-    const [hi, lo] = tlDayRange(TL.temp);
-    set('tlm-temp', hi != null ? tempDisp(hi) + '°' : '—');
-    set('tlm-feels', lo != null ? 'Low ' + tempDisp(lo) + '°' : '');
-  } else {
-    // Feels-like from the same current-hour data as everything else:
-    // observed analysis where available, blended forecast otherwise.
-    let feels = null;
+  const [hi, lo] = tlDayRange(TL.temp);
+  const live = d.isToday || TL.scrubbing;
+  // main figure follows the hour on today or while scrubbing, else the day's high
+  const mainT = live ? t : hi;
+  set('tlm-temp', mainT != null ? tempDisp(mainT) + '\u00b0' : '\u2014');
+  // feels-like sits under the figure, from the same current-hour data
+  let feels = null;
+  if (live) {
     const gi = TL.idx ? TL.idx[h] : null;
-    if (gi != null) {
-      const iso = d.date + 'T' + String(Math.max(0, Math.min(23, TL.hourSel))).padStart(2, '0') + ':00';
-      try {
-        if (typeof actualData !== 'undefined' && actualData && actualData.hourly && actualData.hourly.time) {
-          const ai = actualData.hourly.time.indexOf(iso);
-          if (ai >= 0) feels = actualData.hourly.apparent_temperature ? (actualData.hourly.apparent_temperature[ai] ?? null) : null;
-        }
-        if (feels == null && typeof wBlendAt === 'function') feels = wBlendAt('apparent_temperature', gi, (typeof horizonOf === 'function') ? horizonOf(d.date) : 0);
-      } catch (e) {}
-    }
+    const iso = d.date + 'T' + String(Math.max(0, Math.min(23, TL.hourSel))).padStart(2, '0') + ':00';
+    try {
+      if (typeof actualData !== 'undefined' && actualData && actualData.hourly && actualData.hourly.time) {
+        const ai = actualData.hourly.time.indexOf(iso);
+        if (ai >= 0 && actualData.hourly.apparent_temperature) feels = actualData.hourly.apparent_temperature[ai] ?? null;
+      }
+      if (feels == null && gi != null && typeof wBlendAt === 'function') {
+        feels = wBlendAt('apparent_temperature', gi, (typeof horizonOf === 'function') ? horizonOf(d.date) : 0);
+      }
+    } catch (e) {}
     if (feels == null && t != null && TL.wind[h] != null) feels = t - TL.wind[h] * 0.11;
-    set('tlm-temp', t != null ? tempDisp(t) + '°' : '—');
-    set('tlm-feels', feels != null ? 'Feels like ' + tempDisp(feels) + '°' : '');
   }
-  // rain figure: day total idle · hourly figure while scrubbing
+  set('tlm-feels', feels != null ? 'Feels ' + tempDisp(feels) + '\u00b0' : '');
+  // high and low always shown, same small size, on every day
+  set('tlm-hilo',
+    (hi != null ? '<span class="tlm-hl hi">\u2191' + tempDisp(hi) + '\u00b0</span>' : '')
+    + (lo != null ? '<span class="tlm-hl lo">\u2193' + tempDisp(lo) + '\u00b0</span>' : ''));
+
   let rainFig;
-  if (TL.scrubbing) rainFig = (TL.rain[h] == null ? '—' : TL.rain[h] < 0.05 ? '0' : TL.rain[h].toFixed(1)) + ' mm';
+  if (TL.scrubbing) rainFig = (TL.rain[h] == null ? '\u2014' : TL.rain[h] < 0.05 ? '0' : TL.rain[h].toFixed(1)) + ' mm';
   else { const rt = tlDayRainTotal(TL.sel); rainFig = (rt < 0.05 ? '0' : rt.toFixed(1)) + ' mm'; }
-  const dir = TL.wdir[h] != null ? ' <span class="tlm-mdir">' + dirFull(TL.wdir[h]) + '</span>' : '';
   const figFor = {
     rain: rainFig,
-    wind: (TL.wind[h] != null ? Math.round(TL.wind[h]) : '—') + ' km/h' + dir,
-    cloud: (TL.cloud[h] != null ? Math.round(TL.cloud[h]) : '—') + '%',
+    wind: (TL.wind[h] != null ? Math.round(TL.wind[h]) : '\u2014') + ' km/h' + tlDirArrow(TL.wdir[h]),
+    cloud: (TL.cloud[h] != null ? Math.round(TL.cloud[h]) : '\u2014') + '%',
   };
   ['rain', 'wind', 'cloud'].forEach(m => {
     set('tlm-fig-' + m, figFor[m]);
     const c = TL.dayConf[d.date][m];
     set('tlm-conf-' + m, (confVisible[m] !== false && c != null) ? c + '%' : '');
+  });
+  Object.keys(TL_XSTYLE).forEach(k => {
+    if (TL.lanes.indexOf(k) < 0) return;
+    const v = (TL.x && TL.x[k]) ? TL.x[k][h] : null;
+    set('tlm-fig-' + k, v != null ? TL_XSTYLE[k].fmt(v) : '\u2014');
   });
   const lab = document.getElementById('tlm-nowlab');
   if (lab) lab.textContent = TL.scrubbing ? tlClock(TL.streamT0 + h * 3600000) : tlClock(locNowMs());
@@ -448,66 +512,29 @@ function tlBindScrubOn(el, fracEl, allowSwipe) {
   });
 }
 
-// ── week overview interactions: tap = select, drag = scroll window ──────
-// The strip follows the finger while dragging, rubber-bands when there's
-// nothing further that way, glides out/in when the window shifts, and
-// springs back on an aborted drag.
+// ── week strip interactions: native scroll, tap to select ──────────────
 function tlBindWeek() {
-  const wk = document.getElementById('tlm-week'); if (!wk) return;
-  let down = false, sx = 0, moved = false, dx = 0;
-  const blockedAt = d => (d > 0 && !TL._canPrev) || (d < 0 && !TL._canNext);
-  const spring = () => {
-    wk.style.transition = 'transform .22s cubic-bezier(.2,.7,.3,1)';
-    wk.style.transform = 'translateX(0)';
-  };
-  wk.addEventListener('pointerdown', ev => {
-    down = true; sx = ev.clientX; moved = false; dx = 0;
-    wk.style.transition = 'none';
-    try { wk.setPointerCapture(ev.pointerId); } catch (e) {}
-  });
+  const wk = document.getElementById('tlm-week'); if (!wk || wk._bound) return;
+  wk._bound = true;
+  let sx = 0, sl = 0, moved = false;
+  wk.addEventListener('pointerdown', ev => { sx = ev.clientX; sl = wk.scrollLeft; moved = false; }, { passive: true });
   wk.addEventListener('pointermove', ev => {
-    if (!down) return;
-    dx = ev.clientX - sx;
-    if (!moved && Math.abs(dx) > 8) moved = true;
-    if (moved) wk.style.transform = 'translateX(' + (blockedAt(dx) ? dx * 0.28 : dx).toFixed(1) + 'px)';
-  });
-  wk.addEventListener('pointerup', ev => {
-    if (!down) return; down = false;
-    const r = wk.getBoundingClientRect();
-    const colW = r.width / (TL.days.length || 7);
-    if (moved && !blockedAt(dx) && Math.abs(dx) >= colW * 0.5) {
-      // drag left → scroll ahead; clamped in tlBuild to the table's range
-      const step = Math.max(1, Math.round(Math.abs(dx) / colW)) * (dx < 0 ? 1 : -1);
-      const dir = dx < 0 ? 1 : -1;
-      wk.style.transition = 'transform .13s ease-in, opacity .13s ease-in';
-      wk.style.transform = 'translateX(' + (-dir * colW * 1.2).toFixed(1) + 'px)';
-      wk.style.opacity = '0.35';
-      setTimeout(() => {
-        TL.startOff += step;
-        const root = document.getElementById('timeline-root');
-        if (!root || !tlBuild()) return;
-        tlRenderAll(root);
-        const nw = document.getElementById('tlm-week');
-        if (!nw) return;
-        nw.style.transition = 'none';
-        nw.style.transform = 'translateX(' + (dir * colW * 1.2).toFixed(1) + 'px)';
-        nw.style.opacity = '0.35';
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          nw.style.transition = 'transform .2s cubic-bezier(.2,.7,.3,1), opacity .2s';
-          nw.style.transform = 'translateX(0)';
-          nw.style.opacity = '1';
-        }));
-      }, 130);
-      return;
+    if (Math.abs(ev.clientX - sx) > 6 || Math.abs(wk.scrollLeft - sl) > 4) moved = true;
+  }, { passive: true });
+  wk.addEventListener('click', ev => {
+    if (moved) { moved = false; return; }
+    const track = wk.querySelector('.tlm-wk-track'); if (!track) return;
+    const b = ev.target.closest ? ev.target.closest('.tlm-wk-day') : null;
+    let di;
+    if (b) di = +b.dataset.di;
+    else {
+      const r = track.getBoundingClientRect();
+      di = Math.floor(((ev.clientX - r.left) / r.width) * TL.days.length);
     }
-    if (moved) { spring(); return; }
-    // tap — on a label button or anywhere on the chart — selects that day
-    const b = ev.target.closest('.tlm-wk-day');
-    let di = b ? +b.dataset.di : Math.floor((ev.clientX - r.left) / colW);
     di = Math.max(0, Math.min(TL.days.length - 1, di));
     setSelectedDay(TL.days[di].date, { behavior: 'smooth' });
   });
-  wk.addEventListener('pointercancel', () => { if (down) { down = false; spring(); } });
+  requestAnimationFrame(() => tlWeekScrollTo(false));
 }
 
 // ── secondary metrics ────────────────────────────────────────────────────
@@ -616,8 +643,7 @@ function tlSelect(i) {
   i = Math.max(0, Math.min(TL.days.length - 1, i));
   const dir = i > TL.sel ? 1 : i < TL.sel ? -1 : 0;
   TL.sel = i; selDate = TL.days[i].date; TL.scrubbing = false; TL.hourSel = tlDefaultHour();
-  const wk = document.getElementById('tlm-week');
-  if (wk) { wk.outerHTML = tlWeekHTML(); tlBindWeek(); }
+  tlWeekSync();
   const hourEl = document.getElementById('tlm-hour');
   if (!hourEl) return;
   const swap = () => {
