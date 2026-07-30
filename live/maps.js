@@ -26,7 +26,8 @@ const MAP = {
   raw: {},                  // raw[modelKey] = [point][field][hour]
   blend: {},                // blend[metricKey] = [hour][point]
   frames: {},               // frames[metricKey][hour] = dataURL
-  map: null, overlay: null, labelLayer: null
+  map: null, overlay: null, baseLayer: null, labelLayer: null,
+  tileIdx: 0, tilesOk: 0, log: []
 };
 
 const MAP_FIELD = {
@@ -139,7 +140,8 @@ async function mapFetch() {
     const models = MODELS.filter(m => enabled.has(m.key) && !autoHidden.has(m.key));
     if (!models.length) throw new Error('No models enabled');
     MAP.raw = {};
-    let ok = 0;
+    let ok = 0, done = 0;
+    const fails = [];
     await Promise.all(models.map(async m => {
       try {
         const url = `https://api.open-meteo.com${m.ep}`
@@ -154,14 +156,20 @@ async function mapFetch() {
         if (j.length !== P) throw new Error('grid size ' + j.length + ' ≠ ' + P);
         j.forEach(o => { if (typeof normalizeOM === 'function') normalizeOM(o); });
         MAP.raw[m.key] = j; ok++;
-      } catch (e) { if (typeof dbg === 'function') dbg('map ' + m.key + ': ' + e.message); }
+      } catch (e) {
+        fails.push((m.label || m.key) + ': ' + e.message);
+        if (typeof dbg === 'function') dbg('map ' + m.key + ': ' + e.message);
+      }
+      done++; mapStatus('Fetching grid… ' + done + '/' + models.length + ' models');
     }));
-    if (!ok) throw new Error('No model returned grid data');
+    if (fails.length) mapLog(fails.length + ' model(s) failed — ' + fails[0]);
+    if (!ok) throw new Error(fails.length ? fails[0] : 'No model returned grid data');
 
     mapAlignTimes();
     MAP.blend = {}; MAP.frames = {};
-    MAP.ready = true; MAP.loading = false;
+      MAP.ready = true; MAP.loading = false;
     mapStatus('');
+    mapLog('grid ready (' + ok + ' models, ' + MAP.times.length + ' hours)');
     mapDraw(true);
   } catch (e) {
     MAP.loading = false; MAP.error = e.message;
@@ -251,25 +259,99 @@ function mapFrame(metric, h) {
   return url;
 }
 
+// ── tiles, with an automatic fallback ───────────────────────────────────
+// If the first provider fails (blocked, rate limited, offline) we drop to
+// plain OSM and darken it with a CSS filter rather than showing nothing.
+const MAP_TILES = [
+  { name: 'CARTO', dark: false,
+    url: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',
+    labels: 'https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png',
+    opts: { subdomains: 'abcd', maxZoom: 12, attribution: '&copy; OpenStreetMap &copy; CARTO' } },
+  { name: 'OSM', dark: true,
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', labels: null,
+    opts: { maxZoom: 12, attribution: '&copy; OpenStreetMap' } }
+];
+
+function mapAddTiles(idx) {
+  if (!MAP.map || !MAP_TILES[idx]) return;
+  const spec = MAP_TILES[idx];
+  MAP.tileIdx = idx; MAP.tilesOk = 0;
+  if (MAP.baseLayer) { try { MAP.map.removeLayer(MAP.baseLayer); } catch (e) {} }
+  if (MAP.labelLayer) { try { MAP.map.removeLayer(MAP.labelLayer); } catch (e) {} MAP.labelLayer = null; }
+  let errs = 0;
+  MAP.baseLayer = L.tileLayer(spec.url, Object.assign({ className: spec.dark ? 'mp-tiles-dark' : '' }, spec.opts));
+  MAP.baseLayer.on('tileload', () => { MAP.tilesOk++; if (MAP.tilesOk === 1) mapDiag(); });
+  MAP.baseLayer.on('tileerror', () => {
+    errs++;
+    if (errs >= 5 && MAP.tilesOk === 0 && idx + 1 < MAP_TILES.length) {
+      mapLog('tiles: ' + spec.name + ' not responding, switching to ' + MAP_TILES[idx + 1].name);
+      mapAddTiles(idx + 1);
+    } else mapDiag();
+  });
+  MAP.baseLayer.addTo(MAP.map);
+  if (spec.labels) {
+    if (!MAP.map.getPane('mp-labels')) {
+      MAP.map.createPane('mp-labels');
+      MAP.map.getPane('mp-labels').style.zIndex = 450;
+      MAP.map.getPane('mp-labels').style.pointerEvents = 'none';
+    }
+    MAP.labelLayer = L.tileLayer(spec.labels, Object.assign({ pane: 'mp-labels' }, spec.opts)).addTo(MAP.map);
+  }
+  mapDiag();
+}
+
 // ── the Leaflet map ─────────────────────────────────────────────────────
 function mapInitLeaflet() {
   if (MAP.map || typeof L === 'undefined') return;
   const el = document.getElementById('mp-map'); if (!el) return;
-  MAP.map = L.map(el, { zoomControl: true, attributionControl: true, preferCanvas: true })
-    .setView([MAP.lat || 0, MAP.lon || 0], 7);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; OpenStreetMap &copy; CARTO', subdomains: 'abcd', maxZoom: 12
-  }).addTo(MAP.map);
-  // place names ride above the weather field so the map stays readable
-  MAP.map.createPane('mp-labels');
-  MAP.map.getPane('mp-labels').style.zIndex = 450;
-  MAP.map.getPane('mp-labels').style.pointerEvents = 'none';
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
-    subdomains: 'abcd', maxZoom: 12, pane: 'mp-labels'
-  }).addTo(MAP.map);
-  L.circleMarker([MAP.lat, MAP.lon], {
-    radius: 5, color: '#fff', weight: 2, fillColor: '#f87171', fillOpacity: 1, pane: 'mp-labels'
-  }).addTo(MAP.map);
+  // Leaflet measures its container at construction. If the tab was still
+  // hidden (or mid-layout) that measurement is 0×0 and no tile is ever
+  // requested — the map looks dead but the controls render fine.
+  if (!el.offsetWidth || !el.offsetHeight) {
+    if ((MAP._sizeTries = (MAP._sizeTries || 0) + 1) < 60) { requestAnimationFrame(mapInitLeaflet); return; }
+    mapLog('container never gained a size'); return;
+  }
+  const lat = MAP.lat != null ? MAP.lat : (state.lat || 0);
+  const lon = MAP.lon != null ? MAP.lon : (state.lon || 0);
+  MAP.map = L.map(el, { zoomControl: true, attributionControl: true }).setView([lat, lon], 7);
+  mapAddTiles(0);
+  if (state.lat != null) {
+    L.circleMarker([state.lat, state.lon], {
+      radius: 5, color: '#fff', weight: 2, fillColor: '#f87171', fillOpacity: 1
+    }).addTo(MAP.map);
+  }
+  mapKick();
+  if (typeof ResizeObserver !== 'undefined') {
+    try {
+      MAP._ro = new ResizeObserver(() => { if (MAP.map) MAP.map.invalidateSize(); });
+      MAP._ro.observe(el);
+    } catch (e) {}
+  }
+}
+// a single rAF isn't always enough on mobile after a tab becomes visible
+function mapKick() {
+  [0, 60, 220, 600, 1200].forEach(ms => setTimeout(() => {
+    if (MAP.map) { MAP.map.invalidateSize(); }
+  }, ms));
+}
+
+function mapLog(m) {
+  if (typeof dbg === 'function') dbg('map: ' + m);
+  MAP.log.push(m); if (MAP.log.length > 4) MAP.log.shift();
+  mapDiag();
+}
+// a permanent one-line readout of what the map actually managed to do
+function mapDiag() {
+  const el = document.getElementById('mp-diag'); if (!el) return;
+  const want = (typeof MODELS !== 'undefined')
+    ? MODELS.filter(m => enabled.has(m.key) && !autoHidden.has(m.key)).length : 0;
+  const bits = [];
+  bits.push(MAP.ready ? Object.keys(MAP.raw).length + '/' + want + ' models · ' + (MAP.gridN * MAP.gridN) + ' pts'
+    : MAP.loading ? 'fetching grid…' : 'no grid yet');
+  bits.push('tiles: ' + (MAP.tilesOk ? MAP.tilesOk + ' loaded (' + MAP_TILES[MAP.tileIdx || 0].name + ')' : 'none yet'));
+  if (MAP.error) bits.push('⚠ ' + MAP.error);
+  if (MAP.log.length) bits.push(MAP.log[MAP.log.length - 1]);
+  el.textContent = bits.join('   ·   ');
 }
 
 function mapDraw(fit) {
@@ -281,9 +363,10 @@ function mapDraw(fit) {
     MAP.overlay.setUrl(url);
     MAP.overlay.setBounds(MAP.bounds);
   }
-  if (fit) MAP.map.fitBounds(MAP.bounds, { padding: [8, 8] });
+  if (fit) { MAP.map.fitBounds(MAP.bounds, { padding: [8, 8] }); mapKick(); }
   mapSyncScrub();
   mapReadout();
+  mapDiag();
 }
 
 // ── UI ──────────────────────────────────────────────────────────────────
@@ -322,6 +405,7 @@ function mapBuildUI() {
           <div class="mp-lab" id="mp-lab"></div>
         </div>
       </div>
+      <div class="mp-diag" id="mp-diag"></div>
       <div class="mp-foot">Blended across every enabled model, weighted by each one's accuracy here.</div>
     </div>`;
   MAP.built = true;
@@ -334,6 +418,7 @@ function mapBuildUI() {
   document.getElementById('mp-play').addEventListener('click', mapTogglePlay);
   mapBindScrub();
   mapLegend();
+  mapDiag();
 }
 
 function mapLegend() {
@@ -446,6 +531,14 @@ function mapReblend() {
   if (metrics.indexOf(MAP.metric) < 0) { MAP.metric = metrics[0]; MAP.built = false; mapEnsure(); return; }
   if (typeof sectionsVisible !== 'undefined' && sectionsVisible.map) mapDraw(false);
 }
+// the tab can already be open from saved prefs, in which case nothing
+// would ever have called mapEnsure
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    if (typeof sectionsVisible !== 'undefined' && sectionsVisible.map) mapEnsure();
+  }, 500);
+});
+
 // location or model changes invalidate the grid
 function mapInvalidate() {
   mapStop();
