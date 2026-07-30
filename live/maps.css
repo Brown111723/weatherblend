@@ -1,0 +1,60 @@
+/* ── map view ─────────────────────────────────────────────────────────── */
+.mp-wrap{padding:10px 12px 16px;}
+
+.mp-chips{display:flex;gap:7px;overflow-x:auto;padding-bottom:9px;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
+.mp-chips::-webkit-scrollbar{display:none;}
+.mp-chip{flex:0 0 auto;background:var(--surface,#141a24);border:1px solid var(--border,#1f2733);color:var(--text-muted,#93a6c0);
+  border-radius:20px;padding:6px 13px;font-size:12px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;cursor:pointer;}
+.mp-chip.on{color:#08111c;border-color:transparent;}
+.mp-chip.on.mp-c-temp{background:var(--q-temp,#7EE8A5);}
+.mp-chip.on.mp-c-rain{background:var(--q-rain,#5FA4FF);}
+.mp-chip.on.mp-c-wind{background:var(--q-wind,#A8E63E);}
+.mp-chip.on.mp-c-cloud{background:var(--q-cloud,#C8A6FF);}
+.mp-chip.on.mp-c-snow{background:var(--q-snow,#BFE8FF);}
+.mp-chip.on.mp-c-gust{background:var(--q-gust,#FFB86B);}
+.mp-chip.on.mp-c-humid{background:var(--q-humid,#4ED6B8);}
+.mp-chip.on.mp-c-press{background:var(--q-press,#F09AD0);}
+.mp-chip.on.mp-c-uv{background:var(--q-uv,#FFD75E);}
+
+.mp-stage{position:relative;border-radius:14px;overflow:hidden;border:1px solid var(--border,#1f2733);background:#0b1018;}
+#mp-map{height:54vh;min-height:300px;max-height:520px;width:100%;background:#0b1018;}
+.mp-status{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;
+  padding:20px;font-size:13px;color:var(--text-muted,#93a6c0);background:rgba(11,16,24,.9);z-index:500;}
+
+/* the painted field: softened so a 9×9 grid doesn't read as facets */
+.mp-field{filter:blur(3px) saturate(1.05);mix-blend-mode:screen;}
+.leaflet-container{background:#0b1018;font-family:inherit;}
+.leaflet-control-attribution{background:rgba(8,12,19,.7)!important;color:#6b7787!important;font-size:10px!important;}
+.leaflet-control-attribution a{color:#8b97a8!important;}
+.leaflet-bar a{background:#141a24!important;color:#c8d2e0!important;border-color:#222c3a!important;}
+.leaflet-bar a:hover{background:#1c2532!important;}
+
+.mp-readout{display:flex;align-items:baseline;gap:9px;margin-top:11px;flex-wrap:wrap;}
+.mp-rd-val{font-size:26px;font-weight:600;letter-spacing:-.5px;color:var(--text-primary,#f4f7fd);font-variant-numeric:tabular-nums;}
+.mp-rd-note{font-size:12px;color:var(--text-muted,#93a6c0);}
+
+.mp-legend{margin-top:9px;}
+.mp-lg-bar{height:9px;border-radius:5px;border:1px solid rgba(255,255,255,.10);}
+.mp-lg-ax{display:flex;justify-content:space-between;margin-top:3px;font-size:11px;color:var(--text-dim,#5f6f82);font-variant-numeric:tabular-nums;}
+
+.mp-timerow{display:flex;align-items:center;gap:11px;margin-top:14px;}
+.mp-play{flex:0 0 auto;width:36px;height:36px;border-radius:50%;border:1px solid var(--border2,#2a3444);
+  background:var(--surface,#141a24);color:var(--text-primary,#f4f7fd);font-size:12px;cursor:pointer;line-height:1;}
+.mp-play.on{background:var(--now,#f87171);border-color:transparent;color:#fff;}
+
+.mp-track{position:relative;flex:1;height:38px;border-radius:9px;background:var(--surface,#141a24);
+  border:1px solid var(--border,#1f2733);touch-action:pan-y;cursor:ew-resize;overflow:hidden;}
+/* everything left of the marker has already happened */
+.mp-track::before{content:'';position:absolute;left:0;top:0;bottom:0;width:var(--nowpc,50%);background:rgba(0,0,0,.34);pointer-events:none;}
+.mp-track::after{content:'';position:absolute;left:var(--nowpc,50%);top:0;bottom:0;width:1px;background:rgba(248,113,113,.42);pointer-events:none;}
+.mp-ticks{position:absolute;inset:0;pointer-events:none;}
+.mp-tick{position:absolute;bottom:4px;transform:translateX(-50%);font-size:11px;color:var(--text-dim,#5f6f82);white-space:nowrap;}
+.mp-line{position:absolute;top:0;bottom:0;width:1.5px;background:var(--now,#f87171);transform:translateX(-50%);
+  box-shadow:0 0 0 3px rgba(248,113,113,.16);pointer-events:none;z-index:3;}
+.mp-orb{position:absolute;top:0;width:11px;height:11px;border-radius:50%;background:var(--now,#f87171);
+  transform:translate(-50%,-52%);box-shadow:0 0 9px 2px rgba(248,113,113,.6),0 0 0 2px rgba(8,12,19,.55);pointer-events:none;z-index:4;}
+.mp-lab{position:absolute;top:11px;transform:translateX(-50%);font-size:10.5px;font-weight:700;color:#fff;
+  background:var(--now,#f87171);padding:1px 6px;border-radius:20px;white-space:nowrap;pointer-events:none;z-index:5;display:none;}
+.mp-lab.past{background:#64748b;}
+
+.mp-foot{margin-top:11px;font-size:11px;color:var(--text-dim,#5f6f82);line-height:1.45;}

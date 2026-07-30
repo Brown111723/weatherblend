@@ -197,6 +197,8 @@ function _recalcAndRender(){
   renderCurrentBar(); renderTable();
   try{ buildSourcesPanel(); }catch(e){}
   try{ if(!document.getElementById('acc-overlay').classList.contains('hidden')) renderAccuracyPanel(); }catch(e){}
+  // weights or model selection moved — the map's blended grid is stale
+  try{ if(typeof mapReblend==='function') mapReblend(); }catch(e){}
 }
 function setWeightMethod(m){
   if(m!=='current'&&m!=='daily'&&m!=='blend')return;
@@ -245,7 +247,10 @@ function toggleSection(sec,btn){
     btn.classList.toggle('enabled', secVisible[sec]);
     btn.classList.toggle('disabled',!secVisible[sec]);
   }
-  savePrefs(); _recalcAndRender();
+  savePrefs();
+  // a newly enabled metric was never fetched for the map grid — refetch it
+  try{ if(typeof mapInvalidate==='function') mapInvalidate(); }catch(e){}
+  _recalcAndRender();
 }
 
 // ── Auto-refresh ────────────────────────────────────────────────────────
@@ -436,6 +441,7 @@ function renderCityResults(results, region){
 }
 function pickCity(lat,lon,name,admin1,cc){
   state.lat=lat; state.lon=lon;
+  try{ if(typeof mapInvalidate==='function') mapInvalidate(); }catch(e){}
   const parts=[name]; if(admin1)parts.push(admin1); if(cc)parts.push(cc);
   const locName=parts.join(', ');
   setLocName(locName);
@@ -1184,6 +1190,8 @@ function toggleView(sec){
   savePrefs();
   if(sec==='cards' && sectionsVisible.cards){ requestAnimationFrame(()=>{ centerCarousel('auto'); updateDayBarSel('auto'); }); }
   if(sec==='table' && sectionsVisible.table){ if(Object.keys(state.data).length){ renderTable(); requestAnimationFrame(()=>{ scrollTableToSelected('auto'); positionNowOverlay(); }); } }
+  if(sec==='map' && sectionsVisible.map && typeof mapEnsure==='function') requestAnimationFrame(()=>mapEnsure());
+  if(sec!=='map' && typeof mapStop==='function') mapStop();
 }
 
 // ── Formatting / colour classes ─────────────────────────────────────────
