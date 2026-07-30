@@ -74,27 +74,65 @@ function tlRampRgb(v, ramp) {
 function tlRampColor(v, ramp) { return tlRgb(tlRampRgb(v, ramp)); }
 function tlTempColor(v) { return tlRgb(tlRampRgb(v, TL_TRAMP)); }
 
+// The mixed blend: every metric melted into one colour. Too muddy to read
+// values from, which is why the lanes are stacked instead — but as a thin
+// strip behind the sun icons it gives the day's mood at a glance.
+const TL_GREY = [132, 142, 163], TL_WET = [140, 66, 198], TL_DEEP = [42, 16, 74];
+const TL_GUSTY = [168, 230, 62], TL_SNOW = [226, 244, 255], TL_UVC = [255, 215, 94], TL_HUM = [78, 214, 184];
+const TL_XON = k => (typeof secVisible !== 'undefined' && secVisible[k] && TL.x && TL.x[k]);
+function tlBlendAt(i) {
+  let col = tlRampRgb(TL.temp[i], TL_TRAMP);
+  const c = TL.cloud[i];
+  if (c != null && !isNaN(c)) col = tlMix(col, TL_GREY, 0.46 * Math.min(1, c / 100));
+  if (TL_XON('snow')) {
+    const sn = TL.x.snow[i];
+    if (sn != null && sn >= 0.05) col = tlMix(col, TL_SNOW, 0.85 * Math.min(1, 0.25 + 0.75 * Math.log1p(sn) / Math.log1p(3)));
+  }
+  const r = TL.rain[i];
+  if (r != null && !isNaN(r) && r >= 0.05) {
+    const f = Math.min(1, 0.18 + 0.82 * Math.log1p(r) / Math.log1p(6));
+    col = tlMix(col, TL_WET, 0.90 * f);
+    col = tlMix(col, TL_DEEP, 0.34 * f);
+  }
+  const w = TL.wind[i];
+  if (w != null && !isNaN(w)) col = tlMix(col, TL_GUSTY, 0.16 * Math.min(1, Math.max(0, (w - 15) / 45)));
+  if (TL_XON('gust')) {
+    const g = TL.x.gust[i];
+    if (g != null) col = tlMix(col, TL_GUSTY, 0.14 * Math.min(1, Math.max(0, (g - 35) / 50)));
+  }
+  if (TL_XON('uv')) {
+    const u = TL.x.uv[i];
+    if (u != null && u > 0) col = tlMix(col, TL_UVC, 0.14 * Math.min(1, u / 11));
+  }
+  if (TL_XON('humid')) {
+    const hm = TL.x.humid[i];
+    if (hm != null) col = tlMix(col, TL_HUM, 0.10 * Math.min(1, Math.max(0, (hm - 60) / 40)));
+  }
+  return tlRgb(col);
+}
+function tlBlendGradDay() {
+  const s = TL.sel * 24, stops = [];
+  for (let h = 0; h < 24; h++) stops.push(tlBlendAt(s + h) + ' ' + ((h / 23) * 100).toFixed(2) + '%');
+  return 'linear-gradient(90deg,' + stops.join(',') + ')';
+}
+const TL_PAST = 'rgba(0,0,0,0.35)';   // matches the table's past-hours overlay
+// how much of the current view is already behind us, as a fraction
+function tlPastFrac() {
+  const d = TL.days[TL.sel]; if (!d) return 0;
+  if (d.past) return 1;
+  if (!d.isToday) return 0;
+  return Math.max(0, Math.min(1, ((TL.nowH != null ? TL.nowH : 0) - TL.sel * 24) / 23));
+}
+function tlPastLayer(frac) {
+  if (frac <= 0) return '';
+  return '<div class="tlm-lay tlm-pastlay" style="width:' + (frac * 100).toFixed(3) + '%"></div>';
+}
 const TL_NIGHT = 'rgba(4,7,14,.25)', TL_DAYC = 'rgba(4,7,14,0)';
 function tlNightGrad(rise, set) {
   const r = Math.max(0, Math.min(1, rise)) * 100, t = Math.max(0, Math.min(1, set)) * 100;
   return 'linear-gradient(90deg,' + TL_NIGHT + ' 0%,' + TL_NIGHT + ' ' + Math.max(0, r - 4).toFixed(1) + '%,'
     + TL_DAYC + ' ' + Math.min(100, r + 3).toFixed(1) + '%,' + TL_DAYC + ' ' + Math.max(0, t - 3).toFixed(1) + '%,'
     + TL_NIGHT + ' ' + Math.min(100, t + 4).toFixed(1) + '%,' + TL_NIGHT + ' 100%)';
-}
-// the same dimming carried across every day in the strip
-function tlNightGradRange(n) {
-  const ev = TL.suns.slice().filter(o => o.h >= -2 && o.h <= n + 2).sort((a, b) => a.h - b.h);
-  if (!ev.length) return 'none';
-  const stops = []; let last = -1;
-  const push = (c, p) => { const q = Math.max(last, Math.max(0, Math.min(100, p))); stops.push(c + ' ' + q.toFixed(3) + '%'); last = q; };
-  push(ev[0].kind === 'rise' ? TL_NIGHT : TL_DAYC, 0);
-  ev.forEach(o => {
-    const p = (o.h / (n - 1)) * 100, w = 0.28;
-    if (o.kind === 'rise') { push(TL_NIGHT, p - w); push(TL_DAYC, p + w); }
-    else { push(TL_DAYC, p - w); push(TL_NIGHT, p + w); }
-  });
-  push(ev[ev.length - 1].kind === 'rise' ? TL_DAYC : TL_NIGHT, 100);
-  return 'linear-gradient(90deg,' + stops.join(',') + ')';
 }
 function tlAlphaVeil(hex, lo, hi) {
   const rgb = tlHex(hex).join(',');
@@ -281,10 +319,10 @@ function tlWeekHTML() {
   const sel = '<div class="tlm-wk-sel" style="left:' + (TL.sel * colW).toFixed(3) + '%;width:' + colW.toFixed(3) + '%"></div>';
   const now = (TL.nowH != null && TL.nowH >= 0 && TL.nowH <= n)
     ? '<div class="tlm-wk-now" style="left:' + ((TL.nowH / n) * 100).toFixed(3) + '%"></div>' : '';
-  const night = '<div class="tlm-lay tlm-wk-night" style="background:' + tlNightGradRange(n) + '"></div>';
+  const pastF = (TL.nowH != null) ? Math.max(0, Math.min(1, TL.nowH / n)) : 0;
   const canvas = '<div class="tlm-wk-canvas" style="height:' + canvasH + 'px">'
     + '<div class="tlm-wk-lanes">' + laneHTML + '</div>'
-    + night + seps + sel + now + '</div>';
+    + tlPastLayer(pastF) + seps + sel + now + '</div>';
   const labels = '<div class="tlm-wk-labels" style="grid-template-columns:repeat(' + nd + ',1fr)">'
     + TL.days.map((d, i) =>
       '<button type="button" class="tlm-wk-day' + (i === TL.sel ? ' sel' : '') + '" data-di="' + i + '">'
@@ -348,8 +386,7 @@ function tlBandGrad(key, arr) {
 function tlBandsHTML() {
   const lanes = tlLaneOrder();
   const [dayHi] = tlDayRange(TL.temp);
-  const sun = tlSunFrac();
-  const night = tlNightGrad(sun.rise, sun.set);
+  const past = tlPastLayer(tlPastFrac());
   return '<div class="tlm-bands">' + lanes.map(key => {
     const arr = tlLaneSeries(key);
     const name = TL_MAIN[key] || (TL_XSTYLE[key] ? TL_XSTYLE[key].name : key);
@@ -358,25 +395,30 @@ function tlBandsHTML() {
       ? '<span class="tlm-mname" style="color:' + tlTempColor(dayHi) + '">' + name + '</span>'
       : '<span class="tlm-mname tlm-ic-' + key + '">' + name + '</span>';
     const val = key === 'temp'
-      ? '<span class="tlm-mstack"><span class="tlm-mfig" id="tlm-temp">\u2014</span>'
+      ? '<span class="tlm-mstack"><span class="tlm-mfig" id="tlm-temp"></span>'
         + '<span class="tlm-msub" id="tlm-feels"></span></span>'
-        + '<span class="tlm-mhilo" id="tlm-hilo"></span>'
-      : '<span class="tlm-mfig" id="tlm-fig-' + key + '"></span>'
-        + '<span class="tlm-mconf" id="tlm-conf-' + key + '"></span>';
+        + '<span class="tlm-mhilo" id="tlm-hilo-temp"></span>'
+      : '<span class="tlm-mstack"><span class="tlm-mfig" id="tlm-fig-' + key + '"></span>'
+        + '<span class="tlm-mconf" id="tlm-conf-' + key + '"></span></span>'
+        + '<span class="tlm-mhilo" id="tlm-hilo-' + key + '"></span>';
     return '<div class="tlm-mband">'
       + '<div class="tlm-lay" style="background:' + tlBandGrad(key, arr) + '"></div>'
-      + '<div class="tlm-lay" style="background:' + night + '"></div>'
-      + '<div class="tlm-mscrim"></div>' + lab
+      + past + '<div class="tlm-mscrim"></div>' + lab
       + '<span class="tlm-mval">' + val + '</span></div>';
   }).join('') + '</div>';
 }
 
 function tlHourHTML() {
-  // sun icons + the scrub clock share one line, no times on the sun marks
+  // the sun strip doubles as the day's blended mood bar — every metric melted
+  // into one colour, with night hours dimmed. Nothing is read off it, so the
+  // dimming can't distort a value the way it did on the metric lanes.
   const sun = tlSunFrac();
   const vis = tlNowVisible();
   const L = (tlNowFrac() * 100).toFixed(2) + '%';
   const axis = '<div class="tlm-axis"><div class="tlm-axtrack">'
+    + '<div class="tlm-lay" style="background:' + tlBlendGradDay() + '"></div>'
+    + '<div class="tlm-lay" style="background:' + tlNightGrad(sun.rise, sun.set) + '"></div>'
+    + tlPastLayer(tlPastFrac())
     + (sun.riseMs ? '<span class="tlm-suntime" style="left:' + (sun.rise * 100).toFixed(1) + '%">' + wxIcon(0, false, null) + '</span>' : '')
     + (sun.setMs ? '<span class="tlm-suntime" style="left:' + (sun.set * 100).toFixed(1) + '%">' + wxIcon(0, true, null) + '</span>' : '')
     + '<span class="tlm-nowlab" id="tlm-nowlab" style="left:' + L + ';display:' + (vis ? 'block' : 'none') + '"></span>'
@@ -389,18 +431,67 @@ function tlHourHTML() {
   return axis + '<div class="tlm-chart">' + tlBandsHTML() + overlay + '</div>';
 }
 
+// metrics that accumulate rather than sit at a level — a daily total means
+// more for these than a high and a low would
+const TL_ACCUM = { rain: 1, snow: 1 };
+function tlMetricSeries(key) {
+  return (key === 'temp') ? TL.temp : (key === 'rain') ? TL.rain
+    : (key === 'wind') ? TL.wind : (key === 'cloud') ? TL.cloud
+      : (TL.x && TL.x[key]) ? TL.x[key] : null;
+}
+function tlFmtFor(key) {
+  if (key === 'temp') return v => tempDisp(v) + '\u00b0';
+  if (key === 'rain') return v => (v < 0.05 ? '0' : v.toFixed(1)) + ' mm';
+  if (key === 'wind') return v => Math.round(v) + ' km/h';
+  if (key === 'cloud') return v => Math.round(v) + '%';
+  return TL_XSTYLE[key] ? TL_XSTYLE[key].fmt : (v => String(v));
+}
+function tlDayTotal(key) {
+  const arr = tlMetricSeries(key); if (!arr) return 0;
+  const s = TL.sel * 24; let t = 0;
+  for (let k = s; k < s + 24; k++) if (arr[k]) t += arr[k];
+  return t;
+}
+
 // fill the figures inside each band for the current ref hour
 function tlHeads() {
   const d = TL.days[TL.sel]; if (!d) return;
   const h = tlRefHour();
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.innerHTML = v; };
-  const t = TL.temp[h];
-  const [hi, lo] = tlDayRange(TL.temp);
+  // on today, or while scrubbing any day, figures track the hour;
+  // otherwise a day shows only its range
   const live = d.isToday || TL.scrubbing;
-  // main figure follows the hour on today or while scrubbing, else the day's high
-  const mainT = live ? t : hi;
-  set('tlm-temp', mainT != null ? tempDisp(mainT) + '\u00b0' : '\u2014');
-  // feels-like sits under the figure, from the same current-hour data
+
+  tlLaneOrder().forEach(key => {
+    const arr = tlMetricSeries(key);
+    const fmt = tlFmtFor(key);
+    const [hi, lo] = arr ? tlDayRange(arr) : [null, null];
+    const v = arr ? arr[h] : null;
+    const accum = !!TL_ACCUM[key];
+    let main = '';
+    if (TL.scrubbing) main = v != null ? fmt(v) : '\u2014';
+    else if (accum) main = fmt(tlDayTotal(key));
+    else if (live) main = v != null ? fmt(v) : '\u2014';
+    set(key === 'temp' ? 'tlm-temp' : 'tlm-fig-' + key, main);
+    // accumulating metrics show the peak rate; the rest show high and low
+    const hilo = accum
+      ? (hi != null ? '<span class="tlm-hl hi">\u2191' + fmt(hi) + '</span>' : '')
+      : (hi != null ? '<span class="tlm-hl hi">\u2191' + fmt(hi) + '</span>' : '')
+        + (lo != null ? '<span class="tlm-hl lo">\u2193' + fmt(lo) + '</span>' : '');
+    set('tlm-hilo-' + key, hilo);
+    if (key !== 'temp') {
+      const c = TL.dayConf[d.date] ? TL.dayConf[d.date][key] : null;
+      set('tlm-conf-' + key, (confVisible[key] !== false && c != null) ? c + '%' : '');
+    }
+  });
+
+  // wind carries its direction arrow alongside the figure
+  if (TL.lanes.indexOf('wind') >= 0 && (TL.scrubbing || live)) {
+    const el = document.getElementById('tlm-fig-wind');
+    if (el && TL.wdir[h] != null) el.innerHTML += tlDirArrow(TL.wdir[h]);
+  }
+
+  // feels-like sits under the temperature figure, same current-hour source
   let feels = null;
   if (live) {
     const gi = TL.idx ? TL.idx[h] : null;
@@ -414,32 +505,10 @@ function tlHeads() {
         feels = wBlendAt('apparent_temperature', gi, (typeof horizonOf === 'function') ? horizonOf(d.date) : 0);
       }
     } catch (e) {}
-    if (feels == null && t != null && TL.wind[h] != null) feels = t - TL.wind[h] * 0.11;
+    if (feels == null && TL.temp[h] != null && TL.wind[h] != null) feels = TL.temp[h] - TL.wind[h] * 0.11;
   }
   set('tlm-feels', feels != null ? 'Feels ' + tempDisp(feels) + '\u00b0' : '');
-  // high and low always shown, same small size, on every day
-  set('tlm-hilo',
-    (hi != null ? '<span class="tlm-hl hi">\u2191' + tempDisp(hi) + '\u00b0</span>' : '')
-    + (lo != null ? '<span class="tlm-hl lo">\u2193' + tempDisp(lo) + '\u00b0</span>' : ''));
 
-  let rainFig;
-  if (TL.scrubbing) rainFig = (TL.rain[h] == null ? '\u2014' : TL.rain[h] < 0.05 ? '0' : TL.rain[h].toFixed(1)) + ' mm';
-  else { const rt = tlDayRainTotal(TL.sel); rainFig = (rt < 0.05 ? '0' : rt.toFixed(1)) + ' mm'; }
-  const figFor = {
-    rain: rainFig,
-    wind: (TL.wind[h] != null ? Math.round(TL.wind[h]) : '\u2014') + ' km/h' + tlDirArrow(TL.wdir[h]),
-    cloud: (TL.cloud[h] != null ? Math.round(TL.cloud[h]) : '\u2014') + '%',
-  };
-  ['rain', 'wind', 'cloud'].forEach(m => {
-    set('tlm-fig-' + m, figFor[m]);
-    const c = TL.dayConf[d.date][m];
-    set('tlm-conf-' + m, (confVisible[m] !== false && c != null) ? c + '%' : '');
-  });
-  Object.keys(TL_XSTYLE).forEach(k => {
-    if (TL.lanes.indexOf(k) < 0) return;
-    const v = (TL.x && TL.x[k]) ? TL.x[k][h] : null;
-    set('tlm-fig-' + k, v != null ? TL_XSTYLE[k].fmt(v) : '\u2014');
-  });
   const lab = document.getElementById('tlm-nowlab');
   if (lab) {
     lab.textContent = TL.scrubbing
@@ -448,6 +517,7 @@ function tlHeads() {
     lab.classList.toggle('sun', !!(TL.scrubbing && TL.snapSun));
   }
 }
+
 function tlSyncNow() {
   const vis = tlNowVisible();
   const frac = tlNowFrac();
