@@ -29,7 +29,7 @@ const TL = {
   act: { temp: [], rain: [], wind: [], cloud: [] },   // observed only (Open-Meteo analysis)
   confH: { temp: [], rain: [], wind: [], cloud: [] }, dayConf: {},
   lanes: [], suns: [], streamT0: 0, nowH: null,
-  sel: 0, hourSel: 12, scrubbing: false,
+  sel: 0, hourSel: 12, scrubbing: false, snapFrac: null, snapMs: null, snapSun: null,
   x: {}, sec: null, secKey: null, secOpen: false, _secRows: null,
 };
 
@@ -74,39 +74,27 @@ function tlRampRgb(v, ramp) {
 function tlRampColor(v, ramp) { return tlRgb(tlRampRgb(v, ramp)); }
 function tlTempColor(v) { return tlRgb(tlRampRgb(v, TL_TRAMP)); }
 
-const TL_GREY = [132, 142, 163], TL_WET = [140, 66, 198], TL_DEEP = [42, 16, 74];
-const TL_GUSTY = [168, 230, 62], TL_SNOW = [226, 244, 255], TL_UVC = [255, 215, 94], TL_HUM = [78, 214, 184];
-const TL_XON = k => (typeof secVisible !== 'undefined' && secVisible[k] && TL.x && TL.x[k]);
-// one colour per hour for the week strip, mixed rather than layered
-function tlBlendAt(i) {
-  let col = tlRampRgb(TL.temp[i], TL_TRAMP);
-  const c = TL.cloud[i];
-  if (c != null && !isNaN(c)) col = tlMix(col, TL_GREY, 0.46 * Math.min(1, c / 100));
-  if (TL_XON('snow')) {
-    const s = TL.x.snow[i];
-    if (s != null && s >= 0.05) col = tlMix(col, TL_SNOW, 0.85 * Math.min(1, 0.25 + 0.75 * Math.log1p(s) / Math.log1p(3)));
-  }
-  const r = TL.rain[i];
-  if (r != null && !isNaN(r) && r >= 0.05) {
-    const f = Math.min(1, 0.18 + 0.82 * Math.log1p(r) / Math.log1p(6));
-    col = tlMix(col, TL_WET, 0.90 * f);
-    col = tlMix(col, TL_DEEP, 0.34 * f);
-  }
-  const w = TL.wind[i];
-  if (w != null && !isNaN(w)) col = tlMix(col, TL_GUSTY, 0.16 * Math.min(1, Math.max(0, (w - 15) / 45)));
-  if (TL_XON('gust')) {
-    const g = TL.x.gust[i];
-    if (g != null) col = tlMix(col, TL_GUSTY, 0.14 * Math.min(1, Math.max(0, (g - 35) / 50)));
-  }
-  if (TL_XON('uv')) {
-    const u = TL.x.uv[i];
-    if (u != null && u > 0) col = tlMix(col, TL_UVC, 0.14 * Math.min(1, u / 11));
-  }
-  if (TL_XON('humid')) {
-    const hm = TL.x.humid[i];
-    if (hm != null) col = tlMix(col, TL_HUM, 0.10 * Math.min(1, Math.max(0, (hm - 60) / 40)));
-  }
-  return tlRgb(col);
+const TL_NIGHT = 'rgba(4,7,14,.25)', TL_DAYC = 'rgba(4,7,14,0)';
+function tlNightGrad(rise, set) {
+  const r = Math.max(0, Math.min(1, rise)) * 100, t = Math.max(0, Math.min(1, set)) * 100;
+  return 'linear-gradient(90deg,' + TL_NIGHT + ' 0%,' + TL_NIGHT + ' ' + Math.max(0, r - 4).toFixed(1) + '%,'
+    + TL_DAYC + ' ' + Math.min(100, r + 3).toFixed(1) + '%,' + TL_DAYC + ' ' + Math.max(0, t - 3).toFixed(1) + '%,'
+    + TL_NIGHT + ' ' + Math.min(100, t + 4).toFixed(1) + '%,' + TL_NIGHT + ' 100%)';
+}
+// the same dimming carried across every day in the strip
+function tlNightGradRange(n) {
+  const ev = TL.suns.slice().filter(o => o.h >= -2 && o.h <= n + 2).sort((a, b) => a.h - b.h);
+  if (!ev.length) return 'none';
+  const stops = []; let last = -1;
+  const push = (c, p) => { const q = Math.max(last, Math.max(0, Math.min(100, p))); stops.push(c + ' ' + q.toFixed(3) + '%'); last = q; };
+  push(ev[0].kind === 'rise' ? TL_NIGHT : TL_DAYC, 0);
+  ev.forEach(o => {
+    const p = (o.h / (n - 1)) * 100, w = 0.28;
+    if (o.kind === 'rise') { push(TL_NIGHT, p - w); push(TL_DAYC, p + w); }
+    else { push(TL_DAYC, p - w); push(TL_NIGHT, p + w); }
+  });
+  push(ev[ev.length - 1].kind === 'rise' ? TL_DAYC : TL_NIGHT, 100);
+  return 'linear-gradient(90deg,' + stops.join(',') + ')';
 }
 function tlAlphaVeil(hex, lo, hi) {
   const rgb = tlHex(hex).join(',');
@@ -138,7 +126,7 @@ function tlSunFrac() {
   const s = TL.sel * 24;
   let rise = 0.28, set = 0.80, riseMs = null, setMs = null;
   TL.suns.forEach(o => {
-    const f = (o.h - s) / 24;
+    const f = (o.h - s) / 23;
     if (f >= -0.02 && f <= 1.02) {
       if (o.kind === 'rise') { rise = f; riseMs = o.ms; }
       else { set = f; setMs = o.ms; }
@@ -236,37 +224,73 @@ function tlDefaultHour() {
   return 12;
 }
 function tlRefHour() { return TL.sel * 24 + Math.max(0, Math.min(23, TL.hourSel)); }
+// scrub targets: each hour plus the day's exact sunrise and sunset
+function tlSnapPoints() {
+  const s = TL.sel * 24, pts = [];
+  for (let h = 0; h < 24; h++) pts.push({ frac: h / 23, hour: h, ms: TL.streamT0 + (s + h) * 3600000, sun: null });
+  TL.suns.forEach(o => {
+    const f = (o.h - s) / 23;
+    if (f >= 0 && f <= 1) pts.push({ frac: f, hour: Math.max(0, Math.min(23, Math.round(o.h - s))), ms: o.ms, sun: o.kind });
+  });
+  return pts;
+}
+function tlSnapTo(frac) {
+  const pts = tlSnapPoints();
+  let best = pts[0], bd = Infinity;
+  pts.forEach(p => { const d = Math.abs(p.frac - frac); if (d < bd) { bd = d; best = p; } });
+  return best;
+}
 // NOW line x-fraction: hour-snapped while scrubbing, exact clock time idle
 function tlNowFrac() {
-  if (TL.scrubbing) return TL.hourSel / 23;
+  if (TL.scrubbing) return TL.snapFrac != null ? TL.snapFrac : TL.hourSel / 23;
   const rel = (TL.nowH != null ? TL.nowH : 12) - TL.sel * 24;
   return Math.max(0, Math.min(1, rel / 23));
 }
 function tlNowVisible() { return (TL.days[TL.sel] && TL.days[TL.sel].isToday) || TL.scrubbing; }
 function tlDayRange(arr) { const s = TL.sel * 24; let hi = null, lo = null; for (let k = s; k < s + 24; k++) { const v = arr[k]; if (v == null) continue; hi = hi == null ? v : Math.max(hi, v); lo = lo == null ? v : Math.min(lo, v); } return [hi, lo]; }
 
-// ── week strip: a native horizontal scroller over the whole range ───────
+// ── week strip: the hourly bands, zoomed out ────────────────────────────
+// Same lanes as the hour view in the same order, so the hour section reads
+// as a magnified slice of the strip. Lanes are stacked rather than mixed,
+// which keeps a wet day legible against a cold one.
+function tlLaneOrder() {
+  return ['temp', 'rain', 'wind', 'cloud'].concat(Object.keys(TL_XSTYLE))
+    .filter(k => TL.lanes.indexOf(k) >= 0);
+}
+function tlRangeSeries(key, start, count, step) {
+  const src = (key === 'temp') ? TL.temp : (key === 'rain') ? TL.rain
+    : (key === 'wind') ? TL.wind : (key === 'cloud') ? TL.cloud
+      : (TL.x && TL.x[key]) ? TL.x[key] : null;
+  const out = [];
+  for (let i = 0; i < count; i += (step || 1)) out.push(src ? src[start + i] : null);
+  return out;
+}
 function tlWeekHTML() {
   const n = TL.n || 168, nd = TL.days.length || 7;
-  const stops = [];
-  for (let i = 0; i < n; i++) stops.push(tlBlendAt(i) + ' ' + ((i / (n - 1)) * 100).toFixed(2) + '%');
-  const grad = 'linear-gradient(90deg,' + stops.join(',') + ')';
+  const lanes = tlLaneOrder();
+  const laneH = lanes.length <= 4 ? 13 : lanes.length <= 6 ? 11 : 9;
+  const step = n > 200 ? 2 : 1;   // strip scale doesn't need every hour
+  const canvasH = lanes.length * laneH + Math.max(0, lanes.length - 1);
+  const laneHTML = lanes.map(k =>
+    '<div class="tlm-wk-lane" style="height:' + laneH + 'px">'
+    + '<div class="tlm-lay" style="background:' + tlBandGrad(k, tlRangeSeries(k, 0, n, step)) + '"></div>'
+    + '</div>').join('');
   const colW = 100 / nd;
   const seps = TL.days.map((d, i) => i === 0 ? ''
     : '<div class="tlm-wk-sep" style="left:' + (i * colW).toFixed(3) + '%"></div>').join('');
   const sel = '<div class="tlm-wk-sel" style="left:' + (TL.sel * colW).toFixed(3) + '%;width:' + colW.toFixed(3) + '%"></div>';
   const now = (TL.nowH != null && TL.nowH >= 0 && TL.nowH <= n)
     ? '<div class="tlm-wk-now" style="left:' + ((TL.nowH / n) * 100).toFixed(3) + '%"></div>' : '';
-  const canvas = '<div class="tlm-wk-canvas">'
-    + '<div class="tlm-lay" style="background:' + grad + '"></div>'
-    + seps + sel + now + '</div>';
+  const night = '<div class="tlm-lay tlm-wk-night" style="background:' + tlNightGradRange(n) + '"></div>';
+  const canvas = '<div class="tlm-wk-canvas" style="height:' + canvasH + 'px">'
+    + '<div class="tlm-wk-lanes">' + laneHTML + '</div>'
+    + night + seps + sel + now + '</div>';
   const labels = '<div class="tlm-wk-labels" style="grid-template-columns:repeat(' + nd + ',1fr)">'
     + TL.days.map((d, i) =>
       '<button type="button" class="tlm-wk-day' + (i === TL.sel ? ' sel' : '') + '" data-di="' + i + '">'
       + '<span class="tlm-wk-dow">' + (d.isToday ? 'TODAY' : d.dow.toUpperCase()) + '</span></button>').join('')
     + '</div>';
-  // seven days fill the viewport; the rest scrolls
-  const trackW = (nd / 7) * 100;
+  const trackW = (nd / 7) * 100;   // seven days fill the viewport, the rest scrolls
   return '<div class="tlm-week" id="tlm-week"><div class="tlm-wk-track" style="width:' + trackW.toFixed(2) + '%">'
     + canvas + labels + '</div></div>';
 }
@@ -312,14 +336,7 @@ function tlDirArrow(deg) {
     + 'stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(' + Math.round((deg + 180) % 360) + 'deg)">'
     + '<line x1="12" y1="20.5" x2="12" y2="4.5"/><polyline points="5.5 11 12 4.5 18.5 11"/></svg>';
 }
-function tlLaneSeries(key) {
-  const s = TL.sel * 24, out = [];
-  const src = (key === 'temp') ? TL.temp : (key === 'rain') ? TL.rain
-    : (key === 'wind') ? TL.wind : (key === 'cloud') ? TL.cloud
-      : (TL.x && TL.x[key]) ? TL.x[key] : null;
-  for (let h = 0; h < 24; h++) out.push(src ? src[s + h] : null);
-  return out;
-}
+function tlLaneSeries(key) { return tlRangeSeries(key, TL.sel * 24, 24, 1); }
 function tlBandGrad(key, arr) {
   if (key === 'temp') return tlGrad(arr, tlTempColor);
   if (key === 'rain') return tlGrad(arr, tlRainBand);
@@ -329,9 +346,10 @@ function tlBandGrad(key, arr) {
   return st ? tlGrad(arr, st.grad()) : 'none';
 }
 function tlBandsHTML() {
-  const order = ['temp', 'rain', 'wind', 'cloud'].concat(Object.keys(TL_XSTYLE));
-  const lanes = order.filter(k => TL.lanes.indexOf(k) >= 0);
+  const lanes = tlLaneOrder();
   const [dayHi] = tlDayRange(TL.temp);
+  const sun = tlSunFrac();
+  const night = tlNightGrad(sun.rise, sun.set);
   return '<div class="tlm-bands">' + lanes.map(key => {
     const arr = tlLaneSeries(key);
     const name = TL_MAIN[key] || (TL_XSTYLE[key] ? TL_XSTYLE[key].name : key);
@@ -347,6 +365,7 @@ function tlBandsHTML() {
         + '<span class="tlm-mconf" id="tlm-conf-' + key + '"></span>';
     return '<div class="tlm-mband">'
       + '<div class="tlm-lay" style="background:' + tlBandGrad(key, arr) + '"></div>'
+      + '<div class="tlm-lay" style="background:' + night + '"></div>'
       + '<div class="tlm-mscrim"></div>' + lab
       + '<span class="tlm-mval">' + val + '</span></div>';
   }).join('') + '</div>';
@@ -422,7 +441,12 @@ function tlHeads() {
     set('tlm-fig-' + k, v != null ? TL_XSTYLE[k].fmt(v) : '\u2014');
   });
   const lab = document.getElementById('tlm-nowlab');
-  if (lab) lab.textContent = TL.scrubbing ? tlClock(TL.streamT0 + h * 3600000) : tlClock(locNowMs());
+  if (lab) {
+    lab.textContent = TL.scrubbing
+      ? tlClock(TL.snapMs != null ? TL.snapMs : TL.streamT0 + h * 3600000)
+      : tlClock(locNowMs());
+    lab.classList.toggle('sun', !!(TL.scrubbing && TL.snapSun));
+  }
 }
 function tlSyncNow() {
   const vis = tlNowVisible();
@@ -458,10 +482,9 @@ function tlBindScrubOn(el, fracEl, allowSwipe) {
     h.style.transform = 'translateX(0)';
     h.style.opacity = '1';
   };
-  const hourFromX = clientX => {
+  const fracFromX = clientX => {
     const r = (fracEl || el).getBoundingClientRect();
-    const frac = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
-    return Math.round(frac * 23);
+    return Math.max(0, Math.min(1, (clientX - r.left) / r.width));
   };
   el.addEventListener('pointerdown', ev => {
     down = true; decided = null;
@@ -483,12 +506,15 @@ function tlBindScrubOn(el, fracEl, allowSwipe) {
     if (dT > 0) { vel = (x - lastX) / dT; lastX = x; lastT = nowT; }
     if (decided === 'swipe') { follow(moved); return; }
     if (decided === 'scrub') {
-      TL.scrubbing = true; TL.hourSel = hourFromX(x);
+      TL.scrubbing = true;
+      const p = tlSnapTo(fracFromX(x));
+      TL.hourSel = p.hour; TL.snapFrac = p.frac; TL.snapMs = p.ms; TL.snapSun = p.sun;
       tlSyncNow(); tlHeads(); tlSecHeads();
     }
   });
   const settle = () => {
     TL.scrubbing = false; TL.hourSel = tlDefaultHour();
+    TL.snapFrac = null; TL.snapMs = null; TL.snapSun = null;
     tlSyncNow(); tlHeads(); tlSecHeads();
   };
   el.addEventListener('pointerup', ev => {
