@@ -118,10 +118,8 @@ function tlBlendGradDay() {
 const TL_PAST = 'rgba(0,0,0,0.52)';   // deeper than the table's, so elapsed time recedes
 // how much of the current view is already behind us, as a fraction
 function tlPastFrac() {
-  const d = TL.days[TL.sel]; if (!d) return 0;
-  if (d.past) return 1;
-  if (!d.isToday) return 0;
-  return Math.max(0, Math.min(1, ((TL.nowH != null ? TL.nowH : 0) - TL.sel * 24) / 23));
+  const d = TL.days[TL.sel];
+  return (d && d.past) ? 1 : 0;
 }
 function tlPastLayer(frac) {
   if (frac <= 0) return '';
@@ -322,7 +320,9 @@ function tlWeekHTML() {
   const sel = '<div class="tlm-wk-sel" style="left:' + (TL.sel * colW).toFixed(3) + '%;width:' + colW.toFixed(3) + '%"></div>';
   const now = (TL.nowH != null && TL.nowH >= 0 && TL.nowH <= n)
     ? '<div class="tlm-wk-now" style="left:' + ((TL.nowH / n) * 100).toFixed(3) + '%"></div>' : '';
-  const pastF = (TL.nowH != null) ? Math.max(0, Math.min(1, TL.nowH / n)) : 0;
+  const ti = TL.days.findIndex(o => o.isToday);
+  const pastF = ti > 0 ? (ti * 24) / n
+    : (ti < 0 && TL.days.length && TL.days[TL.days.length - 1].past) ? 1 : 0;
   const canvas = '<div class="tlm-wk-canvas" style="height:' + canvasH + 'px">'
     + '<div class="tlm-wk-lanes">' + laneHTML + '</div>'
     + tlPastLayer(pastF) + seps + sel + now + '</div>';
@@ -366,12 +366,6 @@ const TL_XSTYLE = {
   uv:    { name: 'UV',       fmt: v => String(Math.round(v * 10) / 10),         grad: () => (v => tlRampColor(v, TL_URAMP)) }
 };
 const TL_MAIN = { temp: 'Temp', rain: 'Rain', wind: 'Wind', cloud: 'Cloud' };
-function tlIconFor(key) {
-  const M = (typeof MI_TEMP !== 'undefined')
-    ? Object.assign({ temp: MI_TEMP, rain: MI_RAIN, wind: MI_WIND, cloud: MI_CLOUD },
-        (typeof XICON !== 'undefined') ? XICON : {}) : {};
-  return M[key] || (TL_MAIN[key] || (TL_XSTYLE[key] ? TL_XSTYLE[key].name : key));
-}
 function tlRainBand(v) {
   const a = (v == null || v < 0.05) ? 0 : Math.min(0.95, 0.22 + 0.73 * Math.log1p(v) / Math.log1p(8));
   return 'rgba(95,164,255,' + a.toFixed(3) + ')';
@@ -394,12 +388,15 @@ function tlBandGrad(key, arr) {
 }
 function tlBandsHTML() {
   const lanes = tlLaneOrder();
+  const [dayHi] = tlDayRange(TL.temp);
   const past = tlPastLayer(tlPastFrac());
   return '<div class="tlm-bands">' + lanes.map(key => {
     const arr = tlLaneSeries(key);
     const name = TL_MAIN[key] || (TL_XSTYLE[key] ? TL_XSTYLE[key].name : key);
     // the temp label takes the colour of the day's high
-    const lab = '<span class="tlm-mname" title="' + name + '">' + tlIconFor(key) + '</span>';
+    const lab = key === 'temp'
+      ? '<span class="tlm-mname" style="color:' + tlTempColor(dayHi) + '">' + name + '</span>'
+      : '<span class="tlm-mname tlm-ic-' + key + '">' + name + '</span>';
     const val = key === 'temp'
       ? '<span class="tlm-mstack"><span class="tlm-mfig" id="tlm-temp"></span>'
         + '<span class="tlm-msub" id="tlm-feels"></span></span>'
@@ -704,7 +701,7 @@ async function tlSecFetch() {
 // ramp; everything else scales its own colour across the day's range.
 function tlSecBand(vals, kind, hex) {
   const good = vals.filter(v => v != null && !isNaN(v));
-  if (!good.length) return '<div class="tl-sec-band"></div>';
+  if (!good.length) return '<div class="tl-sec-band">' + tlPastLayer(tlPastFrac()) + '</div>';
   let fn;
   if (kind === 'dew') fn = tlTempColor;
   else if (kind === 'uv') fn = v => tlRampColor(v, TL_URAMP);
@@ -714,7 +711,8 @@ function tlSecBand(vals, kind, hex) {
     const mn = Math.min(...good), mx = Math.max(...good);
     fn = tlAlphaVeil(hex, mn, mx === mn ? mn + 1 : mx);
   }
-  return '<div class="tl-sec-band"><div class="tlm-lay" style="background:' + tlGrad(vals, fn) + '"></div></div>';
+  return '<div class="tl-sec-band"><div class="tlm-lay" style="background:' + tlGrad(vals, fn) + '"></div>'
+    + tlPastLayer(tlPastFrac()) + '</div>';
 }
 function tlAqiWord(v) { return v == null ? '' : v <= 50 ? 'good' : v <= 100 ? 'moderate' : v <= 150 ? 'poor' : 'bad'; }
 function tlSecRender() {

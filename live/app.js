@@ -1452,15 +1452,20 @@ function renderVerticalHourly(){
     ${cols.map(c=>`<th class="${c.hdrCls}" style="min-width:64px;text-align:center">${c.hdr}</th>`).join('')}
   </tr>`;
 
+  const _todayStrV=localTodayStr();
+  let _seenToday=false;
   const rows=indices.map(i=>{
     const d=new Date(ref.time[i]);
     const isNow=nowIdx>=0&&i===nowIdx;
     const ndCls=colDayCls(ref.time[i],i>0?ref.time[i-1]:null);
     const isDayStart=i>0&&ref.time[i].slice(0,10)!==ref.time[i-1].slice(0,10);
+    // first row of today — the past overlay stops here
+    let isTodayStart=false;
+    if(!_seenToday&&ref.time[i].slice(0,10)>=_todayStrV){ isTodayStart=true; _seenToday=true; }
     const rowStyle=isDayStart?'border-top:2px solid var(--day-line)':'';
     const cells=cols.map(c=>renderVertical_cellVal(c.id,i,onlyEnabled,actMap,nowMs,ref)).join('');
     const labelStyle=`font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;white-space:nowrap;${isNow?'color:var(--now);font-weight:700':''}`;
-    return`<tr class="data-row ${ndCls}${isNow?' now-row':''}${isDayStart?' vday-start':''}" data-date="${ref.time[i].slice(0,10)}" data-iso="${ref.time[i]}" ${isNow?'id="now-row"':''} style="${rowStyle}">
+    return`<tr class="data-row ${ndCls}${isNow?' now-row':''}${isDayStart?' vday-start':''}${isTodayStart?' today-start':''}" data-date="${ref.time[i].slice(0,10)}" data-iso="${ref.time[i]}" ${isNow?'id="now-row"':''} style="${rowStyle}">
       <td class="row-label ${ndCls}" style="${labelStyle}">${DAYS[d.getDay()]} ${d.getDate()} <span style="opacity:.7">${fmtAmPm(d)}</span></td>
       ${cells}
     </tr>`;
@@ -1545,7 +1550,7 @@ function renderVerticalDaily(){
         default:return'<td>–</td>';
       }
     }).join('');
-    return`<tr class="data-row vday-start${isToday?' now-row':''}" data-date="${dateStr}" ${isToday?'id="now-row"':''}>
+    return`<tr class="data-row vday-start${isToday?' now-row':''}${isToday?' today-start':''}" data-date="${dateStr}" ${isToday?'id="now-row"':''}>
       <td class="row-label" style="${labelStyle}">${DAYS[d.getDay()]} ${d.getDate()} ${d.toLocaleDateString('en-AU',{month:'short'})}</td>
       ${cells}
     </tr>`;
@@ -1601,12 +1606,12 @@ function positionNowOverlay(){
           });
         }
       }
-      if(nowTh){
-        const leftEdge=nowTh.offsetLeft;
+      const todayTh=wrap.querySelector('.hour-header th.today-start');
+      if(todayTh&&todayTh.offsetLeft>0){
         const labelW=98;
         pastV.style.left=labelW+'px';
         pastV.style.top='0';
-        pastV.style.width=Math.max(0,leftEdge-labelW)+'px';
+        pastV.style.width=Math.max(0,todayTh.offsetLeft-labelW)+'px';
         pastV.style.height=fullH+'px';
         pastV.style.display='block';
       } else {
@@ -1632,11 +1637,14 @@ function positionNowOverlay(){
         ovH.style.left='0';
         ovH.style.width='100%';
         ovH.style.display='block';
-        pastH.style.top='0';
-        pastH.style.left='0';
-        pastH.style.width='100%';
-        pastH.style.height=Math.max(0,topEdge)+'px';
-        pastH.style.display='block';
+        const todayRow=wrap.querySelector('.ftable tr.today-start');
+        if(todayRow&&todayRow.offsetTop>0){
+          pastH.style.top='0';
+          pastH.style.left='0';
+          pastH.style.width='100%';
+          pastH.style.height=Math.max(0,todayRow.offsetTop)+'px';
+          pastH.style.display='block';
+        } else pastH.style.display='none';
       } else {
         if(ovH)ovH.style.display='none';
         if(pastH)pastH.style.display='none';
@@ -1681,14 +1689,19 @@ function renderHourly(){
   if(actualData){actualData.hourly.time.forEach((t,ai)=>{actMap[t]=ai;});}
   let nowCi=-1;
   for(let ci=0;ci<indices.length;ci++){ if(indices[ci]<=nowIdx) nowCi=ci; else break; }
-  const pastCls=indices.map((i,ci)=>(nowCi>=0&&ci<nowCi)?'past-col':'');
+  // the current day is never dimmed — only days that have fully elapsed
+  const _todayStr=localTodayStr();
+  let todayCi=-1;
+  for(let ci=0;ci<indices.length;ci++){ if(ref.time[indices[ci]].slice(0,10)>=_todayStr){ todayCi=ci; break; } }
+  const pastCls=indices.map((i,ci)=>(todayCi>0&&ci<todayCi)?'past-col':'');
 
   const hdrCells=indices.map((i,ci)=>{
     const d=new Date(ref.time[i]);
     const timeStr=fmtAmPm(d);
     const isNow=ci===nowCi;
-    const isPastCol=nowCi>=0&&ci<nowCi;
-    const cls=[isNow?'now-col':'',ndCls[ci],isPastCol?'past-col':''].filter(Boolean).join(' ');
+    const isTodayStart=ci===todayCi;
+    const isPastCol=todayCi>0&&ci<todayCi;
+    const cls=[isNow?'now-col':'',ndCls[ci],isPastCol?'past-col':'',isTodayStart?'today-start':''].filter(Boolean).join(' ');
     const dayLabel=DAYS[d.getDay()]+' '+d.getDate();
     return`<th class="${cls}" data-date="${ref.time[i].slice(0,10)}" data-iso="${ref.time[i]}"><span class="col-day">${dayLabel}</span><span class="col-time">${timeStr}</span></th>`;
   }).join('');
