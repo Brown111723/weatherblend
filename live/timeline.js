@@ -115,7 +115,7 @@ function tlBlendGradDay() {
   for (let h = 0; h < 24; h++) stops.push(tlBlendAt(s + h) + ' ' + ((h / 23) * 100).toFixed(2) + '%');
   return 'linear-gradient(90deg,' + stops.join(',') + ')';
 }
-const TL_PAST = 'rgba(0,0,0,0.35)';   // matches the table's past-hours overlay
+const TL_PAST = 'rgba(0,0,0,0.52)';   // deeper than the table's, so elapsed time recedes
 // how much of the current view is already behind us, as a fraction
 function tlPastFrac() {
   const d = TL.days[TL.sel]; if (!d) return 0;
@@ -127,7 +127,7 @@ function tlPastLayer(frac) {
   if (frac <= 0) return '';
   return '<div class="tlm-lay tlm-pastlay" style="width:' + (frac * 100).toFixed(3) + '%"></div>';
 }
-const TL_NIGHT = 'rgba(4,7,14,.25)', TL_DAYC = 'rgba(4,7,14,0)';
+const TL_NIGHT = 'rgba(4,7,14,.52)', TL_DAYC = 'rgba(4,7,14,0)';
 function tlNightGrad(rise, set) {
   const r = Math.max(0, Math.min(1, rise)) * 100, t = Math.max(0, Math.min(1, set)) * 100;
   return 'linear-gradient(90deg,' + TL_NIGHT + ' 0%,' + TL_NIGHT + ' ' + Math.max(0, r - 4).toFixed(1) + '%,'
@@ -190,7 +190,10 @@ function tlBuild() {
   }
   const XM = (typeof XMET !== 'undefined') ? XMET : [];
   const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  TL.days = days.map(d => ({ date: d, dow: DOW[new Date(d + 'T12:00').getDay()], isToday: d === today, past: d < today }));
+  TL.days = days.map(d => {
+    const dt = new Date(d + 'T12:00');
+    return { date: d, dow: DOW[dt.getDay()], dom: dt.getDate(), isToday: d === today, past: d < today };
+  });
   TL.n = days.length * 24;
   TL.idx = []; TL.temp = []; TL.rain = []; TL.wind = []; TL.cloud = []; TL.wdir = [];
   TL.x = {}; XM.forEach(m => { TL.x[m.key] = []; });
@@ -325,8 +328,8 @@ function tlWeekHTML() {
     + tlPastLayer(pastF) + seps + sel + now + '</div>';
   const labels = '<div class="tlm-wk-labels" style="grid-template-columns:repeat(' + nd + ',1fr)">'
     + TL.days.map((d, i) =>
-      '<button type="button" class="tlm-wk-day' + (i === TL.sel ? ' sel' : '') + '" data-di="' + i + '">'
-      + '<span class="tlm-wk-dow">' + (d.isToday ? 'TODAY' : d.dow.toUpperCase()) + '</span></button>').join('')
+      '<button type="button" class="tlm-wk-day' + (i === TL.sel ? ' sel' : '') + (d.past ? ' past' : '') + '" data-di="' + i + '">'
+      + '<span class="tlm-wk-dow">' + (d.isToday ? 'TODAY' : d.dow.toUpperCase() + ' ' + d.dom) + '</span></button>').join('')
     + '</div>';
   const trackW = (nd / 7) * 100;   // seven days fill the viewport, the rest scrolls
   return '<div class="tlm-week" id="tlm-week"><div class="tlm-wk-track" style="width:' + trackW.toFixed(2) + '%">'
@@ -363,6 +366,12 @@ const TL_XSTYLE = {
   uv:    { name: 'UV',       fmt: v => String(Math.round(v * 10) / 10),         grad: () => (v => tlRampColor(v, TL_URAMP)) }
 };
 const TL_MAIN = { temp: 'Temp', rain: 'Rain', wind: 'Wind', cloud: 'Cloud' };
+function tlIconFor(key) {
+  const M = (typeof MI_TEMP !== 'undefined')
+    ? Object.assign({ temp: MI_TEMP, rain: MI_RAIN, wind: MI_WIND, cloud: MI_CLOUD },
+        (typeof XICON !== 'undefined') ? XICON : {}) : {};
+  return M[key] || (TL_MAIN[key] || (TL_XSTYLE[key] ? TL_XSTYLE[key].name : key));
+}
 function tlRainBand(v) {
   const a = (v == null || v < 0.05) ? 0 : Math.min(0.95, 0.22 + 0.73 * Math.log1p(v) / Math.log1p(8));
   return 'rgba(95,164,255,' + a.toFixed(3) + ')';
@@ -385,15 +394,12 @@ function tlBandGrad(key, arr) {
 }
 function tlBandsHTML() {
   const lanes = tlLaneOrder();
-  const [dayHi] = tlDayRange(TL.temp);
   const past = tlPastLayer(tlPastFrac());
   return '<div class="tlm-bands">' + lanes.map(key => {
     const arr = tlLaneSeries(key);
     const name = TL_MAIN[key] || (TL_XSTYLE[key] ? TL_XSTYLE[key].name : key);
     // the temp label takes the colour of the day's high
-    const lab = key === 'temp'
-      ? '<span class="tlm-mname" style="color:' + tlTempColor(dayHi) + '">' + name + '</span>'
-      : '<span class="tlm-mname tlm-ic-' + key + '">' + name + '</span>';
+    const lab = '<span class="tlm-mname" title="' + name + '">' + tlIconFor(key) + '</span>';
     const val = key === 'temp'
       ? '<span class="tlm-mstack"><span class="tlm-mfig" id="tlm-temp"></span>'
         + '<span class="tlm-msub" id="tlm-feels"></span></span>'
@@ -421,11 +427,12 @@ function tlHourHTML() {
     + tlPastLayer(tlPastFrac())
     + (sun.riseMs ? '<span class="tlm-suntime" style="left:' + (sun.rise * 100).toFixed(1) + '%">' + wxIcon(0, false, null) + '</span>' : '')
     + (sun.setMs ? '<span class="tlm-suntime" style="left:' + (sun.set * 100).toFixed(1) + '%">' + wxIcon(0, true, null) + '</span>' : '')
-    + '<span class="tlm-nowlab" id="tlm-nowlab" style="left:' + L + ';display:' + (vis ? 'block' : 'none') + '"></span>'
+    + '<span class="tlm-nowlab" id="tlm-nowlab" style="left:' + L + ';display:none"></span>'
     + '</div></div>';
 
   const overlay = '<div class="tlm-overlay" id="tlm-overlay">'
     + '<div class="tlm-now" id="tlm-now" style="left:' + L + ';display:' + (vis ? 'block' : 'none') + '"></div>'
+    + '<div class="tlm-noworb" id="tlm-noworb" style="left:' + L + ';display:' + (vis ? 'block' : 'none') + '"></div>'
     + '</div>';
 
   return axis + '<div class="tlm-chart">' + tlBandsHTML() + overlay + '</div>';
@@ -445,6 +452,23 @@ function tlFmtFor(key) {
   if (key === 'wind') return v => Math.round(v) + ' km/h';
   if (key === 'cloud') return v => Math.round(v) + '%';
   return TL_XSTYLE[key] ? TL_XSTYLE[key].fmt : (v => String(v));
+}
+// what has fallen so far today vs what is still forecast — these add up to
+// the day total exactly, since both come from the same hourly series
+function tlAccumSplit(key) {
+  const arr = tlMetricSeries(key), s = TL.sel * 24;
+  let got = 0, due = 0;
+  if (!arr) return { got, due };
+  const nowH = Math.max(0, Math.min(24, Math.floor((TL.nowH != null ? TL.nowH : 0) - s)));
+  for (let k = 0; k < 24; k++) {
+    const v = arr[s + k] || 0;
+    if (k < nowH) got += v; else due += v;
+  }
+  return { got, due };
+}
+function tlBare(key, v) {
+  if (key === 'snow') return v < 0.05 ? '0' : v.toFixed(1);
+  return v < 0.05 ? '0' : v.toFixed(1);
 }
 function tlDayTotal(key) {
   const arr = tlMetricSeries(key); if (!arr) return 0;
@@ -468,20 +492,30 @@ function tlHeads() {
     const [hi, lo] = arr ? tlDayRange(arr) : [null, null];
     const v = arr ? arr[h] : null;
     const accum = !!TL_ACCUM[key];
-    let main = '';
-    if (TL.scrubbing) main = v != null ? fmt(v) : '\u2014';
-    else if (accum) main = fmt(tlDayTotal(key));
-    else if (live) main = v != null ? fmt(v) : '\u2014';
-    set(key === 'temp' ? 'tlm-temp' : 'tlm-fig-' + key, main);
-    // accumulating metrics show the peak rate; the rest show high and low
-    const hilo = accum
-      ? (hi != null ? '<span class="tlm-hl hi">\u2191' + fmt(hi) + '</span>' : '')
-      : (hi != null ? '<span class="tlm-hl hi">\u2191' + fmt(hi) + '</span>' : '')
+    let main = '', hilo = '';
+    if (accum) {
+      // rain and snow accumulate — a running total says more than a range
+      const tot = tlDayTotal(key);
+      main = TL.scrubbing ? (v != null ? fmt(v) : '\u2014') : (d.isToday ? fmt(tot) : '');
+      if (d.isToday) {
+        const split = tlAccumSplit(key);
+        hilo = '<span class="tlm-hl hi">\u2190' + tlBare(key, split.got) + '</span>'
+          + '<span class="tlm-hl lo">\u2192' + tlBare(key, split.due) + '</span>';
+      } else {
+        hilo = '<span class="tlm-hl hi">' + fmt(tot) + '</span>';
+      }
+    } else {
+      if (TL.scrubbing) main = v != null ? fmt(v) : '\u2014';
+      else if (live) main = v != null ? fmt(v) : '\u2014';
+      hilo = (hi != null ? '<span class="tlm-hl hi">\u2191' + fmt(hi) + '</span>' : '')
         + (lo != null ? '<span class="tlm-hl lo">\u2193' + fmt(lo) + '</span>' : '');
+    }
+    set(key === 'temp' ? 'tlm-temp' : 'tlm-fig-' + key, main);
     set('tlm-hilo-' + key, hilo);
     if (key !== 'temp') {
+      // confidence hangs off the figure — with no figure it would float alone
       const c = TL.dayConf[d.date] ? TL.dayConf[d.date][key] : null;
-      set('tlm-conf-' + key, (confVisible[key] !== false && c != null) ? c + '%' : '');
+      set('tlm-conf-' + key, (main && confVisible[key] !== false && c != null) ? c + '%' : '');
     }
   });
 
@@ -515,6 +549,7 @@ function tlHeads() {
       ? tlClock(TL.snapMs != null ? TL.snapMs : TL.streamT0 + h * 3600000)
       : tlClock(locNowMs());
     lab.classList.toggle('sun', !!(TL.scrubbing && TL.snapSun));
+    lab.style.display = (tlNowVisible() && TL.scrubbing) ? 'block' : 'none';
   }
 }
 
@@ -524,7 +559,9 @@ function tlSyncNow() {
   const L = (frac * 100).toFixed(2) + '%';
   const now = document.getElementById('tlm-now'), lab = document.getElementById('tlm-nowlab');
   if (now) { now.style.left = L; now.style.display = vis ? 'block' : 'none'; }
-  if (lab) { lab.style.left = L; lab.style.display = vis ? 'block' : 'none'; }
+  const orb = document.getElementById('tlm-noworb');
+  if (orb) { orb.style.left = L; orb.style.display = vis ? 'block' : 'none'; }
+  if (lab) { lab.style.left = L; lab.style.display = (vis && TL.scrubbing) ? 'block' : 'none'; }
   document.querySelectorAll('.tl-sec-now').forEach(el => { el.style.left = L; el.style.display = vis ? 'block' : 'none'; });
 }
 

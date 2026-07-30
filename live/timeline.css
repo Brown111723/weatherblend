@@ -21,6 +21,8 @@
 .tlm-wk-now{position:absolute;top:0;bottom:0;width:1.4px;background:var(--now,#f87171);transform:translateX(-50%);}
 .tlm-wk-labels{display:grid;margin-top:1px;}
 .tlm-wk-day{scroll-snap-align:start;}
+.tlm-wk-day.past{opacity:.45;}
+.tlm-wk-day.past.sel{opacity:.85;}
 .tlm-wk-day{display:flex;justify-content:center;padding:4px 0 2px;border:none;background:transparent;cursor:pointer;font-family:inherit;color:var(--text-dim,#5f6f82);}
 .tlm-wk-dow{font-size:9.5px;font-weight:700;letter-spacing:.6px;}
 .tlm-wk-day.sel{color:var(--text-primary,#f4f7fd);}
@@ -48,7 +50,8 @@
 .tlm-bands{display:flex;flex-direction:column;gap:7px;}
 .tlm-mband{position:relative;height:52px;border-radius:9px;overflow:hidden;background:#101725;display:flex;align-items:center;justify-content:space-between;padding:0 13px;}
 .tlm-mscrim{position:absolute;inset:0;background:linear-gradient(90deg,rgba(6,9,15,.52) 0%,rgba(6,9,15,.06) 22%,rgba(6,9,15,.06) 52%,rgba(6,9,15,.58) 100%);pointer-events:none;}
-.tlm-mname{position:relative;font-size:10px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;text-shadow:0 1px 5px rgba(0,0,0,.9);white-space:nowrap;}
+.tlm-mname{position:relative;display:flex;align-items:center;color:#fff;filter:drop-shadow(0 1px 4px rgba(0,0,0,.95));font-size:10px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;white-space:nowrap;}
+.tlm-mname svg{width:18px;height:18px;display:block;}
 .tlm-mval{position:relative;display:flex;align-items:center;gap:11px;min-width:0;}
 .tlm-mstack{display:flex;flex-direction:column;align-items:flex-end;line-height:1.12;}
 .tlm-mhilo{display:flex;flex-direction:column;align-items:flex-end;line-height:1.25;}
@@ -60,10 +63,11 @@
    the hour grid runs edge to edge, identical on mobile and desktop. */
 .tlm-overlay{position:absolute;left:0;right:0;top:0;bottom:0;cursor:ew-resize;touch-action:pan-y;z-index:2;}
 .tlm-now{position:absolute;top:0;bottom:0;width:1.5px;background:var(--now,#f87171);transform:translateX(-50%);box-shadow:0 0 0 3px rgba(248,113,113,.16);z-index:4;}
+.tlm-noworb{position:absolute;top:0;width:11px;height:11px;border-radius:50%;background:var(--now,#f87171);transform:translate(-50%,-52%);box-shadow:0 0 9px 2px rgba(248,113,113,.6),0 0 0 2px rgba(8,12,19,.55);pointer-events:none;z-index:5;}
 .tlm-mname,.tlm-mval{z-index:6;}
-.tlm-pastlay{left:0;right:auto;background:rgba(0,0,0,0.35);pointer-events:none;}
+.tlm-pastlay{left:0;right:auto;background:rgba(0,0,0,0.52);pointer-events:none;}
 .tlm-nowlab.sun{color:var(--q-uv,#FFD75E);}
-.tlm-nowlab{position:absolute;top:50%;transform:translate(-50%,-50%);font-size:10.5px;font-weight:700;color:var(--now,#f87171);white-space:nowrap;letter-spacing:.2px;z-index:4;background:rgba(8,12,19,.82);padding:1px 5px;border-radius:4px;}
+.tlm-nowlab{position:absolute;top:50%;transform:translate(-50%,-50%);font-size:10.5px;font-weight:700;color:#fff;white-space:nowrap;letter-spacing:.2px;z-index:5;background:var(--now,#f87171);padding:1px 6px;border-radius:20px;box-shadow:0 1px 6px rgba(0,0,0,.5);}
 
 /* top axis: sunrise / sunset times + NOW label share this line */
 .tlm-axis{margin:0 0 8px;}
