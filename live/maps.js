@@ -16,7 +16,8 @@
 const MAP = {
   ready: false, loading: false, error: null, built: false,
   lat: null, lon: null,
-  gridN: 11,                // set by the Detail control; see MAP_DETAIL
+  gridN: 7,                 // Detail control — the only thing that costs API weight
+  spanLat: 4.6,             // Range control — degrees of latitude covered; free
   bounds: null,             // [[south,west],[north,east]]
   lats: [], lons: [],
   times: [],                // UTC ISO strings, 24 of them
@@ -27,7 +28,7 @@ const MAP = {
   blend: {},                // blend[metricKey] = [hour][point]
   frames: {},               // frames[metricKey][hour] = dataURL
   map: null, overlay: null, baseLayer: null, labelLayer: null,
-  tileIdx: 0, tilesOk: 0, log: []
+  tileIdx: 0, tilesOk: 0, log: [], cache: {}
 };
 
 // Detail levels. The box is ~290km across, so 15 points ≈ 20km spacing —
@@ -36,17 +37,43 @@ const MAP = {
 const MAP_DETAIL = [
   { n: 7, label: 'Low' }, { n: 11, label: 'Med' }, { n: 15, label: 'High' }
 ];
-function mapLoadDetail() {
+// Widening the box costs nothing at the API — it is the same number of
+// points spread further apart. Only the point count drives the request
+// weight, so range is free and detail is not.
+const MAP_RANGE = [
+  { d: 2.6, label: 'Local' }, { d: 4.6, label: 'Regional' }, { d: 7.4, label: 'Wide' }
+];
+function mapLoadPrefs() {
   try {
     const v = parseInt(localStorage.getItem('wb_map_detail'), 10);
-    if (MAP_DETAIL.some(d => d.n === v)) MAP.gridN = v;
+    if (MAP_DETAIL.some(x => x.n === v)) MAP.gridN = v;
+    const r = parseFloat(localStorage.getItem('wb_map_range'));
+    if (MAP_RANGE.some(x => x.d === r)) MAP.spanLat = r;
   } catch (e) {}
 }
 function mapSetDetail(n) {
   if (MAP.gridN === n) return;
   MAP.gridN = n;
   try { localStorage.setItem('wb_map_detail', String(n)); } catch (e) {}
-  mapInvalidate();
+  mapRefetchSoon();
+}
+function mapSetRange(d) {
+  if (MAP.spanLat === d) return;
+  MAP.spanLat = d;
+  try { localStorage.setItem('wb_map_range', String(d)); } catch (e) {}
+  mapRefetchSoon();
+}
+// Flicking between settings used to fire a full refetch per tap, which is
+// what tripped the rate limit. Coalesce them, and reuse anything already
+// fetched for the same settings.
+function mapRefetchSoon() {
+  mapBuildUI(); mapDiag();
+  if (MAP._reTimer) clearTimeout(MAP._reTimer);
+  MAP._reTimer = setTimeout(() => { MAP._reTimer = null; mapInvalidate(); }, 1100);
+}
+function mapCacheKey() {
+  return [MAP.gridN, MAP.spanLat, (state.lat || 0).toFixed(3), (state.lon || 0).toFixed(3),
+    mapMetrics().join('+')].join('|');
 }
 
 const MAP_FIELD = {
@@ -135,7 +162,7 @@ function mapMetrics() {
 // ── fetching ────────────────────────────────────────────────────────────
 function mapBuildGrid() {
   const N = MAP.gridN;
-  const spanLat = 2.6;                                        // ~290km north-south
+  const spanLat = MAP.spanLat || 4.6;
   const spanLon = spanLat / Math.max(0.25, Math.cos(MAP.lat * Math.PI / 180));
   MAP.lats = []; MAP.lons = [];
   for (let r = 0; r < N; r++) MAP.lats.push(MAP.lat + spanLat / 2 - (spanLat * r) / (N - 1));  // north → south
@@ -145,6 +172,18 @@ function mapBuildGrid() {
 
 async function mapFetch() {
   if (MAP.loading) return;
+  const ck = mapCacheKey();
+  const hit = MAP.cache[ck];
+  if (hit && Date.now() - hit.at < 20 * 60000) {          // settings already fetched recently
+    Object.assign(MAP, {
+      raw: hit.raw, times: hit.times, nowIdx: hit.nowIdx, _offset: hit.offset,
+      bounds: hit.bounds, lats: hit.lats, lons: hit.lons, gridN: hit.gridN,
+      blend: {}, frames: {}, ready: true, error: null
+    });
+    MAP.hourSel = hit.nowIdx;
+    mapStatus(''); mapLog('reused cached grid'); mapDraw(true);
+    return;
+  }
   MAP.loading = true; MAP.error = null; mapStatus('Fetching grid…');
   try {
     MAP.lat = state.lat; MAP.lon = state.lon;
@@ -163,9 +202,9 @@ async function mapFetch() {
     const models = MODELS.filter(m => enabled.has(m.key) && !autoHidden.has(m.key));
     if (!models.length) throw new Error('No models enabled');
     MAP.raw = {};
-    let ok = 0, done = 0;
+    let ok = 0, done = 0, rateLimited = false;
     const fails = [];
-    await Promise.all(models.map(async m => {
+    const fetchOne = async m => {
       const base = `https://api.open-meteo.com${m.ep}`
         + `?latitude=${latCsv.join(',')}&longitude=${lonCsv.join(',')}`
         + `&hourly=${fields.join(',')}&models=${m.key}&timezone=UTC&wind_speed_unit=kmh`;
@@ -186,17 +225,33 @@ async function mapFetch() {
         catch (e1) { j = await grab('&past_days=1&forecast_days=2'); }   // endpoint may not take an hour window
         MAP.raw[m.key] = j; ok++;
       } catch (e) {
+        if (/429/.test(e.message)) rateLimited = true;
         fails.push((m.label || m.key) + ': ' + e.message);
         if (typeof dbg === 'function') dbg('map ' + m.key + ': ' + e.message);
       }
       done++; mapStatus('Fetching grid… ' + done + '/' + models.length + ' models');
-    }));
+    };
+    // two at a time with a short gap — seven simultaneous multi-point
+    // requests is what the rate limiter objects to
+    for (let i = 0; i < models.length; i += 2) {
+      await Promise.all(models.slice(i, i + 2).map(fetchOne));
+      if (i + 2 < models.length) await new Promise(r => setTimeout(r, 260));
+    }
     if (fails.length) mapLog(fails.length + ' model(s) failed — ' + fails[0]);
-    if (!ok) throw new Error(fails.length ? fails[0] : 'No model returned grid data');
+    if (!ok) {
+      throw new Error(rateLimited
+        ? 'Open-Meteo rate limit reached — give it a minute, then reopen the map'
+        : (fails.length ? fails[0] : 'No model returned grid data'));
+    }
+    if (rateLimited) mapLog('some models rate limited — showing the rest');
 
     mapAlignTimes();
     MAP.blend = {}; MAP.frames = {};
       MAP.ready = true; MAP.loading = false;
+    MAP.cache[ck] = {
+      at: Date.now(), raw: MAP.raw, times: MAP.times, nowIdx: MAP.nowIdx, offset: MAP._offset,
+      bounds: MAP.bounds, lats: MAP.lats, lons: MAP.lons, gridN: MAP.gridN
+    };
     mapStatus('');
     mapLog('grid ready (' + ok + ' models, ' + MAP.times.length + ' hours)');
     mapDraw(true);
@@ -413,13 +468,22 @@ function mapClock(i) {
 
 function mapBuildUI() {
   const sec = document.getElementById('map-section'); if (!sec) return;
+  if (MAP.map) { try { MAP.map.remove(); } catch (e) {} MAP.map = null; MAP.overlay = null; MAP.baseLayer = null; MAP.labelLayer = null; }
   const metrics = mapMetrics();
   if (metrics.indexOf(MAP.metric) < 0) MAP.metric = metrics[0];
   const chips = metrics.map(k =>
     `<button type="button" class="mp-chip${k === MAP.metric ? ' on' : ''} mp-c-${k}" data-m="${k}">${MAP_LABEL[k]}</button>`).join('');
-  const detail = `<div class="mp-detail" id="mp-detail"><span class="mp-detail-lab">Detail</span>`
+  const km = Math.round((MAP.spanLat || 4.6) * 111);
+  const spacing = Math.round(km / (MAP.gridN - 1));
+  const detail = `<div class="mp-ctl">`
+    + `<div class="mp-detail" id="mp-detail"><span class="mp-detail-lab">Detail</span>`
     + MAP_DETAIL.map(d => `<button type="button" class="mp-dbtn${d.n === MAP.gridN ? ' on' : ''}" data-n="${d.n}">${d.label}</button>`).join('')
-    + `</div>`;
+    + `</div>`
+    + `<div class="mp-detail" id="mp-range"><span class="mp-detail-lab">Range</span>`
+    + MAP_RANGE.map(r => `<button type="button" class="mp-dbtn${r.d === MAP.spanLat ? ' on' : ''}" data-d="${r.d}">${r.label}</button>`).join('')
+    + `</div>`
+    + `<div class="mp-ctl-note">${km}km across · ${MAP.gridN}×${MAP.gridN} points · ~${spacing}km spacing`
+    + ` · range is free, detail costs API calls</div></div>`;
   const ticks = [0, 6, 12, 18, 23].map(i =>
     `<span class="mp-tick" style="left:${((i / 23) * 100).toFixed(2)}%">${MAP.times.length ? mapClock(i) : ''}</span>`).join('');
   sec.innerHTML =
@@ -453,6 +517,11 @@ function mapBuildUI() {
   if (dt) dt.addEventListener('click', ev => {
     const b = ev.target.closest('.mp-dbtn'); if (!b) return;
     mapSetDetail(parseInt(b.dataset.n, 10));
+  });
+  const rg = document.getElementById('mp-range');
+  if (rg) rg.addEventListener('click', ev => {
+    const b = ev.target.closest('.mp-dbtn'); if (!b) return;
+    mapSetRange(parseFloat(b.dataset.d));
   });
   mapBindScrub();
   mapLegend();
@@ -589,7 +658,7 @@ function mapReblend() {
 // the tab can already be open from saved prefs, in which case nothing
 // would ever have called mapEnsure
 window.addEventListener('load', () => {
-  mapLoadDetail();
+  mapLoadPrefs();
   setTimeout(() => {
     if (typeof sectionsVisible !== 'undefined' && sectionsVisible.map) mapEnsure();
   }, 500);
