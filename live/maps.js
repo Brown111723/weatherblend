@@ -16,7 +16,7 @@
 const MAP = {
   ready: false, loading: false, error: null, built: false,
   lat: null, lon: null,
-  gridN: 9,                 // 9×9 = 81 points; ~34km spacing over the default box
+  gridN: 11,                // set by the Detail control; see MAP_DETAIL
   bounds: null,             // [[south,west],[north,east]]
   lats: [], lons: [],
   times: [],                // UTC ISO strings, 24 of them
@@ -29,6 +29,25 @@ const MAP = {
   map: null, overlay: null, baseLayer: null, labelLayer: null,
   tileIdx: 0, tilesOk: 0, log: []
 };
+
+// Detail levels. The box is ~290km across, so 15 points ≈ 20km spacing —
+// about as fine as global models actually resolve. Going finer would draw
+// smoother pictures without adding real information.
+const MAP_DETAIL = [
+  { n: 7, label: 'Low' }, { n: 11, label: 'Med' }, { n: 15, label: 'High' }
+];
+function mapLoadDetail() {
+  try {
+    const v = parseInt(localStorage.getItem('wb_map_detail'), 10);
+    if (MAP_DETAIL.some(d => d.n === v)) MAP.gridN = v;
+  } catch (e) {}
+}
+function mapSetDetail(n) {
+  if (MAP.gridN === n) return;
+  MAP.gridN = n;
+  try { localStorage.setItem('wb_map_detail', String(n)); } catch (e) {}
+  mapInvalidate();
+}
 
 const MAP_FIELD = {
   temp: 'temperature_2m', rain: 'precipitation', wind: 'wind_speed_10m',
@@ -137,24 +156,34 @@ async function mapFetch() {
     const fields = mapMetrics().map(k => MAP_FIELD[k]).filter(Boolean);
     if (!fields.length) throw new Error('No metrics selected');
 
+    const hr = Math.floor(Date.now() / 3600000) * 3600000;
+    const isoH = ms => new Date(ms).toISOString().slice(0, 13) + ':00';
+    const winStart = isoH(hr - 12 * 3600000), winEnd = isoH(hr + 11 * 3600000);
+
     const models = MODELS.filter(m => enabled.has(m.key) && !autoHidden.has(m.key));
     if (!models.length) throw new Error('No models enabled');
     MAP.raw = {};
     let ok = 0, done = 0;
     const fails = [];
     await Promise.all(models.map(async m => {
-      try {
-        const url = `https://api.open-meteo.com${m.ep}`
-          + `?latitude=${latCsv.join(',')}&longitude=${lonCsv.join(',')}`
-          + `&hourly=${fields.join(',')}&models=${m.key}`
-          + `&past_days=1&forecast_days=2&timezone=UTC&wind_speed_unit=kmh`;
-        const res = await fetch(url, { signal: AbortSignal.timeout(40000) });
+      const base = `https://api.open-meteo.com${m.ep}`
+        + `?latitude=${latCsv.join(',')}&longitude=${lonCsv.join(',')}`
+        + `&hourly=${fields.join(',')}&models=${m.key}&timezone=UTC&wind_speed_unit=kmh`;
+      const grab = async span => {
+        const res = await fetch(base + span, { signal: AbortSignal.timeout(45000) });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         let j = await res.json();
         if (j && j.error) throw new Error(j.reason || 'API error');
-        if (!Array.isArray(j)) j = [j];               // single-point responses aren't wrapped
+        if (!Array.isArray(j)) j = [j];             // single-point responses aren't wrapped
         if (j.length !== P) throw new Error('grid size ' + j.length + ' ≠ ' + P);
         j.forEach(o => { if (typeof normalizeOM === 'function') normalizeOM(o); });
+        if (!j[0].hourly || !j[0].hourly.time || !j[0].hourly.time.length) throw new Error('no hours');
+        return j;
+      };
+      try {
+        let j;
+        try { j = await grab(`&start_hour=${winStart}&end_hour=${winEnd}`); }
+        catch (e1) { j = await grab('&past_days=1&forecast_days=2'); }   // endpoint may not take an hour window
         MAP.raw[m.key] = j; ok++;
       } catch (e) {
         fails.push((m.label || m.key) + ': ' + e.message);
@@ -388,6 +417,9 @@ function mapBuildUI() {
   if (metrics.indexOf(MAP.metric) < 0) MAP.metric = metrics[0];
   const chips = metrics.map(k =>
     `<button type="button" class="mp-chip${k === MAP.metric ? ' on' : ''} mp-c-${k}" data-m="${k}">${MAP_LABEL[k]}</button>`).join('');
+  const detail = `<div class="mp-detail" id="mp-detail"><span class="mp-detail-lab">Detail</span>`
+    + MAP_DETAIL.map(d => `<button type="button" class="mp-dbtn${d.n === MAP.gridN ? ' on' : ''}" data-n="${d.n}">${d.label}</button>`).join('')
+    + `</div>`;
   const ticks = [0, 6, 12, 18, 23].map(i =>
     `<span class="mp-tick" style="left:${((i / 23) * 100).toFixed(2)}%">${MAP.times.length ? mapClock(i) : ''}</span>`).join('');
   sec.innerHTML =
@@ -405,6 +437,7 @@ function mapBuildUI() {
           <div class="mp-lab" id="mp-lab"></div>
         </div>
       </div>
+      ${detail}
       <div class="mp-diag" id="mp-diag"></div>
       <div class="mp-foot">Blended across every enabled model, weighted by each one's accuracy here.</div>
     </div>`;
@@ -416,6 +449,11 @@ function mapBuildUI() {
     mapLegend(); mapDraw(false);
   });
   document.getElementById('mp-play').addEventListener('click', mapTogglePlay);
+  const dt = document.getElementById('mp-detail');
+  if (dt) dt.addEventListener('click', ev => {
+    const b = ev.target.closest('.mp-dbtn'); if (!b) return;
+    mapSetDetail(parseInt(b.dataset.n, 10));
+  });
   mapBindScrub();
   mapLegend();
   mapDiag();
@@ -519,8 +557,25 @@ function mapEnsure() {
   if (MAP.map) requestAnimationFrame(() => MAP.map.invalidateSize());
   if (MAP.ready) { mapDraw(false); return; }
   if (MAP.loading) return;
-  if (state.lat == null) { mapStatus('Set a location first.'); return; }
+  // Geolocation and the saved-location lookup both resolve after first
+  // paint, so the map used to give up before the app knew where it was.
+  if (state.lat == null) { mapWaitForLocation(); return; }
   mapFetch();
+}
+function mapWaitForLocation() {
+  if (MAP._locTimer) return;
+  mapStatus('Waiting for location…');
+  let tries = 0;
+  MAP._locTimer = setInterval(() => {
+    if (state.lat != null) {
+      clearInterval(MAP._locTimer); MAP._locTimer = null;
+      if (MAP.map) MAP.map.setView([state.lat, state.lon], 7);
+      mapFetch();
+    } else if (++tries > 60) {                       // ~30s, then stop nagging
+      clearInterval(MAP._locTimer); MAP._locTimer = null;
+      mapStatus('No location yet — set one from the menu, then reopen the map.');
+    }
+  }, 500);
 }
 // weights changed but the grid is still valid — rebuild the blend only,
 // no refetch, so toggling Weighted or a model updates the map instantly
@@ -534,6 +589,7 @@ function mapReblend() {
 // the tab can already be open from saved prefs, in which case nothing
 // would ever have called mapEnsure
 window.addEventListener('load', () => {
+  mapLoadDetail();
   setTimeout(() => {
     if (typeof sectionsVisible !== 'undefined' && sectionsVisible.map) mapEnsure();
   }, 500);
@@ -542,6 +598,7 @@ window.addEventListener('load', () => {
 // location or model changes invalidate the grid
 function mapInvalidate() {
   mapStop();
+  if (MAP._locTimer) { clearInterval(MAP._locTimer); MAP._locTimer = null; }
   MAP.ready = false; MAP.built = false; MAP.raw = {}; MAP.blend = {}; MAP.frames = {};
   if (MAP.overlay && MAP.map) { try { MAP.map.removeLayer(MAP.overlay); } catch (e) {} MAP.overlay = null; }
   if (MAP.map) { try { MAP.map.remove(); } catch (e) {} MAP.map = null; }
