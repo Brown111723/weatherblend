@@ -409,6 +409,7 @@ function mapInitLeaflet() {
   const lat = MAP.lat != null ? MAP.lat : (state.lat || 0);
   const lon = MAP.lon != null ? MAP.lon : (state.lon || 0);
   MAP.map = L.map(el, { zoomControl: true, attributionControl: true }).setView([lat, lon], 7);
+  try { MAP.map.attributionControl.setPosition('topright'); } catch (e) {}
   mapAddTiles(0);
   if (state.lat != null) {
     L.circleMarker([state.lat, state.lon], {
@@ -423,6 +424,18 @@ function mapInitLeaflet() {
     } catch (e) {}
   }
 }
+// zoom so the painted area fills the view, whatever the range is set to
+function mapFit() {
+  if (!MAP.map || !MAP.bounds) return;
+  const go = () => {
+    if (!MAP.map) return;
+    MAP.map.invalidateSize();
+    MAP.map.fitBounds(MAP.bounds, { padding: [1, 1] });
+  };
+  go();
+  [120, 400].forEach(ms => setTimeout(go, ms));   // size can still be settling
+}
+
 // a single rAF isn't always enough on mobile after a tab becomes visible
 function mapKick() {
   [0, 60, 220, 600, 1200].forEach(ms => setTimeout(() => {
@@ -458,7 +471,7 @@ function mapDraw(fit) {
     MAP.overlay.setUrl(url);
     MAP.overlay.setBounds(MAP.bounds);
   }
-  if (fit) { MAP.map.fitBounds(MAP.bounds, { padding: [8, 8] }); mapKick(); }
+  if (fit) mapFit();
   mapSyncScrub();
   mapReadout();
   mapDiag();
@@ -502,9 +515,14 @@ function mapBuildUI() {
   sec.innerHTML =
     `<div class="mp-wrap">
       <div class="mp-chips" id="mp-chips">${chips}</div>
-      <div class="mp-stage"><div id="mp-map"></div><div class="mp-status" id="mp-status"></div></div>
-      <div class="mp-readout"><span class="mp-rd-val" id="mp-rd-val">—</span><span class="mp-rd-note" id="mp-rd-note"></span></div>
-      <div class="mp-legend" id="mp-legend"></div>
+      <div class="mp-stage">
+        <div id="mp-map"></div>
+        <div class="mp-hud">
+          <div class="mp-readout"><span class="mp-rd-val" id="mp-rd-val">—</span><span class="mp-rd-note" id="mp-rd-note"></span></div>
+          <div class="mp-legend" id="mp-legend"></div>
+        </div>
+        <div class="mp-status" id="mp-status"></div>
+      </div>
       <div class="mp-timerow">
         <button type="button" class="mp-play" id="mp-play" aria-label="Play">▶</button>
         <div class="mp-track" id="mp-track">
@@ -642,7 +660,7 @@ function mapEnsure() {
   if (typeof L === 'undefined') { mapStatus('Map library did not load — check the connection.'); return; }
   mapInitLeaflet();
   if (MAP.map) requestAnimationFrame(() => MAP.map.invalidateSize());
-  if (MAP.ready) { mapDraw(false); return; }
+  if (MAP.ready) { mapDraw(false); mapFit(); return; }
   if (MAP.loading) return;
   // Geolocation and the saved-location lookup both resolve after first
   // paint, so the map used to give up before the app knew where it was.

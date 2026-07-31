@@ -16,24 +16,29 @@
 .mp-chip.on.mp-c-press{background:var(--q-press,#F09AD0);}
 .mp-chip.on.mp-c-uv{background:var(--q-uv,#FFD75E);}
 
-.mp-stage{position:relative;margin:0 20px;border-radius:14px;overflow:hidden;
+.mp-stage{position:relative;margin:0 20px;aspect-ratio:1/1;border-radius:14px;overflow:hidden;
   border:1px solid var(--border,#1f2733);background:#0b1018;isolation:isolate;z-index:0;}
-#mp-map{height:54vh;min-height:300px;max-height:520px;width:100%;background:#0b1018;}
+#mp-map{position:absolute;inset:0;background:#0b1018;}
 .mp-status{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;
-  padding:20px;font-size:13px;color:var(--text-muted,#93a6c0);background:rgba(11,16,24,.9);z-index:500;}
+  padding:20px;font-size:13px;color:var(--text-muted,#93a6c0);background:rgba(11,16,24,.9);z-index:1000;}
+
+/* readout + legend sit on the map; pointer events pass through to it */
+.mp-hud{position:absolute;left:0;right:0;bottom:0;padding:26px 12px 10px;z-index:900;pointer-events:none;
+  background:linear-gradient(180deg,rgba(6,10,16,0) 0%,rgba(6,10,16,.62) 42%,rgba(6,10,16,.88) 100%);}
 
 /* the painted field: softened so a 9×9 grid doesn't read as facets */
 .mp-field{filter:blur(3px) saturate(1.05);mix-blend-mode:screen;}
 .mp-tiles-dark{filter:invert(1) hue-rotate(180deg) brightness(.78) contrast(.92) saturate(.6);}
 .leaflet-container{background:#0b1018;font-family:inherit;}
-.leaflet-control-attribution{background:rgba(8,12,19,.7)!important;color:#6b7787!important;font-size:10px!important;}
+.leaflet-control-attribution{background:rgba(8,12,19,.55)!important;color:#6b7787!important;font-size:9px!important;}
 .leaflet-control-attribution a{color:#8b97a8!important;}
 .leaflet-bar a{background:#141a24!important;color:#c8d2e0!important;border-color:#222c3a!important;}
 .leaflet-bar a:hover{background:#1c2532!important;}
 
-.mp-readout{display:flex;align-items:baseline;gap:9px;margin-top:11px;flex-wrap:wrap;}
-.mp-rd-val{font-size:26px;font-weight:600;letter-spacing:-.5px;color:var(--text-primary,#f4f7fd);font-variant-numeric:tabular-nums;}
-.mp-rd-note{font-size:12px;color:var(--text-muted,#93a6c0);}
+.mp-readout{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;}
+.mp-rd-val{font-size:26px;font-weight:600;letter-spacing:-.5px;color:#fff;font-variant-numeric:tabular-nums;
+  text-shadow:0 1px 8px rgba(0,0,0,.9);}
+.mp-rd-note{font-size:12px;color:rgba(255,255,255,.82);text-shadow:0 1px 6px rgba(0,0,0,.9);}
 
 .mp-ctl{margin-top:11px;}
 .mp-ctl-note{margin-top:7px;font-size:11px;color:var(--text-dim,#5f6f82);line-height:1.5;}
@@ -44,9 +49,10 @@
   border-radius:7px;padding:4px 11px;font-size:11px;font-weight:600;cursor:pointer;}
 .mp-dbtn.on{background:var(--surface2,#1c2532);border-color:var(--border2,#2a3444);color:var(--text-primary,#f4f7fd);}
 
-.mp-legend{margin-top:9px;}
-.mp-lg-bar{height:9px;border-radius:5px;border:1px solid rgba(255,255,255,.10);}
-.mp-lg-ax{display:flex;justify-content:space-between;margin-top:3px;font-size:11px;color:var(--text-dim,#5f6f82);font-variant-numeric:tabular-nums;}
+.mp-legend{margin-top:7px;}
+.mp-lg-bar{height:8px;border-radius:5px;border:1px solid rgba(255,255,255,.18);}
+.mp-lg-ax{display:flex;justify-content:space-between;margin-top:3px;font-size:11px;
+  color:rgba(255,255,255,.72);font-variant-numeric:tabular-nums;text-shadow:0 1px 5px rgba(0,0,0,.9);}
 
 .mp-timerow{display:flex;align-items:center;gap:11px;margin-top:14px;}
 .mp-play{flex:0 0 auto;width:36px;height:36px;border-radius:50%;border:1px solid var(--border2,#2a3444);
