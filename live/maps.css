@@ -37,6 +37,7 @@
 
 .mp-ctl{margin-top:11px;}
 .mp-ctl-note{margin-top:7px;font-size:11px;color:var(--text-dim,#5f6f82);line-height:1.5;}
+.mp-warn{color:var(--q-gust,#FFB86B);}
 .mp-detail{display:flex;align-items:center;gap:6px;margin-top:7px;}
 .mp-detail-lab{font-size:11px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:var(--text-dim,#5f6f82);margin-right:2px;}
 .mp-dbtn{background:var(--surface,#141a24);border:1px solid var(--border,#1f2733);color:var(--text-muted,#93a6c0);

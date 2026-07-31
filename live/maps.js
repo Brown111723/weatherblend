@@ -17,7 +17,7 @@ const MAP = {
   ready: false, loading: false, error: null, built: false,
   lat: null, lon: null,
   gridN: 7,                 // Detail control — the only thing that costs API weight
-  spanLat: 4.6,             // Range control — degrees of latitude covered; free
+  spanLat: 7.4,             // Range control — degrees of latitude covered; free
   bounds: null,             // [[south,west],[north,east]]
   lats: [], lons: [],
   times: [],                // UTC ISO strings, 24 of them
@@ -41,7 +41,8 @@ const MAP_DETAIL = [
 // points spread further apart. Only the point count drives the request
 // weight, so range is free and detail is not.
 const MAP_RANGE = [
-  { d: 2.6, label: 'Local' }, { d: 4.6, label: 'Regional' }, { d: 7.4, label: 'Wide' }
+  { d: 2.6, label: 'Local' }, { d: 7.4, label: 'Wide' },
+  { d: 16, label: 'State' }, { d: 42, label: 'Continent' }
 ];
 function mapLoadPrefs() {
   try {
@@ -162,10 +163,12 @@ function mapMetrics() {
 // ── fetching ────────────────────────────────────────────────────────────
 function mapBuildGrid() {
   const N = MAP.gridN;
-  const spanLat = MAP.spanLat || 4.6;
-  const spanLon = spanLat / Math.max(0.25, Math.cos(MAP.lat * Math.PI / 180));
+  const spanLat = MAP.spanLat || 7.4;
+  const spanLon = Math.min(340, spanLat / Math.max(0.25, Math.cos(MAP.lat * Math.PI / 180)));
   MAP.lats = []; MAP.lons = [];
-  for (let r = 0; r < N; r++) MAP.lats.push(MAP.lat + spanLat / 2 - (spanLat * r) / (N - 1));  // north → south
+  for (let r = 0; r < N; r++) {                                // north → south
+    MAP.lats.push(Math.max(-84, Math.min(84, MAP.lat + spanLat / 2 - (spanLat * r) / (N - 1))));
+  }
   for (let c = 0; c < N; c++) MAP.lons.push(MAP.lon - spanLon / 2 + (spanLon * c) / (N - 1));
   MAP.bounds = [[MAP.lats[N - 1], MAP.lons[0]], [MAP.lats[0], MAP.lons[N - 1]]];
 }
@@ -313,17 +316,25 @@ function mapBlendMetric(metric) {
 }
 
 // ── painting ────────────────────────────────────────────────────────────
+const mapMerc = lat => Math.log(Math.tan(Math.PI / 4 + (Math.max(-85, Math.min(85, lat)) * Math.PI / 180) / 2));
+const mapInvMerc = y => (2 * Math.atan(Math.exp(y)) - Math.PI / 2) * 180 / Math.PI;
+
 function mapFrame(metric, h) {
   if (!MAP.frames[metric]) MAP.frames[metric] = [];
   if (MAP.frames[metric][h]) return MAP.frames[metric][h];
   const N = MAP.gridN, W = 300, H = 300;
+  const latN = MAP.lats[0], latS = MAP.lats[N - 1];
+  const mN = mapMerc(latN), mS = mapMerc(latS), dLat = (latN - latS) || 1;
   const vals = mapBlendMetric(metric)[h];
   const col = MAP_COLOR[metric] || MAP_COLOR.temp;
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const ctx = cv.getContext('2d');
   const img = ctx.createImageData(W, H);
   for (let y = 0; y < H; y++) {
-    const gy = (y / (H - 1)) * (N - 1);
+    // Leaflet lays the image out in Web Mercator, where latitude is not
+    // linear down the image — so invert properly rather than assuming it is
+    const lat = mapInvMerc(mN + (mS - mN) * (y / (H - 1)));
+    const gy = Math.max(0, Math.min(N - 1, ((latN - lat) / dLat) * (N - 1)));
     const r0 = Math.min(N - 1, Math.floor(gy)), r1 = Math.min(N - 1, r0 + 1), ty = gy - r0;
     for (let x = 0; x < W; x++) {
       const gx = (x / (W - 1)) * (N - 1);
@@ -473,8 +484,10 @@ function mapBuildUI() {
   if (metrics.indexOf(MAP.metric) < 0) MAP.metric = metrics[0];
   const chips = metrics.map(k =>
     `<button type="button" class="mp-chip${k === MAP.metric ? ' on' : ''} mp-c-${k}" data-m="${k}">${MAP_LABEL[k]}</button>`).join('');
-  const km = Math.round((MAP.spanLat || 4.6) * 111);
+  const km = Math.round((MAP.spanLat || 7.4) * 111);
   const spacing = Math.round(km / (MAP.gridN - 1));
+  const coarse = spacing > 250
+    ? ` · <span class="mp-warn">too coarse for detail — raise Detail</span>` : '';
   const detail = `<div class="mp-ctl">`
     + `<div class="mp-detail" id="mp-detail"><span class="mp-detail-lab">Detail</span>`
     + MAP_DETAIL.map(d => `<button type="button" class="mp-dbtn${d.n === MAP.gridN ? ' on' : ''}" data-n="${d.n}">${d.label}</button>`).join('')
@@ -483,7 +496,7 @@ function mapBuildUI() {
     + MAP_RANGE.map(r => `<button type="button" class="mp-dbtn${r.d === MAP.spanLat ? ' on' : ''}" data-d="${r.d}">${r.label}</button>`).join('')
     + `</div>`
     + `<div class="mp-ctl-note">${km}km across · ${MAP.gridN}×${MAP.gridN} points · ~${spacing}km spacing`
-    + ` · range is free, detail costs API calls</div></div>`;
+    + ` · range is free, detail costs API calls${coarse}</div></div>`;
   const ticks = [0, 6, 12, 18, 23].map(i =>
     `<span class="mp-tick" style="left:${((i / 23) * 100).toFixed(2)}%">${MAP.times.length ? mapClock(i) : ''}</span>`).join('');
   sec.innerHTML =
@@ -591,7 +604,12 @@ function mapBindScrub() {
     setFrom(ev.clientX);
   });
   tr.addEventListener('pointermove', ev => { if (down) setFrom(ev.clientX); });
-  const up = () => { down = false; MAP.scrubbing = false; mapSyncScrub(); };
+  const up = () => {
+    if (!down) return;
+    down = false; MAP.scrubbing = false;
+    if (!MAP.playing && MAP.hourSel !== MAP.nowIdx) { MAP.hourSel = MAP.nowIdx; mapDraw(false); }
+    else mapSyncScrub();
+  };
   tr.addEventListener('pointerup', up);
   tr.addEventListener('pointercancel', up);
 }
