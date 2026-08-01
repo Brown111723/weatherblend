@@ -262,13 +262,20 @@ function actWindowAt(field,idx,step){
 // seven means one seventh the point-fetches and, more importantly, no
 // burst of parallel requests for the rate limiter to object to.
 // Everything downstream still sees the same per-model shape.
+// Cost is (variables/10) x (days/14) x locations, so both axes matter.
+// Display fields are only needed for the forecast window; the accuracy
+// scoring only ever looks at these four.
+const SCORE_FIELDS=['temperature_2m','precipitation','wind_speed_10m','cloud_cover'];
 function hourlyFieldList(){
   const f=['precipitation','wind_speed_10m','wind_direction_10m','temperature_2m',
-           'weather_code','cloud_cover','relative_humidity_2m','apparent_temperature',
-           'surface_pressure','uv_index','visibility','dew_point_2m'];
+           'weather_code','cloud_cover','relative_humidity_2m','apparent_temperature'];
   // only pulled when the metric is actually switched on
+  if(secVisible.press||secVisible.humid) f.push('surface_pressure');
+  if(secVisible.uv) f.push('uv_index');
   if(secVisible.snow) f.push('snowfall');
   if(secVisible.gust) f.push('wind_gusts_10m');
+  // the secondary panel needs these two
+  f.push('visibility','dew_point_2m');
   return f;
 }
 const DAILY_FIELDS='weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,'
@@ -291,20 +298,71 @@ function splitCombined(json,key,single){
   return out;
 }
 
+// merge a second response's hourly arrays into the first, matched on time
+function mergeHourly(base,extra){
+  if(!base?.hourly?.time||!extra?.hourly?.time)return base;
+  const idx={}; base.hourly.time.forEach((t,i)=>{idx[t]=i;});
+  const n=base.hourly.time.length;
+  Object.keys(extra.hourly).forEach(name=>{
+    if(name==='time')return;
+    const src=extra.hourly[name];
+    const dst=base.hourly[name]||new Array(n).fill(null);
+    extra.hourly.time.forEach((t,i)=>{
+      const j=idx[t];
+      if(j!=null&&(dst[j]==null||isNaN(dst[j])))dst[j]=src[i];
+    });
+    base.hourly[name]=dst;
+  });
+  return base;
+}
+
 async function fetchModelsCombined(){
   const keys=MODELS.map(m=>m.key);
   const past=Math.max(7,Math.min(31,learnDays));
-  const url=`https://api.open-meteo.com/v1/forecast`
+  const disp=hourlyFieldList();
+  const base=`https://api.open-meteo.com/v1/forecast`
     +`?latitude=${state.lat}&longitude=${state.lon}`
-    +`&hourly=${hourlyFieldList().join(',')}`
-    +`&daily=${DAILY_FIELDS}`
-    +`&models=${keys.join(',')}&past_days=${past}&forecast_days=10&timezone=auto&wind_speed_unit=kmh`;
+    +`&models=${keys.join(',')}&timezone=auto&wind_speed_unit=kmh`;
+  // window 1: everything, but only the days actually displayed
+  const urlA=base+`&hourly=${disp.join(',')}&daily=${DAILY_FIELDS}&past_days=2&forecast_days=10`;
+  // window 2: the learning history, carrying only the four scored fields
+  const urlB=base+`&hourly=${SCORE_FIELDS.join(',')}&past_days=${past}&forecast_days=1`;
   try{
-    const res=await fetch(url,{signal:AbortSignal.timeout(30000)});
+    const res=await fetch(urlA,{signal:AbortSignal.timeout(30000)});
     if(!res.ok)throw new Error(`HTTP ${res.status}`);
-    const json=await res.json();
+    let json=await res.json();
     if(json.error)throw new Error(json.reason||'API error');
     if(!json.hourly||!json.hourly.time)throw new Error('No hourly block');
+    try{
+      const resB=await fetch(urlB,{signal:AbortSignal.timeout(30000)});
+      if(resB.ok){
+        const jb=await resB.json();
+        if(jb&&jb.hourly&&jb.hourly.time){
+          // Union the two windows onto one timeline. Build a fresh hourly
+          // object — spreading jb would share its arrays and mutating the
+          // shared time array corrupts the source series.
+          const times=Array.from(new Set(jb.hourly.time.concat(json.hourly.time))).sort();
+          const reidx={}; times.forEach((t,i)=>{reidx[t]=i;});
+          const H={time:times}, N=times.length;
+          const fold=(src,srcTimes)=>{
+            Object.keys(src).forEach(name=>{
+              if(name==='time')return;
+              const out=H[name]||new Array(N).fill(null);
+              const arr=src[name];
+              srcTimes.forEach((t,i)=>{
+                const j=reidx[t];
+                if(j!=null&&arr[i]!=null&&!isNaN(arr[i]))out[j]=arr[i];
+              });
+              H[name]=out;
+            });
+          };
+          fold(jb.hourly,jb.hourly.time);        // history first
+          fold(json.hourly,json.hourly.time);    // display window wins overlaps
+          json={hourly:H,daily:json.daily,
+                utc_offset_seconds:json.utc_offset_seconds,timezone:json.timezone};
+        }
+      }
+    }catch(eB){ dbg('history window failed ('+eB.message+') — scoring uses 2 days'); }
     const single=keys.length===1;
     let ok=0;
     keys.forEach(k=>{
@@ -334,6 +392,7 @@ async function fetchModelsCombined(){
 async function fetchModelsIndividually(){
   const past=Math.max(7,Math.min(31,learnDays));
   const H=hourlyFieldList().join(',');
+  dbg('per-model fallback: '+MODELS.length+' requests');
   const baseH='precipitation,wind_speed_10m,wind_direction_10m,temperature_2m,weather_code,cloud_cover,relative_humidity_2m';
   await Promise.all(MODELS.map(async m=>{
     const buildUrl=h=>`https://api.open-meteo.com${m.ep}`

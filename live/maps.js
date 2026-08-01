@@ -80,7 +80,8 @@ function mapRefetchSoon() {
   MAP._reTimer = setTimeout(() => { MAP._reTimer = null; mapInvalidate(); }, 1100);
 }
 function mapCacheKey() {
-  return [MAP.gridN, MAP.spanLat, (state.lat || 0).toFixed(3), (state.lon || 0).toFixed(3)].join('|');
+  return [MAP.gridN, MAP.spanLat, (state.lat || 0).toFixed(3), (state.lon || 0).toFixed(3),
+    mapMetrics().join('+')].join('|');
 }
 
 const MAP_FIELD = {
@@ -169,6 +170,23 @@ function mapMetrics() {
   return all.length ? all : ['temp', 'rain', 'wind', 'cloud'];
 }
 
+// ── which models the map uses ───────────────────────────────────────────
+// Every model multiplies the variable count, and on a 169-point grid that
+// is the whole cost. The blend across the top few by weight is within a
+// fraction of a degree of the full seven, so the map uses those.
+const MAP_MODEL_CAP = 3;
+function mapModels() {
+  const live = MODELS.filter(m => enabled.has(m.key) && !autoHidden.has(m.key));
+  if (live.length <= MAP_MODEL_CAP) return live;
+  const W = (typeof metricWeights !== 'undefined' && metricWeights[MAP_SEC[MAP.metric] || 'temp'])
+    ? metricWeights[MAP_SEC[MAP.metric] || 'temp']
+    : (typeof modelWeights !== 'undefined' ? modelWeights : {});
+  const scored = live.map(m => ({ m, w: W[m.key] != null ? W[m.key] : 0 }));
+  if (scored.every(x => x.w === 0)) return live.slice(0, MAP_MODEL_CAP);
+  scored.sort((a, b) => b.w - a.w);
+  return scored.slice(0, MAP_MODEL_CAP).map(x => x.m);
+}
+
 // ── fetching ────────────────────────────────────────────────────────────
 function mapBuildGrid() {
   const N = MAP.gridN;
@@ -249,15 +267,15 @@ async function mapFetch() {
     const N = MAP.gridN, P = N * N;
     const latCsv = [], lonCsv = [];
     for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) { latCsv.push(MAP.lats[r].toFixed(4)); lonCsv.push(MAP.lons[c].toFixed(4)); }
-    // every field, always: variables are cheap next to locations, and it
-    // means switching or enabling a metric never triggers another fetch
-    const fields = Object.keys(MAP_FIELD).map(k => MAP_FIELD[k]);
+    // Open-Meteo bills variables x locations, so only fetch what is on.
+    const fields = mapMetrics().map(k => MAP_FIELD[k]).filter(Boolean);
+    if (!fields.length) throw new Error('No metrics selected');
 
     const hr = Math.floor(Date.now() / 3600000) * 3600000;
     const isoH = ms => new Date(ms).toISOString().slice(0, 13) + ':00';
     const winStart = isoH(hr - 12 * 3600000), winEnd = isoH(hr + 11 * 3600000);
 
-    const models = MODELS.filter(m => enabled.has(m.key) && !autoHidden.has(m.key));
+    const models = mapModels();
     if (!models.length) throw new Error('No models enabled');
     MAP.raw = {};
     let ok = 0, done = 0, rateLimited = false;
@@ -525,8 +543,11 @@ function mapDiag() {
   const spacing = Math.round(km / (N - 1));
   const v = MAP_VIEWS[MAP.viewIdx] || MAP_VIEWS[0];
   const shownKm = Math.round(km * v.crop);
+  const nMod = MAP.ready ? Object.keys(MAP.raw).length : mapModels().length;
+  const nVar = mapMetrics().length * nMod;
+  const cost = Math.round(Math.max(1, nVar / 10) * (N * N));
   const bits = [];
-  bits.push(MAP.ready ? Object.keys(MAP.raw).length + '/' + want + ' models · ' + (N * N) + ' pts fetched'
+  bits.push(MAP.ready ? nMod + '/' + want + ' models · ' + (N * N) + ' pts · ~' + cost + ' API calls'
     : MAP.loading ? 'fetching grid…' : 'no grid yet');
   bits.push('grid ' + N + '×' + N + ' over ' + km + 'km · ~' + spacing + 'km spacing');
   bits.push('showing ' + shownKm + 'km' + (v.crop < 1 ? ' (zoomed, no extra fetch)' : ''));
@@ -745,11 +766,14 @@ function mapReblend() {
   if (!MAP.ready) return;
   MAP.blend = {}; MAP.frames = {};
   const metrics = mapMetrics();
-  const stale = metrics.indexOf(MAP.metric) < 0;
-  if (stale) MAP.metric = metrics[0];
+  if (metrics.indexOf(MAP.metric) < 0) MAP.metric = metrics[0];
   if (typeof sectionsVisible === 'undefined' || !sectionsVisible.map) return;
-  mapBuildUI();          // chip row follows the metric set
-  mapInitLeaflet();
+  // a metric that was off when the grid was fetched has no data in it
+  const have = MAP.raw[Object.keys(MAP.raw)[0]];
+  const f = MAP_FIELD[MAP.metric];
+  const missing = !(have && have[0] && have[0].hourly && have[0].hourly[f]);
+  mapBuildUI(); mapInitLeaflet();
+  if (missing) { MAP.ready = false; mapFetch(); return; }
   mapDraw(true);
 }
 // the tab can already be open from saved prefs, in which case nothing
