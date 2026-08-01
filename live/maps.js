@@ -17,8 +17,8 @@ const MAP = {
   ready: false, loading: false, error: null, built: false,
   lat: null, lon: null,
   viewIdx: 0,
-  gridN: 15,                // set from MAP_VIEWS
-  spanLat: 2.6,
+  gridN: 13,                // 169 points, one request, serves both views
+  spanLat: 9,               // ~1000km box; Nearby frames the middle 30%
   bounds: null,             // [[south,west],[north,east]]
   lats: [], lons: [],
   times: [],                // UTC ISO strings, 24 of them
@@ -38,32 +38,44 @@ const MAP = {
 // Two presets rather than two independent dials. Detail and area trade off
 // against each other, so pairing them keeps every combination sensible:
 // the close view is fine-grained, the wide one is deliberately coarser.
+// A single grid serves both views. Region shows all of it; Nearby is the
+// same painted field with the camera pulled in — no second request, and
+// switching between them is instant because nothing is refetched.
 const MAP_VIEWS = [
-  { key: 'nearby', label: 'Nearby', n: 15, d: 2.6 },
-  { key: 'region', label: 'Region', n: 11, d: 16 }
+  { key: 'nearby', label: 'Nearby', crop: 0.30 },
+  { key: 'region', label: 'Region', crop: 1 }
 ];
 function mapLoadPrefs() {
   try {
     const k = localStorage.getItem('wb_map_view');
     const i = MAP_VIEWS.findIndex(v => v.key === k);
-    if (i >= 0) mapApplyView(i, true);
+    if (i >= 0) MAP.viewIdx = i;
   } catch (e) {}
 }
-function mapApplyView(i, quiet) {
-  const v = MAP_VIEWS[i]; if (!v) return;
-  MAP.viewIdx = i; MAP.gridN = v.n; MAP.spanLat = v.d;
-  try { localStorage.setItem('wb_map_view', v.key); } catch (e) {}
-  if (!quiet) mapRefetchSoon();
-}
 function mapSetView(i) {
-  if (MAP.viewIdx === i) return;
-  mapApplyView(i, false);
+  if (MAP.viewIdx === i || !MAP_VIEWS[i]) return;
+  MAP.viewIdx = i;
+  try { localStorage.setItem('wb_map_view', MAP_VIEWS[i].key); } catch (e) {}
+  document.querySelectorAll('#mp-views .mp-dbtn').forEach((b, k) => b.classList.toggle('on', k === i));
+  mapFit(); mapDiag();
+}
+// the box the camera frames — a centred crop of the fetched grid
+function mapViewBounds() {
+  if (!MAP.bounds) return null;
+  const v = MAP_VIEWS[MAP.viewIdx] || MAP_VIEWS[0];
+  if (v.crop >= 1) return MAP.bounds;
+  const [[s, w], [n, e]] = MAP.bounds;
+  const cLat = (s + n) / 2, cLon = (w + e) / 2;
+  // crop in projected space so the framed box stays square on screen
+  const mS = mapMerc(s), mN = mapMerc(n), mC = (mS + mN) / 2;
+  const hM = (mN - mS) / 2 * v.crop, hLon = (e - w) / 2 * v.crop;
+  return [[mapInvMerc(mC - hM), cLon - hLon], [mapInvMerc(mC + hM), cLon + hLon]];
 }
 // Flicking between settings used to fire a full refetch per tap, which is
 // what tripped the rate limit. Coalesce them, and reuse anything already
 // fetched for the same settings.
 function mapRefetchSoon() {
-  mapBuildUI(); mapDiag();
+  mapDiag();
   if (MAP._reTimer) clearTimeout(MAP._reTimer);
   MAP._reTimer = setTimeout(() => { MAP._reTimer = null; mapInvalidate(); }, 1100);
 }
@@ -160,7 +172,7 @@ function mapMetrics() {
 // ── fetching ────────────────────────────────────────────────────────────
 function mapBuildGrid() {
   const N = MAP.gridN;
-  const spanLat = MAP.spanLat || 2.6;
+  const spanLat = MAP.spanLat || 9;
   const latN = Math.max(-84, Math.min(84, MAP.lat + spanLat / 2));
   const latS = Math.max(-84, Math.min(84, MAP.lat - spanLat / 2));
   // Match the box to the viewport exactly: Mercator x is longitude in
@@ -484,8 +496,9 @@ function mapFit() {
   if (!MAP.map || !MAP.bounds) return;
   const go = () => {
     if (!MAP.map) return;
+    const b = mapViewBounds(); if (!b) return;
     MAP.map.invalidateSize();
-    MAP.map.fitBounds(MAP.bounds, { padding: [0, 0], animate: false });
+    MAP.map.fitBounds(b, { padding: [0, 0], animate: false });
   };
   go();
   [120, 400].forEach(ms => setTimeout(go, ms));   // size can still be settling
@@ -508,9 +521,15 @@ function mapDiag() {
   const el = document.getElementById('mp-diag'); if (!el) return;
   const want = (typeof MODELS !== 'undefined')
     ? MODELS.filter(m => enabled.has(m.key) && !autoHidden.has(m.key)).length : 0;
+  const N = MAP.gridN, km = Math.round((MAP.spanLat || 9) * 111);
+  const spacing = Math.round(km / (N - 1));
+  const v = MAP_VIEWS[MAP.viewIdx] || MAP_VIEWS[0];
+  const shownKm = Math.round(km * v.crop);
   const bits = [];
-  bits.push(MAP.ready ? Object.keys(MAP.raw).length + '/' + want + ' models · ' + (MAP.gridN * MAP.gridN) + ' pts'
+  bits.push(MAP.ready ? Object.keys(MAP.raw).length + '/' + want + ' models · ' + (N * N) + ' pts fetched'
     : MAP.loading ? 'fetching grid…' : 'no grid yet');
+  bits.push('grid ' + N + '×' + N + ' over ' + km + 'km · ~' + spacing + 'km spacing');
+  bits.push('showing ' + shownKm + 'km' + (v.crop < 1 ? ' (zoomed, no extra fetch)' : ''));
   bits.push('tiles: ' + (MAP.tilesOk ? MAP.tilesOk + ' loaded (' + MAP_TILES[MAP.tileIdx || 0].name + ')' : 'none yet'));
   if (MAP.error) bits.push('⚠ ' + MAP.error);
   if (MAP.log.length) bits.push(MAP.log[MAP.log.length - 1]);
@@ -552,13 +571,9 @@ function mapBuildUI() {
   if (metrics.indexOf(MAP.metric) < 0) MAP.metric = metrics[0];
   const chips = metrics.map(k =>
     `<button type="button" class="mp-chip${k === MAP.metric ? ' on' : ''} mp-c-${k}" data-m="${k}">${MAP_LABEL[k]}</button>`).join('');
-  const km = Math.round((MAP.spanLat || 2.6) * 111);
-  const spacing = Math.round(km / (MAP.gridN - 1));
-  const detail = `<div class="mp-ctl">`
-    + `<div class="mp-detail" id="mp-views">`
+  const detail = `<div class="mp-ctl"><div class="mp-detail" id="mp-views">`
     + MAP_VIEWS.map((v, i) => `<button type="button" class="mp-dbtn${i === MAP.viewIdx ? ' on' : ''}" data-i="${i}">${v.label}</button>`).join('')
-    + `</div>`
-    + `<div class="mp-ctl-note">${km}km across · ${MAP.gridN}×${MAP.gridN} points · ~${spacing}km spacing</div></div>`;
+    + `</div></div>`;
   const ticks = [0, 6, 12, 18, 23].map(i =>
     `<span class="mp-tick" style="left:${((i / 23) * 100).toFixed(2)}%">${MAP.times.length ? mapClock(i) : ''}</span>`).join('');
   sec.innerHTML =
