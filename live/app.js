@@ -253,10 +253,13 @@ function toggleSection(sec,btn){
 }
 
 // ── Auto-refresh ────────────────────────────────────────────────────────
+// Auto-refresh is off: forecasts update a few times a day at most, so an
+// hourly poll spent API budget to redraw identical numbers. Pull to refresh
+// or reopen the app when you want fresh data.
 function scheduleAutoRefresh(){
   if(autoRefreshTimer)clearTimeout(autoRefreshTimer);
-  nextRefreshAt=Date.now()+AUTO_MS;
-  autoRefreshTimer=setTimeout(refreshWithLocation,AUTO_MS);
+  autoRefreshTimer=null; nextRefreshAt=null;
+  return;
 }
 
 // ── Location ────────────────────────────────────────────────────────────

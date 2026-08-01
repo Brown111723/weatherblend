@@ -16,8 +16,9 @@
 const MAP = {
   ready: false, loading: false, error: null, built: false,
   lat: null, lon: null,
-  gridN: 7,                 // Detail control — the only thing that costs API weight
-  spanLat: 7.4,             // Range control — degrees of latitude covered; free
+  viewIdx: 0,
+  gridN: 15,                // set from MAP_VIEWS
+  spanLat: 2.6,
   bounds: null,             // [[south,west],[north,east]]
   lats: [], lons: [],
   times: [],                // UTC ISO strings, 24 of them
@@ -34,35 +35,29 @@ const MAP = {
 // Detail levels. The box is ~290km across, so 15 points ≈ 20km spacing —
 // about as fine as global models actually resolve. Going finer would draw
 // smoother pictures without adding real information.
-const MAP_DETAIL = [
-  { n: 7, label: 'Low' }, { n: 11, label: 'Med' }, { n: 15, label: 'High' }
-];
-// Widening the box costs nothing at the API — it is the same number of
-// points spread further apart. Only the point count drives the request
-// weight, so range is free and detail is not.
-const MAP_RANGE = [
-  { d: 2.6, label: 'Local' }, { d: 7.4, label: 'Wide' },
-  { d: 16, label: 'State' }, { d: 42, label: 'Continent' }
+// Two presets rather than two independent dials. Detail and area trade off
+// against each other, so pairing them keeps every combination sensible:
+// the close view is fine-grained, the wide one is deliberately coarser.
+const MAP_VIEWS = [
+  { key: 'nearby', label: 'Nearby', n: 15, d: 2.6 },
+  { key: 'region', label: 'Region', n: 11, d: 16 }
 ];
 function mapLoadPrefs() {
   try {
-    const v = parseInt(localStorage.getItem('wb_map_detail'), 10);
-    if (MAP_DETAIL.some(x => x.n === v)) MAP.gridN = v;
-    const r = parseFloat(localStorage.getItem('wb_map_range'));
-    if (MAP_RANGE.some(x => x.d === r)) MAP.spanLat = r;
+    const k = localStorage.getItem('wb_map_view');
+    const i = MAP_VIEWS.findIndex(v => v.key === k);
+    if (i >= 0) mapApplyView(i, true);
   } catch (e) {}
 }
-function mapSetDetail(n) {
-  if (MAP.gridN === n) return;
-  MAP.gridN = n;
-  try { localStorage.setItem('wb_map_detail', String(n)); } catch (e) {}
-  mapRefetchSoon();
+function mapApplyView(i, quiet) {
+  const v = MAP_VIEWS[i]; if (!v) return;
+  MAP.viewIdx = i; MAP.gridN = v.n; MAP.spanLat = v.d;
+  try { localStorage.setItem('wb_map_view', v.key); } catch (e) {}
+  if (!quiet) mapRefetchSoon();
 }
-function mapSetRange(d) {
-  if (MAP.spanLat === d) return;
-  MAP.spanLat = d;
-  try { localStorage.setItem('wb_map_range', String(d)); } catch (e) {}
-  mapRefetchSoon();
+function mapSetView(i) {
+  if (MAP.viewIdx === i) return;
+  mapApplyView(i, false);
 }
 // Flicking between settings used to fire a full refetch per tap, which is
 // what tripped the rate limit. Coalesce them, and reuse anything already
@@ -151,6 +146,9 @@ const MAP_LEGEND = {
   humid: [25, 50, 75, 100], press: [985, 1000, 1013, 1025, 1040], uv: [0, 3, 6, 9, 12]
 };
 
+const mapMerc = lat => Math.log(Math.tan(Math.PI / 4 + (Math.max(-85, Math.min(85, lat)) * Math.PI / 180) / 2));
+const mapInvMerc = y => (2 * Math.atan(Math.exp(y)) - Math.PI / 2) * 180 / Math.PI;
+
 // ── which metrics are on ────────────────────────────────────────────────
 function mapMetrics() {
   const main = ['temp', 'rain', 'wind', 'cloud'].filter(k => secVisible[k]);
@@ -162,12 +160,15 @@ function mapMetrics() {
 // ── fetching ────────────────────────────────────────────────────────────
 function mapBuildGrid() {
   const N = MAP.gridN;
-  const spanLat = MAP.spanLat || 7.4;
-  const spanLon = Math.min(340, spanLat / Math.max(0.25, Math.cos(MAP.lat * Math.PI / 180)));
+  const spanLat = MAP.spanLat || 2.6;
+  const latN = Math.max(-84, Math.min(84, MAP.lat + spanLat / 2));
+  const latS = Math.max(-84, Math.min(84, MAP.lat - spanLat / 2));
+  // Match the box to the viewport exactly: Mercator x is longitude in
+  // radians and Mercator y is the log-tangent, so making those two spans
+  // equal gives a box that is precisely square once projected.
+  const spanLon = Math.min(340, (mapMerc(latN) - mapMerc(latS)) * 180 / Math.PI);
   MAP.lats = []; MAP.lons = [];
-  for (let r = 0; r < N; r++) {                                // north → south
-    MAP.lats.push(Math.max(-84, Math.min(84, MAP.lat + spanLat / 2 - (spanLat * r) / (N - 1))));
-  }
+  for (let r = 0; r < N; r++) MAP.lats.push(latN - ((latN - latS) * r) / (N - 1));   // north → south
   for (let c = 0; c < N; c++) MAP.lons.push(MAP.lon - spanLon / 2 + (spanLon * c) / (N - 1));
   MAP.bounds = [[MAP.lats[N - 1], MAP.lons[0]], [MAP.lats[0], MAP.lons[N - 1]]];
 }
@@ -369,9 +370,6 @@ function mapBlendMetric(metric) {
 }
 
 // ── painting ────────────────────────────────────────────────────────────
-const mapMerc = lat => Math.log(Math.tan(Math.PI / 4 + (Math.max(-85, Math.min(85, lat)) * Math.PI / 180) / 2));
-const mapInvMerc = y => (2 * Math.atan(Math.exp(y)) - Math.PI / 2) * 180 / Math.PI;
-
 function mapFrame(metric, h) {
   if (!MAP.frames[metric]) MAP.frames[metric] = [];
   if (MAP.frames[metric][h]) return MAP.frames[metric][h];
@@ -461,7 +459,11 @@ function mapInitLeaflet() {
   }
   const lat = MAP.lat != null ? MAP.lat : (state.lat || 0);
   const lon = MAP.lon != null ? MAP.lon : (state.lon || 0);
-  MAP.map = L.map(el, { zoomControl: true, attributionControl: true }).setView([lat, lon], 7);
+  MAP.map = L.map(el, {
+    zoomControl: false, attributionControl: true, zoomSnap: 0,
+    dragging: false, touchZoom: false, scrollWheelZoom: false,
+    doubleClickZoom: false, boxZoom: false, keyboard: false, tap: false, inertia: false
+  }).setView([lat, lon], 7);
   try { MAP.map.attributionControl.setPosition('topright'); } catch (e) {}
   mapAddTiles(0);
   if (state.lat != null) {
@@ -483,7 +485,7 @@ function mapFit() {
   const go = () => {
     if (!MAP.map) return;
     MAP.map.invalidateSize();
-    MAP.map.fitBounds(MAP.bounds, { padding: [1, 1] });
+    MAP.map.fitBounds(MAP.bounds, { padding: [0, 0], animate: false });
   };
   go();
   [120, 400].forEach(ms => setTimeout(go, ms));   // size can still be settling
@@ -550,19 +552,13 @@ function mapBuildUI() {
   if (metrics.indexOf(MAP.metric) < 0) MAP.metric = metrics[0];
   const chips = metrics.map(k =>
     `<button type="button" class="mp-chip${k === MAP.metric ? ' on' : ''} mp-c-${k}" data-m="${k}">${MAP_LABEL[k]}</button>`).join('');
-  const km = Math.round((MAP.spanLat || 7.4) * 111);
+  const km = Math.round((MAP.spanLat || 2.6) * 111);
   const spacing = Math.round(km / (MAP.gridN - 1));
-  const coarse = spacing > 250
-    ? ` · <span class="mp-warn">too coarse for detail — raise Detail</span>` : '';
   const detail = `<div class="mp-ctl">`
-    + `<div class="mp-detail" id="mp-detail"><span class="mp-detail-lab">Detail</span>`
-    + MAP_DETAIL.map(d => `<button type="button" class="mp-dbtn${d.n === MAP.gridN ? ' on' : ''}" data-n="${d.n}">${d.label}</button>`).join('')
+    + `<div class="mp-detail" id="mp-views">`
+    + MAP_VIEWS.map((v, i) => `<button type="button" class="mp-dbtn${i === MAP.viewIdx ? ' on' : ''}" data-i="${i}">${v.label}</button>`).join('')
     + `</div>`
-    + `<div class="mp-detail" id="mp-range"><span class="mp-detail-lab">Range</span>`
-    + MAP_RANGE.map(r => `<button type="button" class="mp-dbtn${r.d === MAP.spanLat ? ' on' : ''}" data-d="${r.d}">${r.label}</button>`).join('')
-    + `</div>`
-    + `<div class="mp-ctl-note">${km}km across · ${MAP.gridN}×${MAP.gridN} points · ~${spacing}km spacing`
-    + ` · range is free, detail costs API calls${coarse}</div></div>`;
+    + `<div class="mp-ctl-note">${km}km across · ${MAP.gridN}×${MAP.gridN} points · ~${spacing}km spacing</div></div>`;
   const ticks = [0, 6, 12, 18, 23].map(i =>
     `<span class="mp-tick" style="left:${((i / 23) * 100).toFixed(2)}%">${MAP.times.length ? mapClock(i) : ''}</span>`).join('');
   sec.innerHTML =
@@ -571,7 +567,7 @@ function mapBuildUI() {
       <div class="mp-stage">
         <div id="mp-map"></div>
         <div class="mp-hud">
-          <div class="mp-readout"><span class="mp-rd-val" id="mp-rd-val">—</span><span class="mp-rd-note" id="mp-rd-note"></span></div>
+          <span class="mp-rd-val" id="mp-rd-val">—</span>
           <div class="mp-legend" id="mp-legend"></div>
         </div>
         <div class="mp-status" id="mp-status"></div>
@@ -597,15 +593,10 @@ function mapBuildUI() {
     mapLegend(); mapDraw(false);
   });
   document.getElementById('mp-play').addEventListener('click', mapTogglePlay);
-  const dt = document.getElementById('mp-detail');
-  if (dt) dt.addEventListener('click', ev => {
+  const vw = document.getElementById('mp-views');
+  if (vw) vw.addEventListener('click', ev => {
     const b = ev.target.closest('.mp-dbtn'); if (!b) return;
-    mapSetDetail(parseInt(b.dataset.n, 10));
-  });
-  const rg = document.getElementById('mp-range');
-  if (rg) rg.addEventListener('click', ev => {
-    const b = ev.target.closest('.mp-dbtn'); if (!b) return;
-    mapSetRange(parseFloat(b.dataset.d));
+    mapSetView(parseInt(b.dataset.i, 10));
   });
   mapBindScrub();
   mapLegend();
@@ -628,7 +619,7 @@ function mapLegend() {
 
 // value under the centre point, so the map always states a number
 function mapReadout() {
-  const v = document.getElementById('mp-rd-val'), n = document.getElementById('mp-rd-note');
+  const v = document.getElementById('mp-rd-val');
   if (!v || !MAP.ready) return;
   const N = MAP.gridN, mid = Math.floor(N / 2) * N + Math.floor(N / 2);
   const val = mapBlendMetric(MAP.metric)[MAP.hourSel][mid];
@@ -641,8 +632,6 @@ function mapReadout() {
           : Math.round(val) + (u === '%' ? u : ' ' + u);
   }
   v.textContent = txt;
-  if (n) n.textContent = MAP_LABEL[MAP.metric] + ' at your location · ' + mapClock(MAP.hourSel)
-    + (MAP.hourSel === MAP.nowIdx ? ' (now)' : '');
 }
 
 function mapSyncScrub() {
