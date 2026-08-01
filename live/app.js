@@ -197,7 +197,8 @@ function _recalcAndRender(){
   renderCurrentBar(); renderTable();
   try{ buildSourcesPanel(); }catch(e){}
   try{ if(!document.getElementById('acc-overlay').classList.contains('hidden')) renderAccuracyPanel(); }catch(e){}
-  // weights or model selection moved — the map's blended grid is stale
+  // weights, models or metric choice moved — re-blend the grid we already
+  // hold rather than fetching it again
   try{ if(typeof mapReblend==='function') mapReblend(); }catch(e){}
 }
 function setWeightMethod(m){
@@ -248,8 +249,6 @@ function toggleSection(sec,btn){
     btn.classList.toggle('disabled',!secVisible[sec]);
   }
   savePrefs();
-  // a newly enabled metric was never fetched for the map grid — refetch it
-  try{ if(typeof mapInvalidate==='function') mapInvalidate(); }catch(e){}
   _recalcAndRender();
 }
 

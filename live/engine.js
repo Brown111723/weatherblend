@@ -155,6 +155,7 @@ function normalizeOM(j){
     map(j.hourly,'weathercode','weather_code');
     map(j.hourly,'wind_gusts_10m','windgusts_10m');
     map(j.hourly,'surface_pressure','surface_pressure_hpa');
+    map(j.hourly,'dew_point_2m','dewpoint_2m');
   }
   if(j && j.daily){
     map(j.daily,'windspeed_10m_max','wind_speed_10m_max');
@@ -254,6 +255,112 @@ function actWindowAt(field,idx,step){
   return isSum?sum:sum/cnt;
 }
 
+
+// ── Fetch: all models in one request ────────────────────────────────────
+// /v1/forecast takes models=a,b,c and returns each variable suffixed with
+// the model name (temperature_2m_gfs_seamless). One request instead of
+// seven means one seventh the point-fetches and, more importantly, no
+// burst of parallel requests for the rate limiter to object to.
+// Everything downstream still sees the same per-model shape.
+function hourlyFieldList(){
+  const f=['precipitation','wind_speed_10m','wind_direction_10m','temperature_2m',
+           'weather_code','cloud_cover','relative_humidity_2m','apparent_temperature',
+           'surface_pressure','uv_index','visibility','dew_point_2m'];
+  // only pulled when the metric is actually switched on
+  if(secVisible.snow) f.push('snowfall');
+  if(secVisible.gust) f.push('wind_gusts_10m');
+  return f;
+}
+const DAILY_FIELDS='weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,'
+  +'wind_speed_10m_max,wind_direction_10m_dominant,sunrise,sunset,uv_index_max';
+
+// pull one model's series out of a combined response
+function splitCombined(json,key,single){
+  const out={utc_offset_seconds:json.utc_offset_seconds,timezone:json.timezone};
+  ['hourly','daily'].forEach(blk=>{
+    if(!json[blk])return;
+    const src=json[blk],dst={};
+    Object.keys(src).forEach(name=>{
+      if(name==='time'){dst.time=src.time;return;}
+      if(single){dst[name]=src[name];return;}
+      const suf='_'+key;
+      if(name.endsWith(suf))dst[name.slice(0,-suf.length)]=src[name];
+    });
+    out[blk]=dst;
+  });
+  return out;
+}
+
+async function fetchModelsCombined(){
+  const keys=MODELS.map(m=>m.key);
+  const past=Math.max(7,Math.min(31,learnDays));
+  const url=`https://api.open-meteo.com/v1/forecast`
+    +`?latitude=${state.lat}&longitude=${state.lon}`
+    +`&hourly=${hourlyFieldList().join(',')}`
+    +`&daily=${DAILY_FIELDS}`
+    +`&models=${keys.join(',')}&past_days=${past}&forecast_days=10&timezone=auto&wind_speed_unit=kmh`;
+  try{
+    const res=await fetch(url,{signal:AbortSignal.timeout(30000)});
+    if(!res.ok)throw new Error(`HTTP ${res.status}`);
+    const json=await res.json();
+    if(json.error)throw new Error(json.reason||'API error');
+    if(!json.hourly||!json.hourly.time)throw new Error('No hourly block');
+    const single=keys.length===1;
+    let ok=0;
+    keys.forEach(k=>{
+      try{
+        const one=splitCombined(json,k,single);
+        normalizeOM(one);
+        if(!one.hourly?.temperature_2m?.some(v=>v!=null))throw new Error('No data');
+        state.data[k]=one;state.status[k]='ok';ok++;
+        if(locationOffsetSec==null&&typeof one.utc_offset_seconds==='number')locationOffsetSec=one.utc_offset_seconds;
+        if(!state.ss.loaded&&one.daily?.sunrise){
+          state.ss.rise=one.daily.sunrise;state.ss.set=one.daily.sunset;
+          state.ss.dates=one.daily.time;state.ss.loaded=true;
+        }
+      }catch(e){state.status[k]='fail';autoHidden.add(k);dbg(k+': '+e.message);}
+    });
+    if(!ok)throw new Error('combined response held no usable model');
+    dbg(`combined fetch: ${ok}/${keys.length} models in 1 request`);
+    updatePills();
+    return;
+  }catch(e){
+    dbg('combined fetch failed ('+e.message+') — falling back to per-model');
+  }
+  await fetchModelsIndividually();
+}
+
+// the original path, kept as a safety net
+async function fetchModelsIndividually(){
+  const past=Math.max(7,Math.min(31,learnDays));
+  const H=hourlyFieldList().join(',');
+  const baseH='precipitation,wind_speed_10m,wind_direction_10m,temperature_2m,weather_code,cloud_cover,relative_humidity_2m';
+  await Promise.all(MODELS.map(async m=>{
+    const buildUrl=h=>`https://api.open-meteo.com${m.ep}`
+      +`?latitude=${state.lat}&longitude=${state.lon}&hourly=${h}&daily=${DAILY_FIELDS}`
+      +`&models=${m.key}&past_days=${past}&forecast_days=10&timezone=auto&wind_speed_unit=kmh`;
+    const tryFetch=async h=>{
+      const res=await fetch(buildUrl(h),{signal:AbortSignal.timeout(20000)});if(!res.ok)throw new Error(`HTTP ${res.status}`);
+      const json=await res.json();if(json.error)throw new Error(json.reason||'API error');
+      normalizeOM(json);
+      if(!json.hourly?.temperature_2m?.some(v=>v!=null))throw new Error('No data');
+      return json;
+    };
+    try{
+      let json;
+      try{ json=await tryFetch(H); }
+      catch(e1){ dbg(m.key+': extras failed ('+e1.message+') — retrying base fields'); json=await tryFetch(baseH); }
+      state.data[m.key]=json;state.status[m.key]='ok';
+      if(locationOffsetSec==null&&typeof json.utc_offset_seconds==='number')locationOffsetSec=json.utc_offset_seconds;
+      if(!state.ss.loaded&&json.daily?.sunrise){
+        state.ss.rise=json.daily.sunrise;state.ss.set=json.daily.sunset;
+        state.ss.dates=json.daily.time;state.ss.loaded=true;
+      }
+    }catch(e){console.warn(m.key,e.message);state.status[m.key]='fail';autoHidden.add(m.key);}
+    updatePills();
+  }));
+}
+
 // ── Fetch: the 7 global models ──────────────────────────────────────────
 async function fetchAllModels(){
   dbg(`=== fetchAllModels: lat=${state.lat}, lon=${state.lon} ===`);
@@ -269,35 +376,7 @@ async function fetchAllModels(){
 
   locationOffsetSec=null;
 
-  await Promise.all(MODELS.map(async m=>{
-    const baseH='precipitation,wind_speed_10m,wind_direction_10m,temperature_2m,weather_code,cloud_cover,relative_humidity_2m';
-    const extraH=',apparent_temperature,snowfall,wind_gusts_10m,surface_pressure,uv_index';
-    const buildUrl=h=>`https://api.open-meteo.com${m.ep}`
-      +`?latitude=${state.lat}&longitude=${state.lon}`
-      +`&hourly=${h}`
-      +`&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,`
-      +`wind_speed_10m_max,wind_direction_10m_dominant,sunrise,sunset,uv_index_max`
-      +`&models=${m.key}&past_days=${Math.max(7,Math.min(31,learnDays))}&forecast_days=10&timezone=auto&wind_speed_unit=kmh`;
-    const tryFetch=async h=>{
-      const res=await fetch(buildUrl(h),{signal:AbortSignal.timeout(20000)});if(!res.ok)throw new Error(`HTTP ${res.status}`);
-      const json=await res.json();if(json.error)throw new Error(json.reason||'API error');
-      normalizeOM(json);
-      if(!json.hourly?.temperature_2m?.some(v=>v!=null))throw new Error('No data');
-      return json;
-    };
-    try{
-      let json;
-      try{ json=await tryFetch(baseH+extraH); }
-      catch(e1){ dbg(m.key+': extras failed ('+e1.message+') — retrying base fields'); json=await tryFetch(baseH); }
-      state.data[m.key]=json;state.status[m.key]='ok';
-      if(locationOffsetSec==null&&typeof json.utc_offset_seconds==='number')locationOffsetSec=json.utc_offset_seconds;
-      if(!state.ss.loaded&&json.daily?.sunrise){
-        state.ss.rise=json.daily.sunrise;state.ss.set=json.daily.sunset;
-        state.ss.dates=json.daily.time;state.ss.loaded=true;
-      }
-    }catch(e){console.warn(m.key,e.message);state.status[m.key]='fail';autoHidden.add(m.key);}
-    updatePills();
-  }));
+  await fetchModelsCombined();
 
   if(locationOffsetSec==null)locationOffsetSec=-new Date().getTimezoneOffset()*60;
 

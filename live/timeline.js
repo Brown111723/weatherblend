@@ -673,17 +673,23 @@ async function tlSecFetch() {
   const key = state.lat.toFixed(3) + ',' + state.lon.toFixed(3);
   if (TL.secKey === key) return;
   TL.secKey = key; TL.sec = null;
+  // These five all arrive with the model fetch now, so there is no second
+  // request — and they come out of the blend rather than a single model.
   try {
-    const u = 'https://api.open-meteo.com/v1/forecast?latitude=' + state.lat + '&longitude=' + state.lon
-      + '&hourly=uv_index,relative_humidity_2m,surface_pressure,visibility,dew_point_2m&past_days=7&forecast_days=10&timezone=auto';
-    const r = await fetch(u, { signal: AbortSignal.timeout(15000) });
-    const j = await r.json();
-    if (j && j.hourly && j.hourly.time) {
-      const im = {}; j.hourly.time.forEach((t, i) => { im[t] = i; });
-      TL.sec = { im, uv: j.hourly.uv_index, hum: j.hourly.relative_humidity_2m, pres: j.hourly.surface_pressure, vis: j.hourly.visibility, dew: j.hourly.dew_point_2m, aqi: null, aqiIm: null };
+    const ref = refHourly();
+    if (ref && ref.time) {
+      const im = {}; ref.time.forEach((t, i) => { im[t] = i; });
+      const series = f => ref.time.map((t, i) => {
+        try { return wBlendAt(f, i, horizonOf(t.slice(0, 10))); } catch (e) { return null; }
+      });
+      TL.sec = {
+        im, uv: series('uv_index'), hum: series('relative_humidity_2m'),
+        pres: series('surface_pressure'), vis: series('visibility'), dew: series('dew_point_2m'),
+        aqi: null, aqiIm: null
+      };
       tlSecRender();
     }
-  } catch (e) { dbg('timeline: secondary fetch failed: ' + (e.message || e.name)); }
+  } catch (e) { dbg('timeline: secondary build failed: ' + (e.message || e.name)); }
   try {
     const u2 = 'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + state.lat + '&longitude=' + state.lon
       + '&hourly=us_aqi&past_days=7&forecast_days=5&timezone=auto';

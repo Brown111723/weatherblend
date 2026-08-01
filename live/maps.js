@@ -73,8 +73,7 @@ function mapRefetchSoon() {
   MAP._reTimer = setTimeout(() => { MAP._reTimer = null; mapInvalidate(); }, 1100);
 }
 function mapCacheKey() {
-  return [MAP.gridN, MAP.spanLat, (state.lat || 0).toFixed(3), (state.lon || 0).toFixed(3),
-    mapMetrics().join('+')].join('|');
+  return [MAP.gridN, MAP.spanLat, (state.lat || 0).toFixed(3), (state.lon || 0).toFixed(3)].join('|');
 }
 
 const MAP_FIELD = {
@@ -173,11 +172,53 @@ function mapBuildGrid() {
   MAP.bounds = [[MAP.lats[N - 1], MAP.lons[0]], [MAP.lats[0], MAP.lons[N - 1]]];
 }
 
+// Safety net if the combined request is rejected: the original one-model-
+// per-request path, throttled two at a time so it can't trip the limiter.
+async function mapFetchPerModel(models, fields, winStart, winEnd, P, report) {
+  const N = MAP.gridN;
+  const latCsv = [], lonCsv = [];
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) { latCsv.push(MAP.lats[r].toFixed(4)); lonCsv.push(MAP.lons[c].toFixed(4)); }
+  let ok = 0, done = 0, rateLimited = false;
+  const fails = [];
+  const one = async m => {
+    const base = `https://api.open-meteo.com${m.ep}`
+      + `?latitude=${latCsv.join(',')}&longitude=${lonCsv.join(',')}`
+      + `&hourly=${fields.join(',')}&models=${m.key}&timezone=UTC&wind_speed_unit=kmh`;
+    const grab = async span => {
+      const res = await fetch(base + span, { signal: AbortSignal.timeout(45000) });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      let j = await res.json();
+      if (j && j.error) throw new Error(j.reason || 'API error');
+      if (!Array.isArray(j)) j = [j];
+      if (j.length !== P) throw new Error('grid size ' + j.length + ' ≠ ' + P);
+      j.forEach(o => { if (typeof normalizeOM === 'function') normalizeOM(o); });
+      if (!j[0].hourly || !j[0].hourly.time || !j[0].hourly.time.length) throw new Error('no hours');
+      return j;
+    };
+    try {
+      let j;
+      try { j = await grab(`&start_hour=${winStart}&end_hour=${winEnd}`); }
+      catch (e1) { j = await grab('&past_days=1&forecast_days=2'); }
+      MAP.raw[m.key] = j; ok++;
+    } catch (e) {
+      if (/429/.test(e.message)) rateLimited = true;
+      fails.push((m.label || m.key) + ': ' + e.message);
+      if (typeof dbg === 'function') dbg('map ' + m.key + ': ' + e.message);
+    }
+    done++; mapStatus('Fetching grid… ' + done + '/' + models.length + ' models');
+  };
+  for (let i = 0; i < models.length; i += 2) {
+    await Promise.all(models.slice(i, i + 2).map(one));
+    if (i + 2 < models.length) await new Promise(r => setTimeout(r, 260));
+  }
+  report({ ok, fails, rateLimited });
+}
+
 async function mapFetch() {
   if (MAP.loading) return;
   const ck = mapCacheKey();
   const hit = MAP.cache[ck];
-  if (hit && Date.now() - hit.at < 20 * 60000) {          // settings already fetched recently
+  if (hit && Date.now() - hit.at < 60 * 60000) {          // one full refresh cycle
     Object.assign(MAP, {
       raw: hit.raw, times: hit.times, nowIdx: hit.nowIdx, _offset: hit.offset,
       bounds: hit.bounds, lats: hit.lats, lons: hit.lons, gridN: hit.gridN,
@@ -195,8 +236,9 @@ async function mapFetch() {
     const N = MAP.gridN, P = N * N;
     const latCsv = [], lonCsv = [];
     for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) { latCsv.push(MAP.lats[r].toFixed(4)); lonCsv.push(MAP.lons[c].toFixed(4)); }
-    const fields = mapMetrics().map(k => MAP_FIELD[k]).filter(Boolean);
-    if (!fields.length) throw new Error('No metrics selected');
+    // every field, always: variables are cheap next to locations, and it
+    // means switching or enabling a metric never triggers another fetch
+    const fields = Object.keys(MAP_FIELD).map(k => MAP_FIELD[k]);
 
     const hr = Math.floor(Date.now() / 3600000) * 3600000;
     const isoH = ms => new Date(ms).toISOString().slice(0, 13) + ':00';
@@ -207,39 +249,50 @@ async function mapFetch() {
     MAP.raw = {};
     let ok = 0, done = 0, rateLimited = false;
     const fails = [];
-    const fetchOne = async m => {
-      const base = `https://api.open-meteo.com${m.ep}`
+
+    // One request for all models: the grid points are what cost, and this
+    // sends them once instead of once per model.
+    const keys = models.map(m => m.key);
+    try {
+      mapStatus('Fetching grid…');
+      const url = `https://api.open-meteo.com/v1/forecast`
         + `?latitude=${latCsv.join(',')}&longitude=${lonCsv.join(',')}`
-        + `&hourly=${fields.join(',')}&models=${m.key}&timezone=UTC&wind_speed_unit=kmh`;
-      const grab = async span => {
-        const res = await fetch(base + span, { signal: AbortSignal.timeout(45000) });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        let j = await res.json();
-        if (j && j.error) throw new Error(j.reason || 'API error');
-        if (!Array.isArray(j)) j = [j];             // single-point responses aren't wrapped
-        if (j.length !== P) throw new Error('grid size ' + j.length + ' ≠ ' + P);
-        j.forEach(o => { if (typeof normalizeOM === 'function') normalizeOM(o); });
-        if (!j[0].hourly || !j[0].hourly.time || !j[0].hourly.time.length) throw new Error('no hours');
-        return j;
-      };
-      try {
-        let j;
-        try { j = await grab(`&start_hour=${winStart}&end_hour=${winEnd}`); }
-        catch (e1) { j = await grab('&past_days=1&forecast_days=2'); }   // endpoint may not take an hour window
-        MAP.raw[m.key] = j; ok++;
-      } catch (e) {
-        if (/429/.test(e.message)) rateLimited = true;
-        fails.push((m.label || m.key) + ': ' + e.message);
-        if (typeof dbg === 'function') dbg('map ' + m.key + ': ' + e.message);
-      }
-      done++; mapStatus('Fetching grid… ' + done + '/' + models.length + ' models');
-    };
-    // two at a time with a short gap — seven simultaneous multi-point
-    // requests is what the rate limiter objects to
-    for (let i = 0; i < models.length; i += 2) {
-      await Promise.all(models.slice(i, i + 2).map(fetchOne));
-      if (i + 2 < models.length) await new Promise(r => setTimeout(r, 260));
+        + `&hourly=${fields.join(',')}&models=${keys.join(',')}`
+        + `&start_hour=${winStart}&end_hour=${winEnd}&timezone=UTC&wind_speed_unit=kmh`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(60000) });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      let j = await res.json();
+      if (j && j.error) throw new Error(j.reason || 'API error');
+      if (!Array.isArray(j)) j = [j];
+      if (j.length !== P) throw new Error('grid size ' + j.length + ' ≠ ' + P);
+      const single = keys.length === 1;
+      keys.forEach(k => {
+        const per = j.map(pt => {
+          const h = pt.hourly || {}, dst = { time: h.time };
+          Object.keys(h).forEach(name => {
+            if (name === 'time') return;
+            if (single) { dst[name] = h[name]; return; }
+            const suf = '_' + k;
+            if (name.endsWith(suf)) dst[name.slice(0, -suf.length)] = h[name];
+          });
+          const o = { hourly: dst };
+          if (typeof normalizeOM === 'function') normalizeOM(o);
+          return o;
+        });
+        if (per[0] && per[0].hourly && per[0].hourly.temperature_2m
+            && per[0].hourly.temperature_2m.some(v => v != null)) { MAP.raw[k] = per; ok++; }
+      });
+      if (!ok) throw new Error('combined grid held no usable model');
+      mapLog('combined grid: ' + ok + '/' + keys.length + ' models in 1 request');
+    } catch (eC) {
+      mapLog('combined grid failed (' + eC.message + ') — per-model fallback');
+      if (/429/.test(eC.message)) rateLimited = true;
+      MAP.raw = {};
+      await mapFetchPerModel(models, fields, winStart, winEnd, P, r => {
+        ok = r.ok; fails.push.apply(fails, r.fails); if (r.rateLimited) rateLimited = true;
+      });
     }
+
     if (fails.length) mapLog(fails.length + ' model(s) failed — ' + fails[0]);
     if (!ok) {
       throw new Error(rateLimited
@@ -688,8 +741,12 @@ function mapReblend() {
   if (!MAP.ready) return;
   MAP.blend = {}; MAP.frames = {};
   const metrics = mapMetrics();
-  if (metrics.indexOf(MAP.metric) < 0) { MAP.metric = metrics[0]; MAP.built = false; mapEnsure(); return; }
-  if (typeof sectionsVisible !== 'undefined' && sectionsVisible.map) mapDraw(false);
+  const stale = metrics.indexOf(MAP.metric) < 0;
+  if (stale) MAP.metric = metrics[0];
+  if (typeof sectionsVisible === 'undefined' || !sectionsVisible.map) return;
+  mapBuildUI();          // chip row follows the metric set
+  mapInitLeaflet();
+  mapDraw(true);
 }
 // the tab can already be open from saved prefs, in which case nothing
 // would ever have called mapEnsure
