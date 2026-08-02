@@ -6,6 +6,7 @@
 .mp-chip{flex:0 0 auto;background:var(--surface,#141a24);border:1px solid var(--border,#1f2733);color:var(--text-muted,#93a6c0);
   border-radius:20px;padding:6px 13px;font-size:12px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;cursor:pointer;}
 .mp-chip.on{color:#08111c;border-color:transparent;}
+.mp-chip.on::before{content:'✓ ';font-weight:800;}
 .mp-chip.on.mp-c-temp{background:var(--q-temp,#7EE8A5);}
 .mp-chip.on.mp-c-rain{background:var(--q-rain,#5FA4FF);}
 .mp-chip.on.mp-c-wind{background:var(--q-wind,#A8E63E);}
@@ -47,8 +48,23 @@
   border-radius:7px;padding:4px 11px;font-size:11px;font-weight:600;cursor:pointer;}
 .mp-dbtn.on{background:var(--surface2,#1c2532);border-color:var(--border2,#2a3444);color:var(--text-primary,#f4f7fd);}
 
-.mp-legend{flex:1 1 auto;min-width:0;max-width:62%;margin-left:auto;}
-.mp-lg-bar{height:8px;border-radius:5px;border:1px solid rgba(255,255,255,.18);}
+.mp-legend{flex:1 1 auto;min-width:0;max-width:60%;margin-left:auto;
+  display:flex;flex-direction:column;gap:3px;}
+.mp-lg-row{display:flex;align-items:center;gap:6px;}
+.mp-lg-name{flex:0 0 auto;font-size:9.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
+  text-shadow:0 1px 5px rgba(0,0,0,.95);min-width:38px;}
+.mp-lg-hi{flex:0 0 auto;font-size:9.5px;color:rgba(255,255,255,.7);text-shadow:0 1px 5px rgba(0,0,0,.95);
+  font-variant-numeric:tabular-nums;}
+.mp-lg-note{font-size:9.5px;color:rgba(255,255,255,.7);text-shadow:0 1px 5px rgba(0,0,0,.95);}
+.mp-c-t-temp{color:var(--q-temp,#7EE8A5);} .mp-c-t-rain{color:var(--q-rain,#5FA4FF);}
+.mp-c-t-wind{color:var(--q-wind,#A8E63E);} .mp-c-t-cloud{color:var(--q-cloud,#C8A6FF);}
+.mp-c-t-snow{color:var(--q-snow,#BFE8FF);} .mp-c-t-gust{color:var(--q-gust,#FFB86B);}
+.mp-c-t-humid{color:var(--q-humid,#4ED6B8);} .mp-c-t-press{color:var(--q-press,#F09AD0);}
+.mp-c-t-uv{color:var(--q-uv,#FFD75E);}
+.mp-rd-extra{display:flex;flex-direction:column;gap:1px;}
+.mp-rd-x{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;
+  text-shadow:0 1px 6px rgba(0,0,0,.95);white-space:nowrap;}
+.mp-lg-bar{flex:1 1 auto;height:7px;border-radius:4px;border:1px solid rgba(255,255,255,.18);}
 .mp-lg-ax{display:flex;justify-content:space-between;margin-top:3px;font-size:11px;
   color:rgba(255,255,255,.72);font-variant-numeric:tabular-nums;text-shadow:0 1px 5px rgba(0,0,0,.9);}
 

@@ -50,6 +50,11 @@ function mapLoadPrefs() {
     const k = localStorage.getItem('wb_map_view');
     const i = MAP_VIEWS.findIndex(v => v.key === k);
     if (i >= 0) MAP.viewIdx = i;
+    const l = localStorage.getItem('wb_map_layers');
+    if (l) {
+      const arr = l.split(',').filter(x => LAYER_ORDER.indexOf(x) >= 0);
+      if (arr.length) MAP.layers = arr;
+    }
   } catch (e) {}
 }
 function mapSetView(i) {
@@ -80,16 +85,17 @@ function mapRefetchSoon() {
   MAP._reTimer = setTimeout(() => { MAP._reTimer = null; mapInvalidate(); }, 1100);
 }
 function mapCacheKey() {
-  return [MAP.metric, MAP.gridN, MAP.spanLat,
+  return [mapFramesKey(), MAP.gridN, MAP.spanLat,
     (state.lat || 0).toFixed(3), (state.lon || 0).toFixed(3)].join('|');
 }
 
 const MAP_FIELD = {
   temp: 'temperature_2m', rain: 'precipitation', wind: 'wind_speed_10m',
   cloud: 'cloud_cover', snow: 'snowfall', gust: 'wind_gusts_10m',
-  humid: 'relative_humidity_2m', press: 'surface_pressure', uv: 'uv_index'
+  humid: 'relative_humidity_2m', press: 'surface_pressure', uv: 'uv_index',
+  _winddir: 'wind_direction_10m'
 };
-const MAP_SEC = { temp: 'temp', rain: 'rain', wind: 'wind', cloud: 'cloud', snow: 'rain', gust: 'wind', humid: 'cloud', press: null, uv: null };
+const MAP_SEC = { temp: 'temp', rain: 'rain', wind: 'wind', cloud: 'cloud', snow: 'rain', gust: 'wind', humid: 'cloud', press: null, uv: null, _winddir: 'wind' };
 const MAP_LABEL = {
   temp: 'Temp', rain: 'Rain', wind: 'Wind', cloud: 'Cloud',
   snow: 'Snow', gust: 'Gusts', humid: 'Humidity', press: 'Pressure', uv: 'UV'
@@ -259,10 +265,13 @@ async function mapFetch() {
     const N = MAP.gridN, P = N * N;
     const latCsv = [], lonCsv = [];
     for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) { latCsv.push(MAP.lats[r].toFixed(4)); lonCsv.push(MAP.lons[c].toFixed(4)); }
-    // Just the metric on screen: 7 models x 1 metric = 7 variables, which
-    // is under the 10-variable floor, so this is the cheapest possible grid.
-    const fields = [MAP_FIELD[MAP.metric]].filter(Boolean);
-    if (!fields.length) throw new Error('Unknown metric');
+    // Everything selected, in one request. Because billing is
+    // max(1, variables/10), fetching layers together is cheaper than
+    // fetching them one at a time — the floor wastes headroom otherwise.
+    const want = mapActiveLayers().slice();
+    if (want.indexOf('wind') >= 0) want.push('_winddir');
+    const fields = want.map(k => MAP_FIELD[k]).filter(Boolean);
+    if (!fields.length) throw new Error('No layers selected');
 
     const hr = Math.floor(Date.now() / 3600000) * 3600000;
     const isoH = ms => new Date(ms).toISOString().slice(0, 13) + ':00';
@@ -393,14 +402,31 @@ function mapBlendMetric(metric) {
 }
 
 // ── painting ────────────────────────────────────────────────────────────
+const LAYER_ORDER = ['temp', 'humid', 'press', 'uv', 'cloud', 'snow', 'rain', 'gust', 'wind'];
+function mapActiveLayers() {
+  const on = (MAP.layers && MAP.layers.length) ? MAP.layers : [MAP.metric];
+  return LAYER_ORDER.filter(k => on.indexOf(k) >= 0);
+}
+function mapFramesKey() { return mapActiveLayers().join('+'); }
+
+// Layers use distinct visual channels so they can be read at once: temp
+// owns hue, cloud removes saturation, rain adds its own colour only where
+// it falls, wind is arrows. Four translucent colour fields would be mud.
 function mapFrame(metric, h) {
-  if (!MAP.frames[metric]) MAP.frames[metric] = [];
-  if (MAP.frames[metric][h]) return MAP.frames[metric][h];
+  const fkey = mapFramesKey();
+  if (!MAP.frames[fkey]) MAP.frames[fkey] = [];
+  if (MAP.frames[fkey][h]) return MAP.frames[fkey][h];
   const N = MAP.gridN, W = 300, H = 300;
   const latN = MAP.lats[0], latS = MAP.lats[N - 1];
   const mN = mapMerc(latN), mS = mapMerc(latS), dLat = (latN - latS) || 1;
-  const vals = mapBlendMetric(metric)[h];
-  const col = MAP_COLOR[metric] || MAP_COLOR.temp;
+  const layers = mapActiveLayers();
+  const grids = {};
+  layers.forEach(k => { grids[k] = mapBlendMetric(k)[h]; });
+  const sample = (vals, r0, r1, ty, c0, c1, tx) => {
+    const a = vals[r0 * N + c0], b = vals[r0 * N + c1], c = vals[r1 * N + c0], d = vals[r1 * N + c1];
+    if (a == null || b == null || c == null || d == null) return null;
+    return a * (1 - tx) * (1 - ty) + b * tx * (1 - ty) + c * (1 - tx) * ty + d * tx * ty;
+  };
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const ctx = cv.getContext('2d');
   const img = ctx.createImageData(W, H);
@@ -413,19 +439,65 @@ function mapFrame(metric, h) {
     for (let x = 0; x < W; x++) {
       const gx = (x / (W - 1)) * (N - 1);
       const c0 = Math.min(N - 1, Math.floor(gx)), c1 = Math.min(N - 1, c0 + 1), tx = gx - c0;
-      const a = vals[r0 * N + c0], b = vals[r0 * N + c1], c = vals[r1 * N + c0], d = vals[r1 * N + c1];
-      let v = null;
-      if (a != null && b != null && c != null && d != null) {
-        v = a * (1 - tx) * (1 - ty) + b * tx * (1 - ty) + c * (1 - tx) * ty + d * tx * ty;
+      // composite each layer over what is already painted
+      let R = 0, G = 0, B = 0, A = 0;
+      for (const k of layers) {
+        if (k === 'wind') continue;                  // arrows, not colour
+        const v = sample(grids[k], r0, r1, ty, c0, c1, tx);
+        const px = (MAP_COLOR[k] || MAP_COLOR.temp)(v);
+        const sa = px[3] / 255; if (sa <= 0) continue;
+        if (k === 'cloud' && A > 0) {
+          // cloud drains colour from what is beneath instead of tinting it
+          const lum = 0.299 * R + 0.587 * G + 0.114 * B;
+          R += (lum - R) * sa * 0.55; G += (lum - G) * sa * 0.55; B += (lum - B) * sa * 0.55;
+          R += (238 - R) * sa * 0.30; G += (242 - G) * sa * 0.30; B += (250 - B) * sa * 0.30;
+          A = A + sa * (1 - A);
+          continue;
+        }
+        const na = sa + A * (1 - sa);
+        if (na > 0) {
+          R = (px[0] * sa + R * A * (1 - sa)) / na;
+          G = (px[1] * sa + G * A * (1 - sa)) / na;
+          B = (px[2] * sa + B * A * (1 - sa)) / na;
+        }
+        A = na;
       }
-      const px = col(v), o = (y * W + x) * 4;
-      img.data[o] = px[0]; img.data[o + 1] = px[1]; img.data[o + 2] = px[2]; img.data[o + 3] = px[3];
+      const o = (y * W + x) * 4;
+      img.data[o] = R; img.data[o + 1] = G; img.data[o + 2] = B; img.data[o + 3] = A * 255;
     }
   }
   ctx.putImageData(img, 0, 0);
+  if (layers.indexOf('wind') >= 0) mapDrawWind(ctx, W, H, h);
   const url = cv.toDataURL('image/png');
-  MAP.frames[metric][h] = url;
+  MAP.frames[fkey][h] = url;
   return url;
+}
+
+// wind as arrows — a channel of its own, legible over any colour field
+function mapDrawWind(ctx, W, H, h) {
+  const N = MAP.gridN;
+  const spd = mapBlendMetric('wind')[h];
+  const dir = mapBlendMetric('_winddir')[h];
+  const step = N > 11 ? 2 : 1;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (let r = 0; r < N; r += step) {
+    for (let c = 0; c < N; c += step) {
+      const v = spd[r * N + c]; if (v == null) continue;
+      const d = dir ? dir[r * N + c] : null;
+      const x = (c / (N - 1)) * W, y = (r / (N - 1)) * H;
+      const len = 5 + Math.min(11, v / 6);
+      const a = ((d == null ? 0 : d) + 180) * Math.PI / 180;    // pointing downwind
+      const dx = Math.sin(a) * len, dy = -Math.cos(a) * len;
+      ctx.strokeStyle = 'rgba(255,255,255,' + Math.min(0.92, 0.36 + v / 70).toFixed(2) + ')';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(x - dx, y - dy); ctx.lineTo(x + dx, y + dy); ctx.stroke();
+      const hx = x + dx, hy = y + dy, sz = 3.4;
+      ctx.beginPath();
+      ctx.moveTo(hx, hy); ctx.lineTo(hx - Math.sin(a - 0.42) * sz, hy + Math.cos(a - 0.42) * sz);
+      ctx.moveTo(hx, hy); ctx.lineTo(hx - Math.sin(a + 0.42) * sz, hy + Math.cos(a + 0.42) * sz);
+      ctx.stroke();
+    }
+  }
 }
 
 // ── tiles, with an automatic fallback ───────────────────────────────────
@@ -537,11 +609,13 @@ function mapDiag() {
   const v = MAP_VIEWS[MAP.viewIdx] || MAP_VIEWS[0];
   const shownKm = Math.round(km * v.crop);
   const nMod = MAP.ready ? Object.keys(MAP.raw).length : mapModels().length;
-  const cost = Math.round(Math.max(1, nMod / 10) * (N * N));
+  const nLay = mapActiveLayers().length + (mapActiveLayers().indexOf('wind') >= 0 ? 1 : 0);
+  const cost = Math.round(Math.max(1, (nMod * nLay) / 10) * (N * N));
   const bits = [];
   bits.push(MAP.ready ? nMod + '/' + want + ' models · ' + (N * N) + ' pts · ~' + cost + ' API calls'
     : MAP.loading ? 'fetching grid…' : 'no grid yet');
   bits.push('grid ' + N + '×' + N + ' over ' + km + 'km · ~' + spacing + 'km spacing');
+  bits.push('layers: ' + mapActiveLayers().join(', '));
   bits.push('showing ' + shownKm + 'km' + (v.crop < 1 ? ' (zoomed, no extra fetch)' : ''));
   bits.push('tiles: ' + (MAP.tilesOk ? MAP.tilesOk + ' loaded (' + MAP_TILES[MAP.tileIdx || 0].name + ')' : 'none yet'));
   // surface any drift between the grid and the table straight away
@@ -594,8 +668,9 @@ function mapBuildUI() {
   if (MAP.map) { try { MAP.map.remove(); } catch (e) {} MAP.map = null; MAP.overlay = null; MAP.baseLayer = null; MAP.labelLayer = null; }
   const metrics = mapMetrics();
   if (metrics.indexOf(MAP.metric) < 0) MAP.metric = metrics[0];
+  const on = mapActiveLayers();
   const chips = metrics.map(k =>
-    `<button type="button" class="mp-chip${k === MAP.metric ? ' on' : ''} mp-c-${k}" data-m="${k}">${MAP_LABEL[k]}</button>`).join('');
+    `<button type="button" class="mp-chip${on.indexOf(k) >= 0 ? ' on' : ''} mp-c-${k}" data-m="${k}">${MAP_LABEL[k]}</button>`).join('');
   const detail = `<div class="mp-ctl"><div class="mp-detail" id="mp-views">`
     + MAP_VIEWS.map((v, i) => `<button type="button" class="mp-dbtn${i === MAP.viewIdx ? ' on' : ''}" data-i="${i}">${v.label}</button>`).join('')
     + `</div></div>`;
@@ -608,6 +683,7 @@ function mapBuildUI() {
         <div id="mp-map"></div>
         <div class="mp-hud">
           <span class="mp-rd-val" id="mp-rd-val">—</span>
+          <span class="mp-rd-extra" id="mp-rd-extra"></span>
           <div class="mp-legend" id="mp-legend"></div>
         </div>
         <div class="mp-status" id="mp-status"></div>
@@ -628,13 +704,17 @@ function mapBuildUI() {
   MAP.built = true;
   document.getElementById('mp-chips').addEventListener('click', ev => {
     const b = ev.target.closest('.mp-chip'); if (!b) return;
-    if (MAP.metric === b.dataset.m) return;
-    MAP.metric = b.dataset.m;
-    document.querySelectorAll('.mp-chip').forEach(x => x.classList.toggle('on', x === b));
+    const k = b.dataset.m;
+    const cur = mapActiveLayers();
+    let next = cur.indexOf(k) >= 0 ? cur.filter(x => x !== k) : cur.concat([k]);
+    if (!next.length) next = [k];                   // never leave the map blank
+    MAP.layers = next;
+    MAP.metric = LAYER_ORDER.filter(x => next.indexOf(x) >= 0).pop() || k;
+    try { localStorage.setItem('wb_map_layers', next.join(',')); } catch (e) {}
+    document.querySelectorAll('.mp-chip').forEach(x => x.classList.toggle('on', next.indexOf(x.dataset.m) >= 0));
     mapLegend();
-    MAP.blend = {}; MAP.frames = {};
-    MAP.ready = false;
-    mapFetch();                      // cached per metric, so revisits are free
+    MAP.blend = {}; MAP.frames = {}; MAP.ready = false;
+    mapFetch();                                     // cached per combination
   });
   document.getElementById('mp-play').addEventListener('click', mapTogglePlay);
   const vw = document.getElementById('mp-views');
@@ -649,21 +729,31 @@ function mapBuildUI() {
 
 function mapLegend() {
   const el = document.getElementById('mp-legend'); if (!el) return;
-  const stops = MAP_LEGEND[MAP.metric] || [0, 1];
-  const col = MAP_COLOR[MAP.metric] || MAP_COLOR.temp;
-  const lo = stops[0], hi = stops[stops.length - 1], span = (hi - lo) || 1;
-  const grad = [];
-  for (let i = 0; i <= 24; i++) {
-    const v = lo + (span * i) / 24, p = col(v);
-    grad.push(`rgba(${p[0]},${p[1]},${p[2]},${(p[3] / 255).toFixed(2)}) ${((i / 24) * 100).toFixed(1)}%`);
-  }
-  el.innerHTML = `<div class="mp-lg-bar" style="background:linear-gradient(90deg,${grad.join(',')})"></div>`
-    + `<div class="mp-lg-ax">${stops.map(v => `<span>${v}${MAP_UNIT[MAP.metric]}</span>`).join('')}</div>`;
+  const layers = mapActiveLayers().filter(k => k !== 'wind');
+  const rows = layers.slice(-2).map(k => {              // keep the HUD short
+    const stops = MAP_LEGEND[k] || [0, 1];
+    const col = MAP_COLOR[k] || MAP_COLOR.temp;
+    const lo = stops[0], hi = stops[stops.length - 1], span = (hi - lo) || 1;
+    const grad = [];
+    for (let i = 0; i <= 24; i++) {
+      const v = lo + (span * i) / 24, p = col(v);
+      grad.push(`rgba(${p[0]},${p[1]},${p[2]},${(p[3] / 255).toFixed(2)}) ${((i / 24) * 100).toFixed(1)}%`);
+    }
+    return `<div class="mp-lg-row"><span class="mp-lg-name mp-c-t-${k}">${MAP_LABEL[k]}</span>`
+      + `<div class="mp-lg-bar" style="background:linear-gradient(90deg,${grad.join(',')})"></div>`
+      + `<span class="mp-lg-hi">${stops[stops.length - 1]}${MAP_UNIT[k]}</span></div>`;
+  }).join('');
+  const windNote = mapActiveLayers().indexOf('wind') >= 0
+    ? `<div class="mp-lg-row mp-lg-note">→ arrows show wind</div>` : '';
+  el.innerHTML = rows + windNote;
 }
 
 // value under the centre point, so the map always states a number
 // the same figure the table shows for this hour, when we can get it
-function mapTableValue() {
+const MAP_TFIELD = { temp: 'temperature_2m', rain: 'precipitation', wind: 'windspeed_10m',
+  cloud: 'cloudcover', snow: 'snowfall', gust: 'wind_gusts_10m',
+  humid: 'relative_humidity_2m', press: 'surface_pressure', uv: 'uv_index' };
+function mapTableValueFor(metric) {
   try {
     if (typeof refHourly !== 'function' || typeof wBlendAt !== 'function') return null;
     const ref = refHourly(); if (!ref || !ref.time) return null;
@@ -671,16 +761,13 @@ function mapTableValue() {
     // map times are UTC; the table grid is local
     const off = (typeof locationOffsetSec === 'number' && locationOffsetSec != null) ? locationOffsetSec : 0;
     const local = new Date(Date.parse(iso + 'Z') + off * 1000).toISOString().slice(0, 16);
-    const i = ref.time.indexOf(local);
-    if (i < 0) return null;
-    const field = { temp: 'temperature_2m', rain: 'precipitation', wind: 'windspeed_10m',
-      cloud: 'cloudcover', snow: 'snowfall', gust: 'wind_gusts_10m',
-      humid: 'relative_humidity_2m', press: 'surface_pressure', uv: 'uv_index' }[MAP.metric];
-    if (!field) return null;
+    const i = ref.time.indexOf(local); if (i < 0) return null;
+    const field = MAP_TFIELD[metric]; if (!field) return null;
     const hz = (typeof horizonOf === 'function') ? horizonOf(local.slice(0, 10)) : 0;
     return wBlendAt(field, i, hz);
   } catch (e) { return null; }
 }
+function mapTableValue() { return mapTableValueFor(MAP.metric); }
 
 function mapReadout() {
   const v = document.getElementById('mp-rd-val');
@@ -697,6 +784,19 @@ function mapReadout() {
           : Math.round(val) + (u === '%' ? u : ' ' + u);
   }
   v.textContent = txt;
+  const extra = document.getElementById('mp-rd-extra');
+  if (extra) {
+    const others = mapActiveLayers().filter(k => k !== MAP.metric);
+    extra.innerHTML = others.map(k => {
+      const t = mapTableValueFor(k);
+      if (t == null) return '';
+      const u = MAP_UNIT[k];
+      const f = (k === 'rain' || k === 'snow') ? (t < 0.05 ? '0' : t.toFixed(1))
+        : (k === 'temp') ? (typeof tempDisp === 'function' ? tempDisp(t) : t.toFixed(1))
+          : Math.round(t);
+      return `<span class="mp-rd-x mp-c-t-${k}">${f}${u === '%' || u === '°' ? u : ' ' + u}</span>`;
+    }).join('');
+  }
 }
 
 function mapSyncScrub() {
