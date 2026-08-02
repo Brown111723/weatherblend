@@ -80,8 +80,8 @@ function mapRefetchSoon() {
   MAP._reTimer = setTimeout(() => { MAP._reTimer = null; mapInvalidate(); }, 1100);
 }
 function mapCacheKey() {
-  return [MAP.gridN, MAP.spanLat, (state.lat || 0).toFixed(3), (state.lon || 0).toFixed(3),
-    mapMetrics().join('+')].join('|');
+  return [MAP.metric, MAP.gridN, MAP.spanLat,
+    (state.lat || 0).toFixed(3), (state.lon || 0).toFixed(3)].join('|');
 }
 
 const MAP_FIELD = {
@@ -171,20 +171,12 @@ function mapMetrics() {
 }
 
 // ── which models the map uses ───────────────────────────────────────────
-// Every model multiplies the variable count, and on a 169-point grid that
-// is the whole cost. The blend across the top few by weight is within a
-// fraction of a degree of the full seven, so the map uses those.
-const MAP_MODEL_CAP = 3;
+// All of them, always. Billing is max(1, variables/10), so one metric
+// across seven models is 7 variables — it lands on the floor and costs
+// exactly what three models would. Capping models saved nothing and made
+// the map disagree with the table, which is the one thing it must not do.
 function mapModels() {
-  const live = MODELS.filter(m => enabled.has(m.key) && !autoHidden.has(m.key));
-  if (live.length <= MAP_MODEL_CAP) return live;
-  const W = (typeof metricWeights !== 'undefined' && metricWeights[MAP_SEC[MAP.metric] || 'temp'])
-    ? metricWeights[MAP_SEC[MAP.metric] || 'temp']
-    : (typeof modelWeights !== 'undefined' ? modelWeights : {});
-  const scored = live.map(m => ({ m, w: W[m.key] != null ? W[m.key] : 0 }));
-  if (scored.every(x => x.w === 0)) return live.slice(0, MAP_MODEL_CAP);
-  scored.sort((a, b) => b.w - a.w);
-  return scored.slice(0, MAP_MODEL_CAP).map(x => x.m);
+  return MODELS.filter(m => enabled.has(m.key) && !autoHidden.has(m.key));
 }
 
 // ── fetching ────────────────────────────────────────────────────────────
@@ -267,9 +259,10 @@ async function mapFetch() {
     const N = MAP.gridN, P = N * N;
     const latCsv = [], lonCsv = [];
     for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) { latCsv.push(MAP.lats[r].toFixed(4)); lonCsv.push(MAP.lons[c].toFixed(4)); }
-    // Open-Meteo bills variables x locations, so only fetch what is on.
-    const fields = mapMetrics().map(k => MAP_FIELD[k]).filter(Boolean);
-    if (!fields.length) throw new Error('No metrics selected');
+    // Just the metric on screen: 7 models x 1 metric = 7 variables, which
+    // is under the 10-variable floor, so this is the cheapest possible grid.
+    const fields = [MAP_FIELD[MAP.metric]].filter(Boolean);
+    if (!fields.length) throw new Error('Unknown metric');
 
     const hr = Math.floor(Date.now() / 3600000) * 3600000;
     const isoH = ms => new Date(ms).toISOString().slice(0, 13) + ':00';
@@ -544,14 +537,25 @@ function mapDiag() {
   const v = MAP_VIEWS[MAP.viewIdx] || MAP_VIEWS[0];
   const shownKm = Math.round(km * v.crop);
   const nMod = MAP.ready ? Object.keys(MAP.raw).length : mapModels().length;
-  const nVar = mapMetrics().length * nMod;
-  const cost = Math.round(Math.max(1, nVar / 10) * (N * N));
+  const cost = Math.round(Math.max(1, nMod / 10) * (N * N));
   const bits = [];
   bits.push(MAP.ready ? nMod + '/' + want + ' models · ' + (N * N) + ' pts · ~' + cost + ' API calls'
     : MAP.loading ? 'fetching grid…' : 'no grid yet');
   bits.push('grid ' + N + '×' + N + ' over ' + km + 'km · ~' + spacing + 'km spacing');
   bits.push('showing ' + shownKm + 'km' + (v.crop < 1 ? ' (zoomed, no extra fetch)' : ''));
   bits.push('tiles: ' + (MAP.tilesOk ? MAP.tilesOk + ' loaded (' + MAP_TILES[MAP.tileIdx || 0].name + ')' : 'none yet'));
+  // surface any drift between the grid and the table straight away
+  if (MAP.ready) {
+    try {
+      const mid = Math.floor(N / 2) * N + Math.floor(N / 2);
+      const g = mapBlendMetric(MAP.metric)[MAP.hourSel][mid], t = mapTableValue();
+      if (g != null && t != null) {
+        const d = Math.abs(g - t);
+        bits.push('grid vs table: ' + g.toFixed(1) + ' / ' + t.toFixed(1)
+          + (d > Math.max(0.6, Math.abs(t) * 0.06) ? ' ⚠ drift' : ' ✓'));
+      }
+    } catch (e) {}
+  }
   if (MAP.error) bits.push('⚠ ' + MAP.error);
   if (MAP.log.length) bits.push(MAP.log[MAP.log.length - 1]);
   el.textContent = bits.join('   ·   ');
@@ -624,9 +628,13 @@ function mapBuildUI() {
   MAP.built = true;
   document.getElementById('mp-chips').addEventListener('click', ev => {
     const b = ev.target.closest('.mp-chip'); if (!b) return;
+    if (MAP.metric === b.dataset.m) return;
     MAP.metric = b.dataset.m;
     document.querySelectorAll('.mp-chip').forEach(x => x.classList.toggle('on', x === b));
-    mapLegend(); mapDraw(false);
+    mapLegend();
+    MAP.blend = {}; MAP.frames = {};
+    MAP.ready = false;
+    mapFetch();                      // cached per metric, so revisits are free
   });
   document.getElementById('mp-play').addEventListener('click', mapTogglePlay);
   const vw = document.getElementById('mp-views');
@@ -654,11 +662,32 @@ function mapLegend() {
 }
 
 // value under the centre point, so the map always states a number
+// the same figure the table shows for this hour, when we can get it
+function mapTableValue() {
+  try {
+    if (typeof refHourly !== 'function' || typeof wBlendAt !== 'function') return null;
+    const ref = refHourly(); if (!ref || !ref.time) return null;
+    const iso = MAP.times[MAP.hourSel]; if (!iso) return null;
+    // map times are UTC; the table grid is local
+    const off = (typeof locationOffsetSec === 'number' && locationOffsetSec != null) ? locationOffsetSec : 0;
+    const local = new Date(Date.parse(iso + 'Z') + off * 1000).toISOString().slice(0, 16);
+    const i = ref.time.indexOf(local);
+    if (i < 0) return null;
+    const field = { temp: 'temperature_2m', rain: 'precipitation', wind: 'windspeed_10m',
+      cloud: 'cloudcover', snow: 'snowfall', gust: 'wind_gusts_10m',
+      humid: 'relative_humidity_2m', press: 'surface_pressure', uv: 'uv_index' }[MAP.metric];
+    if (!field) return null;
+    const hz = (typeof horizonOf === 'function') ? horizonOf(local.slice(0, 10)) : 0;
+    return wBlendAt(field, i, hz);
+  } catch (e) { return null; }
+}
+
 function mapReadout() {
   const v = document.getElementById('mp-rd-val');
   if (!v || !MAP.ready) return;
   const N = MAP.gridN, mid = Math.floor(N / 2) * N + Math.floor(N / 2);
-  const val = mapBlendMetric(MAP.metric)[MAP.hourSel][mid];
+  let val = mapTableValue();
+  if (val == null) val = mapBlendMetric(MAP.metric)[MAP.hourSel][mid];
   const u = MAP_UNIT[MAP.metric];
   let txt = '—';
   if (val != null) {
@@ -763,18 +792,12 @@ function mapWaitForLocation() {
 // weights changed but the grid is still valid — rebuild the blend only,
 // no refetch, so toggling Weighted or a model updates the map instantly
 function mapReblend() {
-  if (!MAP.ready) return;
-  MAP.blend = {}; MAP.frames = {};
+  MAP.blend = {}; MAP.frames = {}; MAP.cache = {};   // weights moved: re-derive
   const metrics = mapMetrics();
   if (metrics.indexOf(MAP.metric) < 0) MAP.metric = metrics[0];
   if (typeof sectionsVisible === 'undefined' || !sectionsVisible.map) return;
-  // a metric that was off when the grid was fetched has no data in it
-  const have = MAP.raw[Object.keys(MAP.raw)[0]];
-  const f = MAP_FIELD[MAP.metric];
-  const missing = !(have && have[0] && have[0].hourly && have[0].hourly[f]);
   mapBuildUI(); mapInitLeaflet();
-  if (missing) { MAP.ready = false; mapFetch(); return; }
-  mapDraw(true);
+  if (MAP.ready) mapDraw(true);
 }
 // the tab can already be open from saved prefs, in which case nothing
 // would ever have called mapEnsure
