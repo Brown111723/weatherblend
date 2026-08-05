@@ -603,6 +603,92 @@ function mapDrawWind(ctx, W, H, h) {
 }
 
 // ── the Leaflet map ─────────────────────────────────────────────────────
+// ── tiles, with automatic fallback ──────────────────────────────────────
+// Place names live on their own layer so they can sit ABOVE the weather
+// field. If a provider fails we drop through the list rather than showing
+// a blank map; the last option has names baked in, so the field is drawn
+// lighter there to keep them readable.
+const MAP_TILES = [
+  { name: 'CARTO', dark: false,
+    url: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',
+    labels: 'https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png',
+    opts: { subdomains: 'abcd', maxZoom: 12, attribution: '&copy; OpenStreetMap &copy; CARTO' } },
+  { name: 'CARTO-alt', dark: false,
+    url: 'https://basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png',
+    labels: 'https://basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}.png',
+    opts: { maxZoom: 12, attribution: '&copy; OpenStreetMap &copy; CARTO' } },
+  { name: 'OSM', dark: true,
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', labels: null,
+    opts: { maxZoom: 12, attribution: '&copy; OpenStreetMap' } }
+];
+
+// Panes fix the stacking order: weather field (400) < place names (450)
+// < your location pin (460). Without this the field paints over the names.
+function mapEnsurePanes() {
+  if (!MAP.map) return;
+  [['mp-labels', 450], ['mp-pin', 460]].forEach(([name, z]) => {
+    if (!MAP.map.getPane(name)) {
+      MAP.map.createPane(name);
+      MAP.map.getPane(name).style.zIndex = z;
+      MAP.map.getPane(name).style.pointerEvents = 'none';
+    }
+  });
+}
+
+function mapAddTiles(idx) {
+  if (!MAP.map || !MAP_TILES[idx]) return;
+  const spec = MAP_TILES[idx];
+  MAP.tileIdx = idx; MAP.tilesOk = 0;
+  if (MAP.baseLayer) { try { MAP.map.removeLayer(MAP.baseLayer); } catch (e) {} }
+  if (MAP.labelLayer) { try { MAP.map.removeLayer(MAP.labelLayer); } catch (e) {} MAP.labelLayer = null; }
+  mapEnsurePanes();
+  let errs = 0;
+  MAP.baseLayer = L.tileLayer(spec.url,
+    Object.assign({ className: spec.dark ? 'mp-tiles-dark' : '' }, spec.opts));
+  MAP.baseLayer.on('tileload', () => { MAP.tilesOk++; if (MAP.tilesOk === 1) mapDiag(); });
+  MAP.baseLayer.on('tileerror', () => {
+    errs++;
+    if (errs >= 5 && MAP.tilesOk === 0 && idx + 1 < MAP_TILES.length) {
+      mapLog('tiles: ' + spec.name + ' not responding, trying ' + MAP_TILES[idx + 1].name);
+      mapAddTiles(idx + 1);
+    } else mapDiag();
+  });
+  MAP.baseLayer.addTo(MAP.map);
+  if (spec.labels) {
+    MAP.labelLayer = L.tileLayer(spec.labels,
+      Object.assign({ pane: 'mp-labels' }, spec.opts)).addTo(MAP.map);
+  }
+  // basemap already carries names — ease the field back so they read
+  const el = document.getElementById('mp-map');
+  if (el) el.classList.toggle('mp-baked-labels', !spec.labels);
+  mapMarkLocation();
+  mapDiag();
+}
+
+// the chosen location, named, always on top at any zoom or range
+function mapMarkLocation() {
+  if (!MAP.map || typeof state === 'undefined' || state.lat == null) return;
+  mapEnsurePanes();
+  if (MAP.pin) { try { MAP.map.removeLayer(MAP.pin); } catch (e) {} MAP.pin = null; }
+  if (MAP.pinLabel) { try { MAP.map.removeLayer(MAP.pinLabel); } catch (e) {} MAP.pinLabel = null; }
+  MAP.pin = L.circleMarker([state.lat, state.lon], {
+    radius: 6, color: '#fff', weight: 2.5, opacity: 1,
+    fillColor: '#f87171', fillOpacity: 1, pane: 'mp-pin'
+  }).addTo(MAP.map);
+  let name = '';
+  try {
+    const el = document.getElementById('loc-name');
+    if (el) name = (el.textContent || '').trim().split(',')[0];
+  } catch (e) {}
+  if (name) {
+    MAP.pinLabel = L.marker([state.lat, state.lon], {
+      pane: 'mp-pin', interactive: false,
+      icon: L.divIcon({ className: 'mp-pin-lab', html: '<span>' + name + '</span>',
+        iconSize: [1, 1], iconAnchor: [-9, 16] })
+    }).addTo(MAP.map);
+  }
+}
+
 function mapInitLeaflet() {
   if (MAP.map || typeof L === 'undefined') return;
   const el = document.getElementById('mp-map'); if (!el) return;
@@ -621,12 +707,8 @@ function mapInitLeaflet() {
     doubleClickZoom: false, boxZoom: false, keyboard: false, tap: false, inertia: false
   }).setView([lat, lon], 7);
   try { MAP.map.attributionControl.setPosition('topright'); } catch (e) {}
+  mapEnsurePanes();
   mapAddTiles(0);
-  if (state.lat != null) {
-    L.circleMarker([state.lat, state.lon], {
-      radius: 5, color: '#fff', weight: 2, fillColor: '#f87171', fillOpacity: 1
-    }).addTo(MAP.map);
-  }
   mapKick();
   if (typeof ResizeObserver !== 'undefined') {
     try {
@@ -708,6 +790,7 @@ function mapDraw(fit) {
     MAP.overlay.setBounds(MAP.bounds);
   }
   if (fit) mapFit();
+  mapMarkLocation();
   mapSyncScrub();
   mapReadout();
   mapDiag();
@@ -728,7 +811,9 @@ function mapClock(i) {
 
 function mapBuildUI() {
   const sec = document.getElementById('map-section'); if (!sec) return;
-  if (MAP.map) { try { MAP.map.remove(); } catch (e) {} MAP.map = null; MAP.overlay = null; MAP.baseLayer = null; MAP.labelLayer = null; }
+  // tearing down a working map here caused a rebuild race on first load
+  if (MAP.map) { try { MAP.map.remove(); } catch (e) {} }
+  MAP.map = null; MAP.overlay = null; MAP.baseLayer = null; MAP.labelLayer = null;
   const metrics = mapMetrics();
   if (metrics.indexOf(MAP.metric) < 0) MAP.metric = metrics[0];
   mapSyncMetric();
@@ -955,20 +1040,28 @@ function mapWaitForLocation() {
 // weights changed but the grid is still valid — rebuild the blend only,
 // no refetch, so toggling Weighted or a model updates the map instantly
 function mapReblend() {
-  MAP.blend = {}; MAP.frames = {}; MAP.cache = {};   // weights moved: re-derive
-  const metrics = mapMetrics();
-  if (metrics.indexOf(MAP.metric) < 0) MAP.metric = metrics[0];
+  // Weights changed, so blended output is stale — but the raw grid is not,
+  // and the disk cache holds raw data. Keep it.
+  MAP.blend = {}; MAP.frames = {};
+  mapSyncMetric();
   if (typeof sectionsVisible === 'undefined' || !sectionsVisible.map) return;
-  mapBuildUI(); mapInitLeaflet();
-  if (MAP.ready) mapDraw(true);
+  if (!MAP.built) mapBuildUI();
+  mapInitLeaflet();
+  if (MAP.ready) { mapDraw(true); return; }
+  // nothing on screen yet — make sure a fetch is actually running
+  if (!MAP.loading && !MAP._locTimer) mapFetch();
 }
 // the tab can already be open from saved prefs, in which case nothing
 // would ever have called mapEnsure
 window.addEventListener('load', () => {
   mapLoadPrefs();
-  setTimeout(() => {
-    if (typeof sectionsVisible !== 'undefined' && sectionsVisible.map) mapEnsure();
-  }, 500);
+  // The app's own data load races with this; re-check a few times so the
+  // map can never end up visible but idle.
+  [400, 1500, 3500].forEach(ms => setTimeout(() => {
+    if (typeof sectionsVisible === 'undefined' || !sectionsVisible.map) return;
+    if (MAP.ready || MAP.loading || MAP._locTimer) { mapEnsure(); return; }
+    mapEnsure();
+  }, ms));
 });
 
 // location or model changes invalidate the grid

@@ -32,6 +32,13 @@
 
 /* the painted field: softened so a 9×9 grid doesn't read as facets */
 .mp-field{filter:blur(3px) saturate(1.05);mix-blend-mode:screen;}
+/* when the basemap has its own names baked in, ease the field back */
+.mp-baked-labels .mp-field{opacity:.72;}
+/* place names ride above the weather field */
+.leaflet-pane[class*='mp-labels']{mix-blend-mode:normal;}
+.mp-pin-lab{pointer-events:none;}
+.mp-pin-lab span{display:inline-block;white-space:nowrap;font-size:11px;font-weight:700;color:#fff;
+  letter-spacing:.3px;text-shadow:0 1px 4px rgba(0,0,0,.95),0 0 2px rgba(0,0,0,.9);}
 .mp-tiles-dark{filter:invert(1) hue-rotate(180deg) brightness(.78) contrast(.92) saturate(.6);}
 .leaflet-container{background:#0b1018;font-family:inherit;}
 .leaflet-control-attribution{background:rgba(8,12,19,.55)!important;color:#6b7787!important;font-size:9px!important;}
