@@ -31,6 +31,7 @@
 .tlm-hour{padding-top:14px;margin-top:14px;border-top:1px solid var(--border,#1f2733);}
 .tlm-mfig{font-size:22px;font-weight:600;letter-spacing:-.5px;color:#fff;white-space:nowrap;text-shadow:0 1px 7px rgba(0,0,0,.85),0 0 3px rgba(0,0,0,.75);}
 .tlm-mconf{font-size:12px;font-weight:600;color:rgba(255,255,255,.72);text-shadow:0 1px 5px rgba(0,0,0,.85);}
+.tlm-cf{font-size:10px;font-weight:700;letter-spacing:.5px;color:rgba(255,255,255,.5);}
 .tlm-msub{font-size:12px;font-weight:600;color:rgba(255,255,255,.72);text-shadow:0 1px 5px rgba(0,0,0,.85);}
 .tlm-mdir{font-size:13px;font-weight:600;color:rgba(255,255,255,.78);}
 /* metric icon colours — the quatrefoil */

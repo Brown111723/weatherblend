@@ -297,9 +297,7 @@ function tlLaneOrder() {
     .filter(k => TL.lanes.indexOf(k) >= 0);
 }
 function tlRangeSeries(key, start, count, step) {
-  const src = (key === 'temp') ? TL.temp : (key === 'rain') ? TL.rain
-    : (key === 'wind') ? TL.wind : (key === 'cloud') ? TL.cloud
-      : (TL.x && TL.x[key]) ? TL.x[key] : null;
+  const src = tlMetricSeries(key);
   const out = [];
   for (let i = 0; i < count; i += (step || 1)) out.push(src ? src[start + i] : null);
   return out;
@@ -378,6 +376,7 @@ function tlDirArrow(deg) {
     + '<line x1="12" y1="20.5" x2="12" y2="4.5"/><polyline points="5.5 11 12 4.5 18.5 11"/></svg>';
 }
 function tlLaneSeries(key) { return tlRangeSeries(key, TL.sel * 24, 24, 1); }
+// bands and strip paint the forecast too, so colour matches the figures
 function tlBandGrad(key, arr) {
   if (key === 'temp') return tlGrad(arr, tlTempColor);
   if (key === 'rain') return tlGrad(arr, tlRainBand);
@@ -438,7 +437,11 @@ function tlHourHTML() {
 // metrics that accumulate rather than sit at a level — a daily total means
 // more for these than a high and a low would
 const TL_ACCUM = { rain: 1, snow: 1 };
+// Displayed figures come from the pure forecast blend, never the observed
+// value — otherwise a past hour silently shows what happened rather than
+// what was predicted, and the two can differ.
 function tlMetricSeries(key) {
+  if (TL.fc && TL.fc[key] && TL.fc[key].some(v => v != null)) return TL.fc[key];
   return (key === 'temp') ? TL.temp : (key === 'rain') ? TL.rain
     : (key === 'wind') ? TL.wind : (key === 'cloud') ? TL.cloud
       : (TL.x && TL.x[key]) ? TL.x[key] : null;
@@ -493,11 +496,16 @@ function tlHeads() {
     if (accum) {
       // rain and snow accumulate — a running total says more than a range
       const tot = tlDayTotal(key);
+      const dry = tot < 0.05;
       main = TL.scrubbing ? (v != null ? fmt(v) : '\u2014') : (d.isToday ? fmt(tot) : '');
-      if (d.isToday) {
+      if (dry) hilo = d.isToday ? '' : '<span class="tlm-hl hi">' + fmt(0) + '</span>';
+      else if (d.isToday) {
+        // drop either half once it has nothing left to report
         const split = tlAccumSplit(key);
-        hilo = '<span class="tlm-hl hi">\u2190' + tlBare(key, split.got) + '</span>'
-          + '<span class="tlm-hl lo">\u2192' + tlBare(key, split.due) + '</span>';
+        const parts = [];
+        if (split.got >= 0.05) parts.push('<span class="tlm-hl hi">\u2190' + tlBare(key, split.got) + '</span>');
+        if (split.due >= 0.05) parts.push('<span class="tlm-hl lo">\u2192' + tlBare(key, split.due) + '</span>');
+        hilo = parts.join('');
       } else {
         hilo = '<span class="tlm-hl hi">' + fmt(tot) + '</span>';
       }
@@ -510,9 +518,10 @@ function tlHeads() {
     set(key === 'temp' ? 'tlm-temp' : 'tlm-fig-' + key, main);
     set('tlm-hilo-' + key, hilo);
     if (key !== 'temp') {
-      // confidence hangs off the figure — with no figure it would float alone
+      // shown on every day now, labelled so it can't be read as a value
       const c = TL.dayConf[d.date] ? TL.dayConf[d.date][key] : null;
-      set('tlm-conf-' + key, (main && confVisible[key] !== false && c != null) ? c + '%' : '');
+      set('tlm-conf-' + key,
+        (confVisible[key] !== false && c != null) ? '<span class="tlm-cf">Conf.</span> ' + c + '%' : '');
     }
   });
 

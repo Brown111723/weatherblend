@@ -17,14 +17,15 @@ const MAP = {
   ready: false, loading: false, error: null, built: false,
   lat: null, lon: null,
   viewIdx: 0,
-  gridN: 13,                // 169 points, one request, serves both views
+  points: [], tier: 'coarse',
   spanLat: 9,               // ~1000km box; Nearby frames the middle 30%
   bounds: null,             // [[south,west],[north,east]]
   lats: [], lons: [],
   times: [],                // UTC ISO strings, 24 of them
   nowIdx: 12,
   hourSel: 12, scrubbing: false, playing: false, playTimer: null,
-  metric: 'temp',
+  layers: ['rain', 'cloud'], // painted bottom to top
+  metric: 'rain',            // headline layer — must always be one of `layers`
   raw: {},                  // raw[modelKey] = [point][field][hour]
   blend: {},                // blend[metricKey] = [hour][point]
   frames: {},               // frames[metricKey][hour] = dataURL
@@ -56,6 +57,13 @@ function mapLoadPrefs() {
       if (arr.length) MAP.layers = arr;
     }
   } catch (e) {}
+  mapSyncMetric();
+}
+// the headline figure must belong to a layer that is actually painted
+function mapSyncMetric() {
+  const on = mapActiveLayers();
+  if (!on.length || on.indexOf(MAP.metric) >= 0) return;
+  MAP.metric = on.indexOf('rain') >= 0 ? 'rain' : (on.indexOf('cloud') >= 0 ? 'cloud' : on[0]);
 }
 function mapSetView(i) {
   if (MAP.viewIdx === i || !MAP_VIEWS[i]) return;
@@ -84,10 +92,7 @@ function mapRefetchSoon() {
   if (MAP._reTimer) clearTimeout(MAP._reTimer);
   MAP._reTimer = setTimeout(() => { MAP._reTimer = null; mapInvalidate(); }, 1100);
 }
-function mapCacheKey() {
-  return [mapFramesKey(), MAP.gridN, MAP.spanLat,
-    (state.lat || 0).toFixed(3), (state.lon || 0).toFixed(3)].join('|');
-}
+
 
 const MAP_FIELD = {
   temp: 'temperature_2m', rain: 'precipitation', wind: 'wind_speed_10m',
@@ -186,167 +191,207 @@ function mapModels() {
 }
 
 // ── fetching ────────────────────────────────────────────────────────────
-function mapBuildGrid() {
-  const N = MAP.gridN;
+// ── grid construction ───────────────────────────────────────────────────
+// Points are no longer a uniform lattice. Detail is concentrated where the
+// user actually looks — a dense core around their location — with sparse
+// rings out to the edge of the box. Weather fields are smooth enough at
+// 500km that edge points only need to anchor the interpolation, not
+// resolve structure. ~53 points where a 13x13 lattice needed 169.
+const MAP_TIERS = {
+  coarse:   { core: 3, coreFrac: 0.42, rings: [{ f: 1.00, per: 3 }] },
+  adaptive: { core: 5, coreFrac: 0.38, rings: [{ f: 0.68, per: 3 }, { f: 1.00, per: 4 }] }
+};
+function mapBuildPoints(tier) {
+  const T = MAP_TIERS[tier] || MAP_TIERS.adaptive;
   const spanLat = MAP.spanLat || 9;
   const latN = Math.max(-84, Math.min(84, MAP.lat + spanLat / 2));
   const latS = Math.max(-84, Math.min(84, MAP.lat - spanLat / 2));
-  // Match the box to the viewport exactly: Mercator x is longitude in
-  // radians and Mercator y is the log-tangent, so making those two spans
-  // equal gives a box that is precisely square once projected.
+  // square in Mercator, so the painted box fills a square viewport exactly
   const spanLon = Math.min(340, (mapMerc(latN) - mapMerc(latS)) * 180 / Math.PI);
-  MAP.lats = []; MAP.lons = [];
-  for (let r = 0; r < N; r++) MAP.lats.push(latN - ((latN - latS) * r) / (N - 1));   // north → south
-  for (let c = 0; c < N; c++) MAP.lons.push(MAP.lon - spanLon / 2 + (spanLon * c) / (N - 1));
-  MAP.bounds = [[MAP.lats[N - 1], MAP.lons[0]], [MAP.lats[0], MAP.lons[N - 1]]];
+  const hLat = (latN - latS) / 2, hLon = spanLon / 2;
+  const pts = [];
+  const push = (dy, dx) => {
+    const lat = Math.max(-84, Math.min(84, MAP.lat + hLat * dy));
+    const lon = MAP.lon + hLon * dx;
+    if (!pts.some(p => Math.abs(p.lat - lat) < 1e-4 && Math.abs(p.lon - lon) < 1e-4)) pts.push({ lat, lon });
+  };
+  // dense core
+  const n = T.core;
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      push(T.coreFrac * (1 - 2 * r / (n - 1)), T.coreFrac * (2 * c / (n - 1) - 1));
+    }
+  }
+  // square rings out to the edge — `per` is points per side, corners included
+  T.rings.forEach(ring => {
+    const m = ring.per, f = ring.f;
+    for (let i = 0; i < m; i++) {
+      const t = m === 1 ? 0 : (2 * i / (m - 1) - 1);
+      push(f, f * t); push(-f, f * t);          // top and bottom edges
+      push(f * t, f); push(f * t, -f);          // left and right edges
+    }
+  });
+  MAP.points = pts;
+  MAP.bounds = [[latS, MAP.lon - hLon], [latN, MAP.lon + hLon]];
+  MAP.tier = tier;
+  return pts;
 }
+
 
 // Safety net if the combined request is rejected: the original one-model-
 // per-request path, throttled two at a time so it can't trip the limiter.
-async function mapFetchPerModel(models, fields, winStart, winEnd, P, report) {
-  const N = MAP.gridN;
-  const latCsv = [], lonCsv = [];
-  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) { latCsv.push(MAP.lats[r].toFixed(4)); lonCsv.push(MAP.lons[c].toFixed(4)); }
-  let ok = 0, done = 0, rateLimited = false;
-  const fails = [];
-  const one = async m => {
-    const base = `https://api.open-meteo.com${m.ep}`
-      + `?latitude=${latCsv.join(',')}&longitude=${lonCsv.join(',')}`
-      + `&hourly=${fields.join(',')}&models=${m.key}&timezone=UTC&wind_speed_unit=kmh`;
-    const grab = async span => {
-      const res = await fetch(base + span, { signal: AbortSignal.timeout(45000) });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      let j = await res.json();
-      if (j && j.error) throw new Error(j.reason || 'API error');
-      if (!Array.isArray(j)) j = [j];
-      if (j.length !== P) throw new Error('grid size ' + j.length + ' ≠ ' + P);
-      j.forEach(o => { if (typeof normalizeOM === 'function') normalizeOM(o); });
-      if (!j[0].hourly || !j[0].hourly.time || !j[0].hourly.time.length) throw new Error('no hours');
-      return j;
-    };
+
+// ── persistent cache ────────────────────────────────────────────────────
+// In-memory alone meant every page reload refetched the whole grid. This
+// survives reloads, which is where a lot of the waste actually was.
+const MAP_TTL = 60 * 60000;
+function mapDiskGet(k) {
+  try {
+    const raw = localStorage.getItem('wb_map_' + k); if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (!o || Date.now() - o.at > MAP_TTL) { localStorage.removeItem('wb_map_' + k); return null; }
+    return o;
+  } catch (e) { return null; }
+}
+function mapDiskSet(k, o) {
+  try { localStorage.setItem('wb_map_' + k, JSON.stringify({ at: Date.now(), ...o })); }
+  catch (e) {
+    // quota: drop older map entries and retry once
     try {
-      let j;
-      try { j = await grab(`&start_hour=${winStart}&end_hour=${winEnd}`); }
-      catch (e1) { j = await grab('&past_days=1&forecast_days=2'); }
-      MAP.raw[m.key] = j; ok++;
-    } catch (e) {
-      if (/429/.test(e.message)) rateLimited = true;
-      fails.push((m.label || m.key) + ': ' + e.message);
-      if (typeof dbg === 'function') dbg('map ' + m.key + ': ' + e.message);
-    }
-    done++; mapStatus('Fetching grid… ' + done + '/' + models.length + ' models');
-  };
-  for (let i = 0; i < models.length; i += 2) {
-    await Promise.all(models.slice(i, i + 2).map(one));
-    if (i + 2 < models.length) await new Promise(r => setTimeout(r, 260));
+      Object.keys(localStorage).filter(x => x.startsWith('wb_map_')).forEach(x => localStorage.removeItem(x));
+      localStorage.setItem('wb_map_' + k, JSON.stringify({ at: Date.now(), ...o }));
+    } catch (e2) {}
   }
-  report({ ok, fails, rateLimited });
+}
+function mapCacheKey(tier) {
+  return [mapFramesKey(), tier || MAP.tier, MAP.spanLat,
+    (state.lat || 0).toFixed(2), (state.lon || 0).toFixed(2),
+    Math.floor(Date.now() / 3600000)].join('|');
+}
+function mapAdopt(o) {
+  MAP.raw = o.raw; MAP.times = o.times; MAP.nowIdx = o.nowIdx; MAP._offset = o.offset;
+  MAP.bounds = o.bounds; MAP.points = o.points; MAP.tier = o.tier;
+  MAP.blend = {}; MAP.frames = {}; MAP.ready = true; MAP.error = null;
+  if (MAP.hourSel == null || MAP.hourSel < 0) MAP.hourSel = o.nowIdx;
 }
 
+// ── fetching ────────────────────────────────────────────────────────────
+// Progressive: a cheap coarse grid paints almost immediately, and the
+// finer one only loads if the map is still open a moment later. Most map
+// opens are a glance, so most never pay for the refinement.
+const MAP_REFINE_MS = 1400;
 async function mapFetch() {
   if (MAP.loading) return;
-  const ck = mapCacheKey();
-  const hit = MAP.cache[ck];
-  if (hit && Date.now() - hit.at < 60 * 60000) {          // one full refresh cycle
-    Object.assign(MAP, {
-      raw: hit.raw, times: hit.times, nowIdx: hit.nowIdx, _offset: hit.offset,
-      bounds: hit.bounds, lats: hit.lats, lons: hit.lons, gridN: hit.gridN,
-      blend: {}, frames: {}, ready: true, error: null
-    });
-    MAP.hourSel = hit.nowIdx;
-    mapStatus(''); mapLog('reused cached grid'); mapDraw(true);
-    return;
+  MAP.lat = state.lat; MAP.lon = state.lon;
+  if (MAP.lat == null || MAP.lon == null) { mapWaitForLocation(); return; }
+
+  // already have the fine grid for these settings?
+  const fineKey = mapCacheKey('adaptive');
+  const memF = MAP.cache[fineKey] || mapDiskGet(fineKey);
+  if (memF) { mapAdopt(memF); mapStatus(''); mapLog('cached (fine)'); mapDraw(true); return; }
+
+  const coarseKey = mapCacheKey('coarse');
+  const memC = MAP.cache[coarseKey] || mapDiskGet(coarseKey);
+  if (memC) { mapAdopt(memC); mapStatus(''); mapLog('cached (coarse)'); mapDraw(true); }
+  else {
+    const ok = await mapFetchTier('coarse');
+    if (!ok) return;
   }
-  MAP.loading = true; MAP.error = null; mapStatus('Fetching grid…');
+  mapScheduleRefine();
+}
+
+function mapScheduleRefine() {
+  if (MAP._refineTimer) clearTimeout(MAP._refineTimer);
+  MAP._refineTimer = setTimeout(async () => {
+    MAP._refineTimer = null;
+    // only spend the extra calls if the map is genuinely still being looked at
+    if (typeof sectionsVisible === 'undefined' || !sectionsVisible.map) return;
+    if (document.hidden) return;
+    if (MAP.tier === 'adaptive') return;
+    mapLog('refining…');
+    await mapFetchTier('adaptive');
+  }, MAP_REFINE_MS);
+}
+
+async function mapFetchTier(tier) {
+  if (MAP.loading) return false;
+  const ck = mapCacheKey(tier);
+  MAP.loading = true; MAP.error = null;
+  mapStatus(tier === 'coarse' ? 'Loading map…' : '');
   try {
-    MAP.lat = state.lat; MAP.lon = state.lon;
-    if (MAP.lat == null || MAP.lon == null) throw new Error('No location set');
-    mapBuildGrid();
-    const N = MAP.gridN, P = N * N;
-    const latCsv = [], lonCsv = [];
-    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) { latCsv.push(MAP.lats[r].toFixed(4)); lonCsv.push(MAP.lons[c].toFixed(4)); }
-    // Everything selected, in one request. Because billing is
-    // max(1, variables/10), fetching layers together is cheaper than
-    // fetching them one at a time — the floor wastes headroom otherwise.
-    const want = mapActiveLayers().slice();
-    if (want.indexOf('wind') >= 0) want.push('_winddir');
-    const fields = want.map(k => MAP_FIELD[k]).filter(Boolean);
-    if (!fields.length) throw new Error('No layers selected');
+    const pts = mapBuildPoints(tier);
+    const P = pts.length;
+    const latCsv = pts.map(p => p.lat.toFixed(4)).join(',');
+    const lonCsv = pts.map(p => p.lon.toFixed(4)).join(',');
 
     const hr = Math.floor(Date.now() / 3600000) * 3600000;
     const isoH = ms => new Date(ms).toISOString().slice(0, 13) + ':00';
     const winStart = isoH(hr - 12 * 3600000), winEnd = isoH(hr + 11 * 3600000);
 
+    // only the layers on screen; wind direction only when arrows are shown
+    const want = mapActiveLayers().slice();
+    if (want.indexOf('wind') >= 0) want.push('_winddir');
+    const fields = want.map(k => MAP_FIELD[k]).filter(Boolean);
+    if (!fields.length) throw new Error('No layers selected');
+
     const models = mapModels();
     if (!models.length) throw new Error('No models enabled');
-    MAP.raw = {};
-    let ok = 0, done = 0, rateLimited = false;
-    const fails = [];
-
-    // One request for all models: the grid points are what cost, and this
-    // sends them once instead of once per model.
     const keys = models.map(m => m.key);
-    try {
-      mapStatus('Fetching grid…');
-      const url = `https://api.open-meteo.com/v1/forecast`
-        + `?latitude=${latCsv.join(',')}&longitude=${lonCsv.join(',')}`
-        + `&hourly=${fields.join(',')}&models=${keys.join(',')}`
-        + `&start_hour=${winStart}&end_hour=${winEnd}&timezone=UTC&wind_speed_unit=kmh`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(60000) });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      let j = await res.json();
-      if (j && j.error) throw new Error(j.reason || 'API error');
-      if (!Array.isArray(j)) j = [j];
-      if (j.length !== P) throw new Error('grid size ' + j.length + ' ≠ ' + P);
-      const single = keys.length === 1;
-      keys.forEach(k => {
-        const per = j.map(pt => {
-          const h = pt.hourly || {}, dst = { time: h.time };
-          Object.keys(h).forEach(name => {
-            if (name === 'time') return;
-            if (single) { dst[name] = h[name]; return; }
-            const suf = '_' + k;
-            if (name.endsWith(suf)) dst[name.slice(0, -suf.length)] = h[name];
-          });
-          const o = { hourly: dst };
-          if (typeof normalizeOM === 'function') normalizeOM(o);
-          return o;
+
+    const q = new URLSearchParams({
+      latitude: latCsv, longitude: lonCsv,
+      hourly: fields.join(','), models: keys.join(','),
+      start_hour: winStart, end_hour: winEnd,
+      timezone: 'UTC', wind_speed_unit: 'kmh'
+    });
+    const res = await fetch('https://api.open-meteo.com/v1/forecast?' + q.toString(),
+      { signal: AbortSignal.timeout(45000) });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    let j = await res.json();
+    if (j && j.error) throw new Error(j.reason || 'API error');
+    if (!Array.isArray(j)) j = [j];
+    if (j.length !== P) throw new Error('grid ' + j.length + ' ≠ ' + P);
+
+    const single = keys.length === 1;
+    const raw = {};
+    keys.forEach(k => {
+      const per = j.map(pt => {
+        const hsrc = pt.hourly || {}, dst = { time: hsrc.time };
+        Object.keys(hsrc).forEach(name => {
+          if (name === 'time') return;
+          if (single) { dst[name] = hsrc[name]; return; }
+          const suf = '_' + k;
+          if (name.endsWith(suf)) dst[name.slice(0, -suf.length)] = hsrc[name];
         });
-        if (per[0] && per[0].hourly && per[0].hourly.temperature_2m
-            && per[0].hourly.temperature_2m.some(v => v != null)) { MAP.raw[k] = per; ok++; }
+        const o = { hourly: dst };
+        if (typeof normalizeOM === 'function') normalizeOM(o);
+        return o;
       });
-      if (!ok) throw new Error('combined grid held no usable model');
-      mapLog('combined grid: ' + ok + '/' + keys.length + ' models in 1 request');
-    } catch (eC) {
-      mapLog('combined grid failed (' + eC.message + ') — per-model fallback');
-      if (/429/.test(eC.message)) rateLimited = true;
-      MAP.raw = {};
-      await mapFetchPerModel(models, fields, winStart, winEnd, P, r => {
-        ok = r.ok; fails.push.apply(fails, r.fails); if (r.rateLimited) rateLimited = true;
-      });
-    }
+      if (per[0] && per[0].hourly && Object.keys(per[0].hourly).length > 1) raw[k] = per;
+    });
+    if (!Object.keys(raw).length) throw new Error('no usable model in response');
 
-    if (fails.length) mapLog(fails.length + ' model(s) failed — ' + fails[0]);
-    if (!ok) {
-      throw new Error(rateLimited
-        ? 'Open-Meteo rate limit reached — give it a minute, then reopen the map'
-        : (fails.length ? fails[0] : 'No model returned grid data'));
-    }
-    if (rateLimited) mapLog('some models rate limited — showing the rest');
-
+    MAP.raw = raw; MAP.points = pts; MAP.tier = tier;
     mapAlignTimes();
-    MAP.blend = {}; MAP.frames = {};
-      MAP.ready = true; MAP.loading = false;
-    MAP.cache[ck] = {
-      at: Date.now(), raw: MAP.raw, times: MAP.times, nowIdx: MAP.nowIdx, offset: MAP._offset,
-      bounds: MAP.bounds, lats: MAP.lats, lons: MAP.lons, gridN: MAP.gridN
-    };
+    MAP.blend = {}; MAP.frames = {}; MAP.ready = true; MAP.loading = false;
+    const store = { raw, times: MAP.times, nowIdx: MAP.nowIdx, offset: MAP._offset,
+      bounds: MAP.bounds, points: pts, tier };
+    MAP.cache[ck] = store; mapDiskSet(ck, store);
     mapStatus('');
-    mapLog('grid ready (' + ok + ' models, ' + MAP.times.length + ' hours)');
+    mapLog(tier + ': ' + Object.keys(raw).length + ' models, ' + P + ' pts');
     mapDraw(true);
+    return true;
   } catch (e) {
-    MAP.loading = false; MAP.error = e.message;
-    mapStatus('Could not load map data — ' + e.message);
+    MAP.loading = false;
+    if (tier === 'coarse') {
+      MAP.error = /429/.test(e.message)
+        ? 'Rate limited — wait a minute, then reopen the map' : e.message;
+      mapStatus('Could not load map data — ' + MAP.error);
+    } else {
+      mapLog('refine failed: ' + e.message);   // coarse is still on screen
+    }
+    mapDiag();
+    return false;
   }
 }
 
@@ -376,7 +421,7 @@ function mapAlignTimes() {
 function mapBlendMetric(metric) {
   if (MAP.blend[metric]) return MAP.blend[metric];
   const field = MAP_FIELD[metric], sec = MAP_SEC[metric];
-  const P = MAP.gridN * MAP.gridN, keys = Object.keys(MAP.raw);
+  const P = MAP.points.length, keys = Object.keys(MAP.raw);
   const out = [];
   for (let h = 0; h < MAP.times.length; h++) {
     const row = new Array(P).fill(null);
@@ -412,38 +457,96 @@ function mapFramesKey() { return mapActiveLayers().join('+'); }
 // Layers use distinct visual channels so they can be read at once: temp
 // owns hue, cloud removes saturation, rain adds its own colour only where
 // it falls, wind is arrows. Four translucent colour fields would be mud.
+function mapCentreIdx() {
+  if (!MAP.points || !MAP.points.length) return 0;
+  let best = 0, bd = Infinity;
+  MAP.points.forEach((p, i) => {
+    const d = Math.abs(p.lat - MAP.lat) + Math.abs(p.lon - MAP.lon);
+    if (d < bd) { bd = d; best = i; }
+  });
+  return best;
+}
+
+// ── scattered interpolation ─────────────────────────────────────────────
+// The points are irregular now, so bilinear no longer applies. Inverse
+// distance weighting over the nearest few points handles any layout.
+// Crucially the weights depend only on geometry, so they are built once
+// and reused across all 24 hours and every layer.
+const MAP_IMG = 260, MAP_IDW_K = 6;
+function mapBuildWeights() {
+  if (MAP._wKey === MAP.tier + '|' + MAP.points.length + '|' + MAP.spanLat) return;
+  const W = MAP_IMG, H = MAP_IMG, P = MAP.points;
+  const [[latS, lonW], [latN, lonE]] = MAP.bounds;
+  const mN = mapMerc(latN), mS = mapMerc(latS);
+  // project points once
+  const px = P.map(p => ({
+    x: (p.lon - lonW) / ((lonE - lonW) || 1),
+    y: (mN - mapMerc(p.lat)) / ((mN - mS) || 1)
+  }));
+  const idx = new Int16Array(W * H * MAP_IDW_K);
+  const wgt = new Float32Array(W * H * MAP_IDW_K);
+  const d2 = new Float64Array(P.length);
+  for (let y = 0; y < H; y++) {
+    const fy = y / (H - 1);
+    for (let x = 0; x < W; x++) {
+      const fx = x / (W - 1);
+      for (let i = 0; i < P.length; i++) {
+        const dx = px[i].x - fx, dy = px[i].y - fy;
+        d2[i] = dx * dx + dy * dy;
+      }
+      // k nearest by partial selection
+      const o = (y * W + x) * MAP_IDW_K;
+      const used = [];
+      for (let k = 0; k < MAP_IDW_K; k++) {
+        let best = -1, bd = Infinity;
+        for (let i = 0; i < P.length; i++) {
+          if (used.indexOf(i) >= 0) continue;
+          if (d2[i] < bd) { bd = d2[i]; best = i; }
+        }
+        if (best < 0) { idx[o + k] = -1; wgt[o + k] = 0; continue; }
+        used.push(best);
+        idx[o + k] = best;
+        wgt[o + k] = bd < 1e-9 ? 1e9 : 1 / (bd * bd);   // IDW power 4 on d^2 => smooth
+      }
+      let sum = 0;
+      for (let k = 0; k < MAP_IDW_K; k++) sum += wgt[o + k];
+      if (sum > 0) for (let k = 0; k < MAP_IDW_K; k++) wgt[o + k] /= sum;
+    }
+  }
+  MAP._wIdx = idx; MAP._wVal = wgt;
+  MAP._wKey = MAP.tier + '|' + MAP.points.length + '|' + MAP.spanLat;
+}
+function mapSampleAt(vals, o) {
+  let acc = 0, wsum = 0;
+  for (let k = 0; k < MAP_IDW_K; k++) {
+    const i = MAP._wIdx[o + k]; if (i < 0) continue;
+    const v = vals[i]; if (v == null || isNaN(v)) continue;
+    const w = MAP._wVal[o + k];
+    acc += v * w; wsum += w;
+  }
+  return wsum > 0 ? acc / wsum : null;
+}
+
 function mapFrame(metric, h) {
   const fkey = mapFramesKey();
   if (!MAP.frames[fkey]) MAP.frames[fkey] = [];
   if (MAP.frames[fkey][h]) return MAP.frames[fkey][h];
-  const N = MAP.gridN, W = 300, H = 300;
-  const latN = MAP.lats[0], latS = MAP.lats[N - 1];
-  const mN = mapMerc(latN), mS = mapMerc(latS), dLat = (latN - latS) || 1;
+  mapBuildWeights();
+  const W = MAP_IMG, H = MAP_IMG;
   const layers = mapActiveLayers();
   const grids = {};
   layers.forEach(k => { grids[k] = mapBlendMetric(k)[h]; });
-  const sample = (vals, r0, r1, ty, c0, c1, tx) => {
-    const a = vals[r0 * N + c0], b = vals[r0 * N + c1], c = vals[r1 * N + c0], d = vals[r1 * N + c1];
-    if (a == null || b == null || c == null || d == null) return null;
-    return a * (1 - tx) * (1 - ty) + b * tx * (1 - ty) + c * (1 - tx) * ty + d * tx * ty;
-  };
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const ctx = cv.getContext('2d');
   const img = ctx.createImageData(W, H);
   for (let y = 0; y < H; y++) {
-    // Leaflet lays the image out in Web Mercator, where latitude is not
-    // linear down the image — so invert properly rather than assuming it is
-    const lat = mapInvMerc(mN + (mS - mN) * (y / (H - 1)));
-    const gy = Math.max(0, Math.min(N - 1, ((latN - lat) / dLat) * (N - 1)));
-    const r0 = Math.min(N - 1, Math.floor(gy)), r1 = Math.min(N - 1, r0 + 1), ty = gy - r0;
     for (let x = 0; x < W; x++) {
-      const gx = (x / (W - 1)) * (N - 1);
-      const c0 = Math.min(N - 1, Math.floor(gx)), c1 = Math.min(N - 1, c0 + 1), tx = gx - c0;
+      const o = (y * W + x) * MAP_IDW_K;
       // composite each layer over what is already painted
       let R = 0, G = 0, B = 0, A = 0;
       for (const k of layers) {
         if (k === 'wind') continue;                  // arrows, not colour
-        const v = sample(grids[k], r0, r1, ty, c0, c1, tx);
+        const v = mapSampleAt(grids[k], o);
         const px = (MAP_COLOR[k] || MAP_COLOR.temp)(v);
         const sa = px[3] / 255; if (sa <= 0) continue;
         if (k === 'cloud' && A > 0) {
@@ -462,8 +565,8 @@ function mapFrame(metric, h) {
         }
         A = na;
       }
-      const o = (y * W + x) * 4;
-      img.data[o] = R; img.data[o + 1] = G; img.data[o + 2] = B; img.data[o + 3] = A * 255;
+      const q = (y * W + x) * 4;
+      img.data[q] = R; img.data[q + 1] = G; img.data[q + 2] = B; img.data[q + 3] = A * 255;
     }
   }
   ctx.putImageData(img, 0, 0);
@@ -475,70 +578,28 @@ function mapFrame(metric, h) {
 
 // wind as arrows — a channel of its own, legible over any colour field
 function mapDrawWind(ctx, W, H, h) {
-  const N = MAP.gridN;
   const spd = mapBlendMetric('wind')[h];
   const dir = mapBlendMetric('_winddir')[h];
-  const step = N > 11 ? 2 : 1;
+  const [[latS, lonW], [latN, lonE]] = MAP.bounds;
+  const mN = mapMerc(latN), mS = mapMerc(latS);
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  for (let r = 0; r < N; r += step) {
-    for (let c = 0; c < N; c += step) {
-      const v = spd[r * N + c]; if (v == null) continue;
-      const d = dir ? dir[r * N + c] : null;
-      const x = (c / (N - 1)) * W, y = (r / (N - 1)) * H;
-      const len = 5 + Math.min(11, v / 6);
-      const a = ((d == null ? 0 : d) + 180) * Math.PI / 180;    // pointing downwind
-      const dx = Math.sin(a) * len, dy = -Math.cos(a) * len;
-      ctx.strokeStyle = 'rgba(255,255,255,' + Math.min(0.92, 0.36 + v / 70).toFixed(2) + ')';
-      ctx.lineWidth = 1.6;
-      ctx.beginPath(); ctx.moveTo(x - dx, y - dy); ctx.lineTo(x + dx, y + dy); ctx.stroke();
-      const hx = x + dx, hy = y + dy, sz = 3.4;
-      ctx.beginPath();
-      ctx.moveTo(hx, hy); ctx.lineTo(hx - Math.sin(a - 0.42) * sz, hy + Math.cos(a - 0.42) * sz);
-      ctx.moveTo(hx, hy); ctx.lineTo(hx - Math.sin(a + 0.42) * sz, hy + Math.cos(a + 0.42) * sz);
-      ctx.stroke();
-    }
-  }
-}
-
-// ── tiles, with an automatic fallback ───────────────────────────────────
-// If the first provider fails (blocked, rate limited, offline) we drop to
-// plain OSM and darken it with a CSS filter rather than showing nothing.
-const MAP_TILES = [
-  { name: 'CARTO', dark: false,
-    url: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',
-    labels: 'https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png',
-    opts: { subdomains: 'abcd', maxZoom: 12, attribution: '&copy; OpenStreetMap &copy; CARTO' } },
-  { name: 'OSM', dark: true,
-    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', labels: null,
-    opts: { maxZoom: 12, attribution: '&copy; OpenStreetMap' } }
-];
-
-function mapAddTiles(idx) {
-  if (!MAP.map || !MAP_TILES[idx]) return;
-  const spec = MAP_TILES[idx];
-  MAP.tileIdx = idx; MAP.tilesOk = 0;
-  if (MAP.baseLayer) { try { MAP.map.removeLayer(MAP.baseLayer); } catch (e) {} }
-  if (MAP.labelLayer) { try { MAP.map.removeLayer(MAP.labelLayer); } catch (e) {} MAP.labelLayer = null; }
-  let errs = 0;
-  MAP.baseLayer = L.tileLayer(spec.url, Object.assign({ className: spec.dark ? 'mp-tiles-dark' : '' }, spec.opts));
-  MAP.baseLayer.on('tileload', () => { MAP.tilesOk++; if (MAP.tilesOk === 1) mapDiag(); });
-  MAP.baseLayer.on('tileerror', () => {
-    errs++;
-    if (errs >= 5 && MAP.tilesOk === 0 && idx + 1 < MAP_TILES.length) {
-      mapLog('tiles: ' + spec.name + ' not responding, switching to ' + MAP_TILES[idx + 1].name);
-      mapAddTiles(idx + 1);
-    } else mapDiag();
+  MAP.points.forEach((p, i) => {
+    const v = spd[i]; if (v == null) return;
+    const d = dir ? dir[i] : null;
+    const x = ((p.lon - lonW) / ((lonE - lonW) || 1)) * W;
+    const y = ((mN - mapMerc(p.lat)) / ((mN - mS) || 1)) * H;
+    const len = 5 + Math.min(11, v / 6);
+    const a = ((d == null ? 0 : d) + 180) * Math.PI / 180;    // pointing downwind
+    const dx = Math.sin(a) * len, dy = -Math.cos(a) * len;
+    ctx.strokeStyle = 'rgba(255,255,255,' + Math.min(0.92, 0.36 + v / 70).toFixed(2) + ')';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(x - dx, y - dy); ctx.lineTo(x + dx, y + dy); ctx.stroke();
+    const hx = x + dx, hy = y + dy, sz = 3.4;
+    ctx.beginPath();
+    ctx.moveTo(hx, hy); ctx.lineTo(hx - Math.sin(a - 0.42) * sz, hy + Math.cos(a - 0.42) * sz);
+    ctx.moveTo(hx, hy); ctx.lineTo(hx - Math.sin(a + 0.42) * sz, hy + Math.cos(a + 0.42) * sz);
+    ctx.stroke();
   });
-  MAP.baseLayer.addTo(MAP.map);
-  if (spec.labels) {
-    if (!MAP.map.getPane('mp-labels')) {
-      MAP.map.createPane('mp-labels');
-      MAP.map.getPane('mp-labels').style.zIndex = 450;
-      MAP.map.getPane('mp-labels').style.pointerEvents = 'none';
-    }
-    MAP.labelLayer = L.tileLayer(spec.labels, Object.assign({ pane: 'mp-labels' }, spec.opts)).addTo(MAP.map);
-  }
-  mapDiag();
 }
 
 // ── the Leaflet map ─────────────────────────────────────────────────────
@@ -604,25 +665,27 @@ function mapDiag() {
   const el = document.getElementById('mp-diag'); if (!el) return;
   const want = (typeof MODELS !== 'undefined')
     ? MODELS.filter(m => enabled.has(m.key) && !autoHidden.has(m.key)).length : 0;
-  const N = MAP.gridN, km = Math.round((MAP.spanLat || 9) * 111);
-  const spacing = Math.round(km / (N - 1));
-  const v = MAP_VIEWS[MAP.viewIdx] || MAP_VIEWS[0];
-  const shownKm = Math.round(km * v.crop);
+  const P = MAP.points ? MAP.points.length : 0;
+  const km = Math.round((MAP.spanLat || 9) * 111);
+  const T = MAP_TIERS[MAP.tier] || MAP_TIERS.adaptive;
+  const coreKm = Math.round(km * T.coreFrac);
+  const spacing = Math.round(coreKm / Math.max(1, T.core - 1));
+  const vv = MAP_VIEWS[MAP.viewIdx] || MAP_VIEWS[0];
+  const shownKm = Math.round(km * vv.crop);
   const nMod = MAP.ready ? Object.keys(MAP.raw).length : mapModels().length;
   const nLay = mapActiveLayers().length + (mapActiveLayers().indexOf('wind') >= 0 ? 1 : 0);
-  const cost = Math.round(Math.max(1, (nMod * nLay) / 10) * (N * N));
+  const cost = Math.round(Math.max(1, (nMod * nLay) / 10) * P);
   const bits = [];
-  bits.push(MAP.ready ? nMod + '/' + want + ' models · ' + (N * N) + ' pts · ~' + cost + ' API calls'
+  bits.push(MAP.ready ? nMod + '/' + want + ' models · ' + P + ' pts · ~' + cost + ' API calls'
     : MAP.loading ? 'fetching grid…' : 'no grid yet');
-  bits.push('grid ' + N + '×' + N + ' over ' + km + 'km · ~' + spacing + 'km spacing');
+  bits.push(MAP.tier + ' grid over ' + km + 'km · core ~' + spacing + 'km');
   bits.push('layers: ' + mapActiveLayers().join(', '));
-  bits.push('showing ' + shownKm + 'km' + (v.crop < 1 ? ' (zoomed, no extra fetch)' : ''));
+  bits.push('showing ' + shownKm + 'km' + (vv.crop < 1 ? ' (zoomed, no extra fetch)' : ''));
   bits.push('tiles: ' + (MAP.tilesOk ? MAP.tilesOk + ' loaded (' + MAP_TILES[MAP.tileIdx || 0].name + ')' : 'none yet'));
   // surface any drift between the grid and the table straight away
   if (MAP.ready) {
     try {
-      const mid = Math.floor(N / 2) * N + Math.floor(N / 2);
-      const g = mapBlendMetric(MAP.metric)[MAP.hourSel][mid], t = mapTableValue();
+      const g = mapBlendMetric(MAP.metric)[MAP.hourSel][mapCentreIdx()], t = mapTableValue();
       if (g != null && t != null) {
         const d = Math.abs(g - t);
         bits.push('grid vs table: ' + g.toFixed(1) + ' / ' + t.toFixed(1)
@@ -668,6 +731,7 @@ function mapBuildUI() {
   if (MAP.map) { try { MAP.map.remove(); } catch (e) {} MAP.map = null; MAP.overlay = null; MAP.baseLayer = null; MAP.labelLayer = null; }
   const metrics = mapMetrics();
   if (metrics.indexOf(MAP.metric) < 0) MAP.metric = metrics[0];
+  mapSyncMetric();
   const on = mapActiveLayers();
   const chips = metrics.map(k =>
     `<button type="button" class="mp-chip${on.indexOf(k) >= 0 ? ' on' : ''} mp-c-${k}" data-m="${k}">${MAP_LABEL[k]}</button>`).join('');
@@ -772,9 +836,8 @@ function mapTableValue() { return mapTableValueFor(MAP.metric); }
 function mapReadout() {
   const v = document.getElementById('mp-rd-val');
   if (!v || !MAP.ready) return;
-  const N = MAP.gridN, mid = Math.floor(N / 2) * N + Math.floor(N / 2);
   let val = mapTableValue();
-  if (val == null) val = mapBlendMetric(MAP.metric)[MAP.hourSel][mid];
+  if (val == null) val = mapBlendMetric(MAP.metric)[MAP.hourSel][mapCentreIdx()];
   const u = MAP_UNIT[MAP.metric];
   let txt = '—';
   if (val != null) {

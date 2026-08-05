@@ -270,12 +270,10 @@ function hourlyFieldList(){
   const f=['precipitation','wind_speed_10m','wind_direction_10m','temperature_2m',
            'weather_code','cloud_cover','relative_humidity_2m','apparent_temperature'];
   // only pulled when the metric is actually switched on
-  if(secVisible.press||secVisible.humid) f.push('surface_pressure');
-  if(secVisible.uv) f.push('uv_index');
   if(secVisible.snow) f.push('snowfall');
   if(secVisible.gust) f.push('wind_gusts_10m');
-  // the secondary panel needs these two
-  f.push('visibility','dew_point_2m');
+  // the secondary metrics panel always shows these, band toggles aside
+  f.push('surface_pressure','uv_index','visibility','dew_point_2m');
   return f;
 }
 const DAILY_FIELDS='weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,'
