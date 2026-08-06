@@ -102,6 +102,11 @@
 .tl-sec-row{display:flex;align-items:baseline;gap:7px;min-width:0;}
 .tl-sec-name{font-size:9.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text-dim,#5f6f82);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .tl-sec-val{margin-left:auto;font-size:12.5px;font-weight:600;color:var(--text-muted,#93a6c0);white-space:nowrap;}
+/* past/future: high and low sit side by side so the row height is unchanged */
+.tl-sec-hl{font-variant-numeric:tabular-nums;}
+.tl-sec-hl.hi{color:var(--text-primary,#f4f7fd);}
+.tl-sec-hl.lo{color:var(--text-dim,#5f6f82);margin-left:7px;}
+.sec-range-mode .tl-sec-name{max-width:52%;}
 .tl-sec-band{position:relative;width:100%;height:18px;border-radius:4px;overflow:hidden;background:#101725;}
 .tl-sec-sparkwrap{position:relative;touch-action:pan-y;cursor:ew-resize;}
 .tl-sec-now{position:absolute;top:-2px;bottom:-2px;width:1.5px;background:var(--now,#f87171);transform:translateX(-50%);pointer-events:none;}

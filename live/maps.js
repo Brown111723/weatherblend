@@ -57,6 +57,7 @@ function mapLoadPrefs() {
       if (arr.length) MAP.layers = arr;
     }
   } catch (e) {}
+  mapPruneLayers();          // a saved layer may since have been switched off
   mapSyncMetric();
 }
 // the headline figure must belong to a layer that is actually painted
@@ -346,6 +347,7 @@ async function mapFetchTier(tier) {
     const winStart = isoH(hr - 12 * 3600000), winEnd = isoH(hr + 11 * 3600000);
 
     // only the layers on screen; wind direction only when arrows are shown
+    mapPruneLayers();
     const want = mapActiveLayers().slice();
     if (want.indexOf('wind') >= 0) want.push('_winddir');
     const fields = want.map(k => MAP_FIELD[k]).filter(Boolean);
@@ -467,7 +469,18 @@ function mapBlendMetric(metric) {
 const LAYER_ORDER = ['temp', 'humid', 'press', 'uv', 'cloud', 'snow', 'rain', 'gust', 'wind'];
 function mapActiveLayers() {
   const on = (MAP.layers && MAP.layers.length) ? MAP.layers : [MAP.metric];
-  return LAYER_ORDER.filter(k => on.indexOf(k) >= 0);
+  const allowed = mapMetrics();
+  const live = LAYER_ORDER.filter(k => on.indexOf(k) >= 0 && allowed.indexOf(k) >= 0);
+  return live.length ? live : [allowed[0]];
+}
+// drop anything no longer enabled, and persist the cleaned list
+function mapPruneLayers() {
+  const live = mapActiveLayers();
+  const before = (MAP.layers || []).join(',');
+  if (live.join(',') === before) return false;
+  MAP.layers = live;
+  try { localStorage.setItem('wb_map_layers', live.join(',')); } catch (e) {}
+  return true;
 }
 function mapFramesKey() { return mapActiveLayers().join('+'); }
 
@@ -1069,14 +1082,7 @@ function mapReblend() {
   // and the disk cache holds raw data. Keep it.
   MAP.blend = {}; MAP.frames = {};
   // a metric switched off in settings must stop being a map layer
-  const allowed = mapMetrics();
-  const kept = mapActiveLayers().filter(k => allowed.indexOf(k) >= 0);
-  const changed = kept.length !== mapActiveLayers().length;
-  if (changed) {
-    MAP.layers = kept.length ? kept : [allowed[0]];
-    try { localStorage.setItem('wb_map_layers', MAP.layers.join(',')); } catch (e) {}
-    MAP.ready = false;                      // the grid no longer matches
-  }
+  if (mapPruneLayers()) MAP.ready = false;   // the grid no longer matches
   mapSyncMetric();
   if (typeof sectionsVisible !== 'undefined' && sectionsVisible.map) mapBuildUI();
   if (typeof sectionsVisible === 'undefined' || !sectionsVisible.map) return;

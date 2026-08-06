@@ -769,26 +769,43 @@ function tlSecRender() {
   TL._secRows = rows.map(([name, vals, fmt]) => ({ name, vals, fmt }));
   const vis = tlNowVisible();
   const L = (tlNowFrac() * 100).toFixed(2) + '%';
-  body.innerHTML = '<div class="tl-sec-grid">' + rows.map(([name, vals, fmt, kind, hex], i) => {
-    const v = vals[refH];
-    return '<div class="tl-sec-item"><div class="tl-sec-row"><span class="tl-sec-name">' + name + '</span>'
-      + '<span class="tl-sec-val" id="tl-sec-val-' + i + '">' + (v != null ? fmt(v) : '—') + '</span></div>'
-      + '<div class="tl-sec-sparkwrap">' + tlSecBand(vals, kind, hex)
-      + '<div class="tl-sec-now" style="left:' + L + ';display:' + (vis ? 'block' : 'none') + '"></div></div></div>';
-  }).join('') + '</div>';
+  const live = d.isToday || TL.scrubbing;
+  body.innerHTML = '<div class="tl-sec-grid' + (live ? '' : ' sec-range-mode') + '">'
+    + rows.map(([name, vals, fmt, kind, hex], i) => {
+      const v = vals[refH];
+      return '<div class="tl-sec-item"><div class="tl-sec-row"><span class="tl-sec-name">' + name + '</span>'
+        + '<span class="tl-sec-val" id="tl-sec-val-' + i + '">'
+        + (live ? (v != null ? fmt(v) : '\u2014') : tlSecRange(vals, fmt)) + '</span></div>'
+        + '<div class="tl-sec-sparkwrap">' + tlSecBand(vals, kind, hex)
+        + '<div class="tl-sec-now" style="left:' + L + ';display:' + (vis ? 'block' : 'none') + '"></div></div></div>';
+    }).join('') + '</div>';
   // each item scrubs the shared hour (frac measured on its own spark width)
   body.querySelectorAll('.tl-sec-item').forEach(item => {
     tlBindScrubOn(item, item.querySelector('.tl-sec-sparkwrap'), false);
   });
 }
 // update secondary values in place for the current ref hour (while scrubbing)
+// high and low side by side, so the row keeps its height
+function tlSecRange(vals, fmt) {
+  const good = vals.filter(v => v != null && !isNaN(v));
+  if (!good.length) return '\u2014';
+  const hi = Math.max(...good), lo = Math.min(...good);
+  if (hi === lo) return fmt(hi);
+  return '<span class="tl-sec-hl hi">\u2191' + fmt(hi) + '</span>'
+    + '<span class="tl-sec-hl lo">\u2193' + fmt(lo) + '</span>';
+}
 function tlSecHeads() {
   if (!TL._secRows) return;
+  const d = TL.days[TL.sel];
+  const live = (d && d.isToday) || TL.scrubbing;
   const refH = Math.max(0, Math.min(23, tlRefHour() - TL.sel * 24));
+  const grid = document.querySelector('.tl-sec-grid');
+  if (grid) grid.classList.toggle('sec-range-mode', !live);
   TL._secRows.forEach((r, i) => {
     const el = document.getElementById('tl-sec-val-' + i); if (!el) return;
+    if (!live) { el.innerHTML = tlSecRange(r.vals, r.fmt); return; }
     const v = r.vals[refH];
-    el.textContent = v != null ? r.fmt(v) : '—';
+    el.textContent = v != null ? r.fmt(v) : '\u2014';
   });
 }
 function tlSecHTML() {
