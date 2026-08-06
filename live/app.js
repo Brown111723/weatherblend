@@ -38,7 +38,8 @@ const MI_GUST='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" strok
 const MI_HUMID='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3.2c2.7 3.7 4.9 6.5 4.9 9.3a4.9 4.9 0 0 1-9.8 0c0-2.8 2.2-5.6 4.9-9.3z"/><path d="M9.8 13.5a2.3 2.3 0 0 0 2.2 2.2"/></svg>';
 const MI_PRESS='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="13" r="8.2"/><line x1="12" y1="13" x2="16.2" y2="8.8"/><line x1="12" y1="4.8" x2="12" y2="6.6"/><line x1="3.8" y1="13" x2="5.6" y2="13"/><line x1="18.4" y1="13" x2="20.2" y2="13"/></svg>';
 const MI_UV='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><line x1="12" y1="2.4" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="21.6"/><line x1="2.4" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="21.6" y2="12"/><line x1="5.2" y1="5.2" x2="7" y2="7"/><line x1="17" y1="17" x2="18.8" y2="18.8"/><line x1="18.8" y1="5.2" x2="17" y2="7"/><line x1="7" y1="17" x2="5.2" y2="18.8"/></svg>';
-const XICON={snow:MI_SNOW,gust:MI_GUST,humid:MI_HUMID,press:MI_PRESS,uv:MI_UV};
+const MI_AQI='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 8.5h11a2.6 2.6 0 1 0-2.5-3.3"/><path d="M3 13h15.5a2.6 2.6 0 1 1-2.5 3.3"/><circle cx="18" cy="8.5" r="1.3"/></svg>';
+const XICON={snow:MI_SNOW,gust:MI_GUST,humid:MI_HUMID,press:MI_PRESS,uv:MI_UV,aqi:MI_AQI};
 
 // ── Boot ────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded',()=>{
@@ -244,6 +245,10 @@ function toggleDebug(btn){
 }
 function toggleSection(sec,btn){
   secVisible[sec]=!secVisible[sec];
+  // air quality lives on its own endpoint — pull it the first time it's on
+  if(sec==='aqi'&&secVisible.aqi&&typeof fetchAirQuality==='function'&&!aqiData){
+    fetchAirQuality().then(()=>{ try{ renderCurrentBar(); renderTable(); }catch(e){} });
+  }
   if(btn){
     btn.classList.toggle('enabled', secVisible[sec]);
     btn.classList.toggle('disabled',!secVisible[sec]);
@@ -1207,12 +1212,15 @@ function snowCls(v){if(!v||v<0.05)return'sn0';if(v<0.5)return'sn1';if(v<2)return
 function humidCls(v){if(v==null)return'';if(v<40)return'hu0';if(v<65)return'hu1';if(v<85)return'hu2';return'hu3';}
 function uvCls(v){if(v==null||v<0.5)return'uv0';if(v<3)return'uv1';if(v<6)return'uv2';if(v<8)return'uv3';return'uv4';}
 // Per-metric cell formatting for the secondary sections
+function aqiCls(v){if(v==null)return'';if(v<50)return'aq0';if(v<100)return'aq1';if(v<150)return'aq2';if(v<200)return'aq3';return'aq4';}
+function aqiWord(v){if(v==null)return'';if(v<50)return'good';if(v<100)return'moderate';if(v<150)return'poor';if(v<200)return'unhealthy';return'hazardous';}
 const XSTYLE={
   snow:{fmt:v=>v<0.05?'<span class="empty">0</span>':v.toFixed(1),cls:snowCls},
   gust:{fmt:v=>String(Math.round(v)),cls:windCls},
   humid:{fmt:v=>Math.round(v)+'%',cls:humidCls},
   press:{fmt:v=>String(Math.round(v)),cls:()=>''},
-  uv:{fmt:v=>v<0.05?'<span class="empty">0</span>':(Math.round(v*10)/10).toString(),cls:uvCls}
+  uv:{fmt:v=>v<0.05?'<span class="empty">0</span>':(Math.round(v*10)/10).toString(),cls:uvCls},
+  aqi:{fmt:v=>String(Math.round(v)),cls:aqiCls}
 };
 
 // ── SVG weather icons ───────────────────────────────────────────────────
@@ -1801,14 +1809,15 @@ function renderHourly(){
   const xSections=XMET.map(x=>{
     if(!secVisible[x.key])return secGroup(x.key,'');
     const st=XSTYLE[x.key];
-    const wsec=fieldSec(x.field);
-    const avg=indices.map(i=>wBlendAt(x.field,i,horizonOf(ref.time[i].slice(0,10))));
+    const wsec=x.single?null:fieldSec(x.field);
+    const single=!!x.single;
+    const avg=indices.map(i=>single?singleAt(x.key,i):wBlendAt(x.field,i,horizonOf(ref.time[i].slice(0,10))));
     const avgCells=avg.map((v,ci)=>{
       const cls=v!=null?st.cls(v):'';
       const nc=ci===nowCi?'now-col':'';
       return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(' ')}">${v!=null?st.fmt(v):'<span class="empty">—</span>'}</td>`,(ndCls[ci]+' '+pastCls[ci]).trim());
     }).join('');
-    const modelRows=allActive.map(m=>{
+    const modelRows=single?'':allActive.map(m=>{
       const vv=hVals(m.key,x.field,indices);
       const cells=vv.map((v,ci)=>{
         const cls=v!=null?st.cls(v):'';
@@ -1817,10 +1826,11 @@ function renderHourly(){
       }).join('');
       return`<tr class="${srcRowClass(m,x.key)}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span>${wsec?wBadge(wsec,m.key):''}</span></td>${cells}</tr>`;
     }).join('');
+    const noteRow=single?`<tr class="data-row src-row src-${x.key}${secDetail[x.key]?'':' src-hidden'}"><td class="row-label" style="font-size:12px;color:var(--text-dim)">single source</td><td colspan="${C-1}" style="font-size:12px;color:var(--text-dim);padding-left:8px">CAMS analysis — no model ensemble, so no blend or weighting</td></tr>`:'';
     return secGroup(x.key,`
       <tr class="sec-head-x sec-head-${x.key}">${secHeadLabel(x.key,x.label)}${avgCells}</tr>
-      ${modelRows}
-      ${actualRow1(x.field,st.fmt,st.cls,x.color)}
+      ${modelRows}${noteRow}
+      ${single?'':actualRow1(x.field,st.fmt,st.cls,x.color)}
       <tr class="spacer"><td colspan="${C}"></td></tr>
     `);
   }).join('');

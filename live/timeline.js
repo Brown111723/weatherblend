@@ -226,6 +226,12 @@ function tlBuild() {
       TL.act.wind.push(actOf('windspeed_10m')); TL.act.cloud.push(actOf('cloudcover'));
       // secondary metrics: observed where we have it, blended forecast otherwise
       XM.forEach(m => {
+        if (m.single) {                       // no ensemble to blend
+          let v = null;
+          try { v = (typeof singleAt === 'function') ? singleAt(m.key, idx) : null; } catch (e) {}
+          TL.x[m.key].push(v);
+          return;
+        }
         let v = actOf(m.field);
         if (v == null && idx != null && typeof wBlendAt === 'function') {
           try { v = wBlendAt(m.field, idx, hz); } catch (e) { v = null; }
@@ -361,7 +367,8 @@ const TL_XSTYLE = {
   gust:  { name: 'Gusts',    fmt: v => Math.round(v) + ' km/h',                 grad: () => tlAlphaVeil('#FFB86B', 0, 80) },
   humid: { name: 'Humidity', fmt: v => Math.round(v) + '%',                     grad: () => tlAlphaVeil('#4ED6B8', 0, 100) },
   press: { name: 'Pressure', fmt: v => Math.round(v) + ' hPa',                  grad: () => tlAlphaVeil('#F09AD0', 985, 1035) },
-  uv:    { name: 'UV',       fmt: v => String(Math.round(v * 10) / 10),         grad: () => (v => tlRampColor(v, TL_URAMP)) }
+  uv:    { name: 'UV',       fmt: v => String(Math.round(v * 10) / 10),         grad: () => (v => tlRampColor(v, TL_URAMP)) },
+  aqi:   { name: 'Air',      fmt: v => Math.round(v) + ' ' + tlAqiWord(v),       grad: () => (v => tlRampColor(v, TL_ARAMP)) }
 };
 const TL_MAIN = { temp: 'Temp', rain: 'Rain', wind: 'Wind', cloud: 'Cloud' };
 function tlRainBand(v) {
@@ -403,6 +410,7 @@ function tlBandsHTML() {
       : '<span class="tlm-mstack"><span class="tlm-mfig" id="tlm-fig-' + key + '"></span>'
         + '<span class="tlm-mconf" id="tlm-conf-' + key + '"></span></span>'
         + '<span class="tlm-mhilo" id="tlm-hilo-' + key + '"></span>';
+    // (conf renders under the figure; in range mode it moves under the hi/lo)
     return '<div class="tlm-mband">'
       + '<div class="tlm-lay" style="background:' + tlBandGrad(key, arr) + '"></div>'
       + past + '<div class="tlm-mscrim"></div>' + lab
@@ -485,6 +493,10 @@ function tlHeads() {
   // on today, or while scrubbing any day, figures track the hour;
   // otherwise a day shows only its range
   const live = d.isToday || TL.scrubbing;
+  // On other days the range is the headline rather than a footnote, so the
+  // band switches to a larger treatment.
+  const bandsEl = document.getElementById('tlm-hour');
+  if (bandsEl) bandsEl.classList.toggle('tlm-range-mode', !live);
 
   tlLaneOrder().forEach(key => {
     const arr = tlMetricSeries(key);
@@ -522,6 +534,8 @@ function tlHeads() {
       const c = TL.dayConf[d.date] ? TL.dayConf[d.date][key] : null;
       set('tlm-conf-' + key,
         (confVisible[key] !== false && c != null) ? '<span class="tlm-cf">Conf.</span> ' + c + '%' : '');
+      const cEl = document.getElementById('tlm-conf-' + key);
+      if (cEl) cEl.classList.toggle('below', !live);
     }
   });
 
@@ -699,15 +713,14 @@ async function tlSecFetch() {
       tlSecRender();
     }
   } catch (e) { dbg('timeline: secondary build failed: ' + (e.message || e.name)); }
+  // air quality now comes through the engine's own cached fetch
   try {
-    const u2 = 'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + state.lat + '&longitude=' + state.lon
-      + '&hourly=us_aqi&past_days=7&forecast_days=5&timezone=auto';
-    const r2 = await fetch(u2, { signal: AbortSignal.timeout(15000) });
-    const j2 = await r2.json();
-    if (TL.sec && j2 && j2.hourly && j2.hourly.time) {
-      const im2 = {}; j2.hourly.time.forEach((t, i) => { im2[t] = i; });
-      TL.sec.aqi = j2.hourly.us_aqi; TL.sec.aqiIm = im2;
-      tlSecRender();
+    if (typeof fetchAirQuality === 'function') {
+      await fetchAirQuality();
+      if (TL.sec && typeof aqiData !== 'undefined' && aqiData) {
+        TL.sec.aqi = aqiData.hourly.us_aqi; TL.sec.aqiIm = aqiData.im;
+        tlSecRender();
+      }
     }
   } catch (e) {}
 }

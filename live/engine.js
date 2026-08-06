@@ -59,10 +59,17 @@ const XMET = [
   { key:'gust',  field:'wind_gusts_10m',       label:'Gusts',    unit:'km/h', color:'#FFB86B' },
   { key:'humid', field:'relative_humidity_2m', label:'Humidity', unit:'%',    color:'#4ED6B8' },
   { key:'press', field:'surface_pressure',     label:'Pressure', unit:'hPa',  color:'#F09AD0' },
-  { key:'uv',    field:'uv_index',             label:'UV',       unit:'',     color:'#FFD75E' }
+  { key:'uv',    field:'uv_index',             label:'UV',       unit:'',     color:'#FFD75E' },
+  // Air quality has no per-model ensemble — it comes from a single CAMS
+  // analysis, so there is nothing to blend and no weights to apply. It is
+  // shown as a metric like the rest but flagged as single-source, and the
+  // table shows no model rows for it.
+  { key:'aqi',   field:'us_aqi',               label:'Air',      unit:'AQI',  color:'#A8E63E', single:true }
 ];
-const secVisible = { temp:true, wind:true, rain:true, cloud:true, snow:false, gust:false, humid:false, press:false, uv:false };
-const secDetail  = { temp:false, rain:false, wind:false, cloud:false, snow:false, gust:false, humid:false, press:false, uv:false };
+const XSINGLE = k => { const m = XMET.find(x=>x.key===k); return !!(m && m.single); };
+let aqiData = null;   // { hourly:{ time:[], us_aqi:[] }, im:{iso->idx} }
+const secVisible = { temp:true, wind:true, rain:true, cloud:true, snow:false, gust:false, humid:false, press:false, uv:false, aqi:false };
+const secDetail  = { temp:false, rain:false, wind:false, cloud:false, snow:false, gust:false, humid:false, press:false, uv:false, aqi:false };
 let useWeightedAvg = true;
 let verticalLayout = false;
 let showDebug = false;
@@ -430,6 +437,7 @@ async function fetchAllModels(){
   buildSourcesPanel();
   updatePills();renderSkeleton();
   fetchCurrentConditions();
+  if(secVisible.aqi) fetchAirQuality().then(()=>{ try{ renderCurrentBar(); renderTable(); }catch(e){} });
 
   locationOffsetSec=null;
 
@@ -517,6 +525,40 @@ function buildHiLoCache(){
 }
 
 // ── Current / day summaries (canonical figures for cards & tiles) ───────
+// Air quality: one request per location, cached. Not model-dependent, so
+// it never needs refetching when weights or models change.
+let _aqiKey = null;
+async function fetchAirQuality(){
+  const key = (state.lat||0).toFixed(3)+','+(state.lon||0).toFixed(3);
+  if(_aqiKey===key && aqiData) return aqiData;
+  try{
+    const u='https://air-quality-api.open-meteo.com/v1/air-quality'
+      +`?latitude=${state.lat}&longitude=${state.lon}`
+      +'&hourly=us_aqi&past_days=7&forecast_days=5&timezone=auto';
+    const r=await fetch(u,{signal:AbortSignal.timeout(15000)});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j=await r.json();
+    if(!j?.hourly?.time) throw new Error('no data');
+    const im={}; j.hourly.time.forEach((t,i)=>{im[t]=i;});
+    aqiData={hourly:j.hourly,im}; _aqiKey=key;
+    dbg('air quality: '+j.hourly.time.length+' hours');
+  }catch(e){ dbg('air quality failed: '+e.message); aqiData=null; }
+  return aqiData;
+}
+// value for a single-source metric at a ref index
+function singleAt(key, idx){
+  if(key!=='aqi' || !aqiData) return null;
+  const ref=refHourly(); if(!ref||!ref.time) return null;
+  const i=aqiData.im[ref.time[idx]];
+  return i==null?null:(aqiData.hourly.us_aqi[i] ?? null);
+}
+// one accessor for every secondary metric, blended or single-source
+function xValAt(key, idx, hz){
+  if(XSINGLE(key)) return singleAt(key, idx);
+  const m=XMET.find(x=>x.key===key); if(!m) return null;
+  try{ return wBlendAt(m.field, idx, hz); }catch(e){ return null; }
+}
+
 function computeCurrentFromHourly(){
   const onlyEnabled=activeEnabled();if(!onlyEnabled.length)return null;
   const ref=state.data[onlyEnabled[0].key]?.hourly;if(!ref)return null;

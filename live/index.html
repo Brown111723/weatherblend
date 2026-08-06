@@ -7,8 +7,8 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%23A8E63E%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2220%22%20r%3D%2212%22%20fill%3D%22%237EE8A5%22%2F%3E%3Ccircle%20cx%3D%2244%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%235FA4FF%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2244%22%20r%3D%2212%22%20fill%3D%22%23C8A6FF%22%2F%3E%3C%2Fsvg%3E">
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%23A8E63E%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2220%22%20r%3D%2212%22%20fill%3D%22%237EE8A5%22%2F%3E%3Ccircle%20cx%3D%2244%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%235FA4FF%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2244%22%20r%3D%2212%22%20fill%3D%22%23C8A6FF%22%2F%3E%3C%2Fsvg%3E">
 <meta name="theme-color" content="#7EE8A5">
-<link rel="stylesheet" href="styles.css?v=7">
-<link rel="stylesheet" href="timeline.css?v=20">
+<link rel="stylesheet" href="styles.css?v=8">
+<link rel="stylesheet" href="timeline.css?v=21">
 <link rel="stylesheet" href="insights.css?v=4">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="maps.css?v=11">
@@ -177,6 +177,7 @@
 <div id="err-area"></div>
 
 <div id="table-section">
+<div class="sec-divider"><span class="sec-divider-lab">Table</span></div>
 <div class="table-wrap" id="table-wrap" onscroll="onTableScroll()">
   <div id="now-overlay"></div>
   <div id="now-overlay-h"></div>
@@ -186,14 +187,10 @@
     <tr><td style="padding:40px 20px;color:var(--text-muted)"><span class="sk" style="width:180px;height:14px"></span></td></tr>
   </tbody></table>
 </div>
-<div class="source-note">
-  Data: <a href="https://open-meteo.com" target="_blank">Open-Meteo</a> ·
-  GFS (NOAA/USA) · ECMWF IFS 0.25° · ICON (DWD/Germany) · GEM (Canada) · UKMO (Met Office) · CMA (China) · JMA (Japan) ·
-  No API key required.
-</div>
 </div>
 
 <div id="map-section" style="display:none">
+<div class="sec-divider"><span class="sec-divider-lab">Map</span></div>
 </div>
 
 <nav class="bottom-nav" id="bottom-nav">
@@ -222,11 +219,11 @@
   <div id="debug-lines" style="padding:8px 10px;overflow:auto;white-space:pre-wrap;word-break:break-word;flex:1 1 auto"></div>
 </div>
 
-<script src="engine.js?v=10"></script>
-<script src="app.js?v=10"></script>
-<script src="timeline.js?v=21"></script>
+<script src="engine.js?v=11"></script>
+<script src="app.js?v=11"></script>
+<script src="timeline.js?v=22"></script>
 <script src="insights.js?v=7"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="maps.js?v=13"></script>
+<script src="maps.js?v=14"></script>
 </body>
 </html>

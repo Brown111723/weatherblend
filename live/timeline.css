@@ -44,6 +44,7 @@
 .tlm-ic-humid{color:var(--q-humid,#4ED6B8)!important;}
 .tlm-ic-press{color:var(--q-press,#F09AD0)!important;}
 .tlm-ic-uv{color:var(--q-uv,#FFD75E)!important;}
+.tlm-ic-aqi{color:#A8E63E!important;}
 
 /* ── the atmospheric canvas ── */
 .tlm-chart{position:relative;}
@@ -56,6 +57,14 @@
 .tlm-mstack{display:flex;flex-direction:column;align-items:flex-end;line-height:1.12;}
 .tlm-mhilo{display:flex;flex-direction:column;align-items:flex-end;line-height:1.25;}
 .tlm-hl{font-size:12px;font-weight:600;color:rgba(255,255,255,.86);text-shadow:0 1px 5px rgba(0,0,0,.85);font-variant-numeric:tabular-nums;}
+/* past/future days: the range is the reading, so give it real presence */
+.tlm-range-mode .tlm-hl{font-size:19px;font-weight:600;color:#fff;}
+.tlm-range-mode .tlm-hl.lo{font-size:19px;color:rgba(255,255,255,.7);}
+.tlm-range-mode .tlm-mhilo{line-height:1.18;}
+.tlm-range-mode .tlm-mval{gap:8px;}
+/* confidence drops beneath the figure instead of sitting beside it */
+.tlm-mconf.below{display:block;margin-top:2px;text-align:right;}
+.tlm-range-mode .tlm-mstack{align-items:flex-end;justify-content:center;}
 .tlm-hl.lo{color:rgba(255,255,255,.64);}
 .tlm-darr{width:15px;height:15px;margin-left:5px;vertical-align:-3px;color:rgba(255,255,255,.85);filter:drop-shadow(0 1px 4px rgba(0,0,0,.85));}
 

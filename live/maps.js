@@ -753,7 +753,10 @@ function mapLog(m) {
 }
 // a permanent one-line readout of what the map actually managed to do
 function mapDiag() {
-  const el = document.getElementById('mp-diag'); if (!el) return;
+  const el = document.getElementById('mp-diag');
+  // only rendered when the debug pane is on
+  if (el) el.style.display = (typeof showDebug !== 'undefined' && showDebug) ? '' : 'none';
+  if (!el) return;
   const want = (typeof MODELS !== 'undefined')
     ? MODELS.filter(m => enabled.has(m.key) && !autoHidden.has(m.key)).length : 0;
   const P = MAP.points ? MAP.points.length : 0;
@@ -787,6 +790,7 @@ function mapDiag() {
   }
   if (MAP.error) bits.push('⚠ ' + MAP.error);
   if (MAP.log.length) bits.push(MAP.log[MAP.log.length - 1]);
+  bits.push('blended across every enabled model, weighted by accuracy here');
   el.textContent = bits.join('   ·   ');
 }
 
@@ -858,7 +862,6 @@ function mapBuildUI() {
       </div>
       ${detail}
       <div class="mp-diag" id="mp-diag"></div>
-      <div class="mp-foot">Blended across every enabled model, weighted by each one's accuracy here.</div>
     </div>`;
   MAP.built = true;
   document.getElementById('mp-chips').addEventListener('click', ev => {
