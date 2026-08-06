@@ -447,6 +447,8 @@ function renderCityResults(results, region){
   }).join('');
 }
 function pickCity(lat,lon,name,admin1,cc){
+  const parts0=[name]; if(admin1)parts0.push(admin1);
+  try{ if(typeof bootShow==='function') bootShow('Loading '+parts0.join(', ')+'…','Blending seven forecast models'); }catch(e){}
   state.lat=lat; state.lon=lon;
   try{ if(typeof mapInvalidate==='function') mapInvalidate(); }catch(e){}
   const parts=[name]; if(admin1)parts.push(admin1); if(cc)parts.push(cc);

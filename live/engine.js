@@ -85,7 +85,30 @@ function bootSay(msg, sub){
   const t=document.getElementById('boot-txt'); if(t&&msg)t.textContent=msg;
   const u=document.getElementById('boot-sub'); if(u&&sub)u.textContent=sub;
 }
+// Bring the splash back for a location change: the whole page is about to
+// be replaced, and showing stale weather for the old place while the new
+// one loads is worse than showing nothing.
+function bootShow(msg, sub){
+  let b=document.getElementById('boot');
+  if(!b){
+    b=document.createElement('div');
+    b.id='boot'; b.className='boot';
+    b.innerHTML='<div class="boot-mark" aria-hidden="true">'
+      +'<span class="boot-dot bd1"></span><span class="boot-dot bd2"></span>'
+      +'<span class="boot-dot bd3"></span><span class="boot-dot bd4"></span></div>'
+      +'<div class="boot-txt" id="boot-txt"></div>'
+      +'<div class="boot-sub" id="boot-sub"></div>';
+    document.body.appendChild(b);
+  }
+  b.classList.remove('gone');
+  const a=document.getElementById('app-body'); if(a)a.classList.add('booting');
+  bootSay(msg||'Loading…', sub||'');
+  if(_bootFailsafe)clearTimeout(_bootFailsafe);
+  _bootFailsafe=setTimeout(()=>{ try{ bootDone(); }catch(e){} },12000);
+}
+let _bootFailsafe=null;
 function bootDone(){
+  if(_bootFailsafe){clearTimeout(_bootFailsafe);_bootFailsafe=null;}
   const b=document.getElementById('boot'); const a=document.getElementById('app-body');
   if(a)a.classList.remove('booting');
   if(b&&!b.classList.contains('gone')){
@@ -97,7 +120,7 @@ function bootDone(){
   try{ if(typeof mapEnsure==='function'&&sectionsVisible.map) setTimeout(mapEnsure,60); }catch(e){}
 }
 // never let a failure strand the user on the splash
-setTimeout(()=>{ try{ bootDone(); }catch(e){} }, 12000);
+_bootFailsafe=setTimeout(()=>{ try{ bootDone(); }catch(e){} }, 12000);
 let cachedForecastRain = null;
 let cachedHiLo = null;
 let modelWeights = {};

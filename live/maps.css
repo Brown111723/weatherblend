@@ -34,6 +34,9 @@
 /* the canvas field layer: positioned by Leaflet, scaled by CSS */
 .mp-field{position:absolute;filter:blur(3px) saturate(1.05);mix-blend-mode:screen;
   pointer-events:none;will-change:transform;}
+/* arrows sit above the field with NO blur — the blur is what was smearing
+   them, since it exists to smooth the interpolated colour field */
+.mp-arrows{position:absolute;pointer-events:none;will-change:transform;z-index:2;}
 /* when the basemap has its own names baked in, ease the field back */
 .mp-baked-labels .mp-field{opacity:.72;}
 /* place names ride above the weather field */

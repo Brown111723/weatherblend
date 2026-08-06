@@ -346,18 +346,35 @@ function mapWatchVisibility() {
   MAP._io = new IntersectionObserver(entries => {
     entries.forEach(e => {
       const seen = e.isIntersecting && e.intersectionRatio > 0.15;
-      if (seen === MAP.onScreen) return;
+      const changed = seen !== MAP.onScreen;
       MAP.onScreen = seen;
-      if (!seen) { mapStop(); return; }
-      // first real look: size the map, then fetch
+      if (!seen) { if (changed) mapStop(); mapDiag(); return; }
+      // Visible: make sure there is data, whether or not the flag moved.
+      // Checking only on change meant a rebuilt observer that reported the
+      // same state as before would never kick off a fetch.
       mapInitLeaflet();
       if (MAP.map) mapKick();
       if (!MAP.ready && !MAP.loading && !MAP._locTimer) mapFetch();
-      else if (MAP.ready) { mapDraw(false); mapFit(); }
+      else if (MAP.ready && changed) { mapDraw(false); mapFit(); }
       mapDiag();
     });
   }, { threshold: [0, 0.15, 0.5] });
   MAP._io.observe(el);
+  // IntersectionObserver does not always fire for an element that was
+  // already in view when observation began — verify directly.
+  setTimeout(() => {
+    if (MAP._io && el.getBoundingClientRect) {
+      const r = el.getBoundingClientRect();
+      const vh = (typeof window !== 'undefined' && window.innerHeight) || 800;
+      const visible = r.top < vh * 0.85 && r.bottom > vh * 0.15;
+      if (visible && !MAP.onScreen) {
+        MAP.onScreen = true;
+        mapInitLeaflet(); if (MAP.map) mapKick();
+        if (!MAP.ready && !MAP.loading && !MAP._locTimer) mapFetch();
+        mapDiag();
+      }
+    }
+  }, 250);
 }
 
 async function mapFetchTier(tier) {
@@ -658,33 +675,47 @@ function mapRenderInto(ctx, W, H, fh) {
     data[q] = R; data[q + 1] = G; data[q + 2] = B; data[q + 3] = A * 255;
   }
   ctx.putImageData(img, 0, 0);
-  if (layers.indexOf('wind') >= 0) mapDrawWind(ctx, W, H, fh);
 }
 
+// Proper barb-style arrows on their own high-resolution canvas. Scaled to
+// the canvas size so they stay crisp, with a dark outline so they read over
+// bright fields as well as dark ones.
 function mapDrawWind(ctx, W, H, fh) {
   const spd = mapValuesAt('wind', fh);
   const dir = mapValuesAt('_winddir', fh);
   const [[latS, lonW], [latN, lonE]] = MAP.bounds;
   const mN = mapMerc(latN), mS = mapMerc(latS);
+  const S = W / 620;                                  // scale factor
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   MAP.points.forEach((p, i) => {
-    const v = spd[i]; if (v == null) return;
+    const v = spd[i]; if (v == null || isNaN(v)) return;
     const d = dir ? dir[i] : null;
     const x = ((p.lon - lonW) / ((lonE - lonW) || 1)) * W;
     const y = ((mN - mapMerc(p.lat)) / ((mN - mS) || 1)) * H;
-    const len = 5 + Math.min(11, v / 6);
-    const a = ((d == null ? 0 : d) + 180) * Math.PI / 180;    // pointing downwind
-    const dx = Math.sin(a) * len, dy = -Math.cos(a) * len;
-    ctx.strokeStyle = 'rgba(255,255,255,' + Math.min(0.92, 0.36 + v / 70).toFixed(2) + ')';
-    ctx.lineWidth = 1.6;
-    ctx.beginPath(); ctx.moveTo(x - dx, y - dy); ctx.lineTo(x + dx, y + dy); ctx.stroke();
-    const hx = x + dx, hy = y + dy, sz = 3.4;
-    ctx.beginPath();
-    ctx.moveTo(hx, hy); ctx.lineTo(hx - Math.sin(a - 0.42) * sz, hy + Math.cos(a - 0.42) * sz);
-    ctx.moveTo(hx, hy); ctx.lineTo(hx - Math.sin(a + 0.42) * sz, hy + Math.cos(a + 0.42) * sz);
-    ctx.stroke();
+    // length grows with speed but stays inside its own grid cell
+    const len = (9 + Math.min(15, v * 0.42)) * S;
+    const a = ((d == null ? 0 : d) + 180) * Math.PI / 180;   // pointing downwind
+    const ux = Math.sin(a), uy = -Math.cos(a);
+    const x0 = x - ux * len, y0 = y - uy * len;
+    const x1 = x + ux * len, y1 = y + uy * len;
+    const head = (5.5 + Math.min(4, v * 0.09)) * S;
+    const alpha = Math.min(0.95, 0.45 + v / 60);
+    const draw = (stroke, width) => {
+      ctx.strokeStyle = stroke; ctx.lineWidth = width;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x1 - (ux * Math.cos(0.44) - uy * Math.sin(0.44)) * head,
+                 y1 - (uy * Math.cos(0.44) + ux * Math.sin(0.44)) * head);
+      ctx.lineTo(x1, y1);
+      ctx.lineTo(x1 - (ux * Math.cos(-0.44) - uy * Math.sin(-0.44)) * head,
+                 y1 - (uy * Math.cos(-0.44) + ux * Math.sin(-0.44)) * head);
+      ctx.stroke();
+    };
+    draw('rgba(6,10,18,' + (alpha * 0.72).toFixed(2) + ')', 3.6 * S);   // outline
+    draw('rgba(255,255,255,' + alpha.toFixed(2) + ')', 1.7 * S);        // arrow
   });
 }
+
 
 // ── the Leaflet map ─────────────────────────────────────────────────────
 // ── tiles, with automatic fallback ──────────────────────────────────────
@@ -875,30 +906,38 @@ function mapDiag() {
 
 // A Leaflet layer backed by a canvas we draw into directly — no PNG encode
 // per frame, which was the real cost in the old image-overlay path.
+const MAP_ARROW_PX = 620;                    // arrows render at their own scale
 function mapFieldLayer() {
   if (MAP.overlay) return MAP.overlay;
   const Field = L.Layer.extend({
     onAdd: function (map) {
       const cv = this._cv = L.DomUtil.create('canvas', 'mp-field leaflet-zoom-animated');
       cv.width = MAP_IMG; cv.height = MAP_IMG;
-      map.getPanes().overlayPane.appendChild(cv);
+      const av = this._av = L.DomUtil.create('canvas', 'mp-arrows leaflet-zoom-animated');
+      av.width = MAP_ARROW_PX; av.height = MAP_ARROW_PX;
+      const pane = map.getPanes().overlayPane;
+      pane.appendChild(cv); pane.appendChild(av);
       map.on('zoomend viewreset', this._reset, this);
       this._reset();
     },
     onRemove: function (map) {
       map.off('zoomend viewreset', this._reset, this);
-      if (this._cv && this._cv.parentNode) this._cv.parentNode.removeChild(this._cv);
+      [this._cv, this._av].forEach(c => { if (c && c.parentNode) c.parentNode.removeChild(c); });
     },
     _reset: function () {
       if (!MAP.bounds || !this._cv) return;
       const m = this._map;
       const tl = m.latLngToLayerPoint(L.latLng(MAP.bounds[1][0], MAP.bounds[0][1]));
       const br = m.latLngToLayerPoint(L.latLng(MAP.bounds[0][0], MAP.bounds[1][1]));
-      L.DomUtil.setPosition(this._cv, tl);
-      this._cv.style.width = (br.x - tl.x) + 'px';
-      this._cv.style.height = (br.y - tl.y) + 'px';
+      const w = (br.x - tl.x) + 'px', h = (br.y - tl.y) + 'px';
+      [this._cv, this._av].forEach(c => {
+        if (!c) return;
+        L.DomUtil.setPosition(c, tl);
+        c.style.width = w; c.style.height = h;
+      });
     },
     ctx: function () { return this._cv ? this._cv.getContext('2d') : null; },
+    arrowCtx: function () { return this._av ? this._av.getContext('2d') : null; },
     refit: function () { this._reset(); }
   });
   MAP.overlay = new Field();
@@ -913,6 +952,13 @@ function mapDraw(fit) {
   if (ctx) {
     const t0 = (typeof performance !== 'undefined') ? performance.now() : Date.now();
     mapRenderInto(ctx, MAP_IMG, MAP_IMG, MAP.hourSel);
+    const actx = layer.arrowCtx();
+    if (actx) {
+      actx.clearRect(0, 0, MAP_ARROW_PX, MAP_ARROW_PX);
+      if (mapActiveLayers().indexOf('wind') >= 0) {
+        mapDrawWind(actx, MAP_ARROW_PX, MAP_ARROW_PX, MAP.hourSel);
+      }
+    }
     const t1 = (typeof performance !== 'undefined') ? performance.now() : Date.now();
     mapNoteFrameCost(t1 - t0);
   }

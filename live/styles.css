@@ -516,20 +516,33 @@ body{padding-bottom:64px;}
    knows where it is. */
 #app-body.booting{visibility:hidden;pointer-events:none;}
 .boot{position:fixed;inset:0;z-index:400;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;gap:16px;background:var(--bg,#0c0f15);
-  transition:opacity .32s ease;}
+  align-items:center;justify-content:center;gap:22px;background:var(--bg,#0c0f15);
+  transition:opacity .34s ease;}
 .boot.gone{opacity:0;pointer-events:none;}
-.boot-mark{position:relative;width:58px;height:58px;}
-.boot-dot{position:absolute;width:26px;height:26px;border-radius:50%;
-  animation:bootPulse 1.5s ease-in-out infinite;}
-.bd1{left:0;top:16px;background:var(--q-wind,#A8E63E);animation-delay:0s;}
-.bd2{left:16px;top:0;background:var(--q-temp,#7EE8A5);animation-delay:.16s;}
-.bd3{right:0;top:16px;background:var(--q-rain,#5FA4FF);animation-delay:.32s;}
-.bd4{left:16px;bottom:0;background:var(--q-cloud,#C8A6FF);animation-delay:.48s;}
-@keyframes bootPulse{
-  0%,100%{transform:scale(.82);opacity:.42;}
-  50%    {transform:scale(1.06);opacity:.95;}
+
+/* The quatrefoil assembling itself: the four lobes orbit in from their own
+   corners, meet at the centre, and blend where they overlap — which is the
+   whole idea of the app in one gesture. */
+.boot-mark{position:relative;width:96px;height:96px;animation:bootSpin 4.2s linear infinite;}
+.boot-dot{position:absolute;left:50%;top:50%;width:44px;height:44px;margin:-22px 0 0 -22px;
+  border-radius:50%;mix-blend-mode:screen;filter:blur(.4px);
+  animation:bootOrbit 2.6s cubic-bezier(.45,0,.35,1) infinite;}
+.bd1{background:var(--q-wind,#A8E63E);--ox:-19px;--oy:0px;animation-delay:0s;}
+.bd2{background:var(--q-temp,#7EE8A5);--ox:0px;--oy:-19px;animation-delay:.12s;}
+.bd3{background:var(--q-rain,#5FA4FF);--ox:19px;--oy:0px;animation-delay:.24s;}
+.bd4{background:var(--q-cloud,#C8A6FF);--ox:0px;--oy:19px;animation-delay:.36s;}
+@keyframes bootOrbit{
+  0%   {transform:translate(calc(var(--ox)*2.9),calc(var(--oy)*2.9)) scale(.52);opacity:.15;}
+  42%  {transform:translate(var(--ox),var(--oy)) scale(1);opacity:.95;}
+  68%  {transform:translate(calc(var(--ox)*.82),calc(var(--oy)*.82)) scale(1.04);opacity:1;}
+  100% {transform:translate(calc(var(--ox)*2.9),calc(var(--oy)*2.9)) scale(.52);opacity:.15;}
 }
-.boot-txt{font-size:14px;font-weight:600;color:var(--text-primary,#f4f7fd);letter-spacing:.2px;}
-.boot-sub{font-size:12px;color:var(--text-dim,#5f6f82);}
-@media (prefers-reduced-motion:reduce){ .boot-dot{animation:none;opacity:.8;} }
+@keyframes bootSpin{ from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
+
+.boot-txt{font-size:15px;font-weight:600;color:var(--text-primary,#f4f7fd);letter-spacing:.2px;
+  text-align:center;padding:0 24px;}
+.boot-sub{font-size:12px;color:var(--text-dim,#5f6f82);text-align:center;padding:0 24px;margin-top:-14px;}
+@media (prefers-reduced-motion:reduce){
+  .boot-mark{animation:none;}
+  .boot-dot{animation:none;opacity:.85;transform:translate(var(--ox),var(--oy));}
+}
