@@ -30,7 +30,9 @@
 /* ── hour section ── */
 .tlm-hour{padding-top:14px;margin-top:14px;border-top:1px solid var(--border,#1f2733);}
 .tlm-mfig{font-size:22px;font-weight:600;letter-spacing:-.5px;color:#fff;white-space:nowrap;text-shadow:0 1px 7px rgba(0,0,0,.85),0 0 3px rgba(0,0,0,.75);}
-.tlm-mconf{font-size:12px;font-weight:600;color:rgba(255,255,255,.72);text-shadow:0 1px 5px rgba(0,0,0,.85);}
+.tlm-mconf{font-size:12px;font-weight:600;color:rgba(255,255,255,.72);text-shadow:0 1px 5px rgba(0,0,0,.85);
+  text-align:right;line-height:1.1;}
+.tlm-mconf:empty{display:none;}
 .tlm-cf{font-size:10px;font-weight:700;letter-spacing:.5px;color:rgba(255,255,255,.5);}
 .tlm-msub{font-size:12px;font-weight:600;color:rgba(255,255,255,.72);text-shadow:0 1px 5px rgba(0,0,0,.85);}
 .tlm-mdir{font-size:13px;font-weight:600;color:rgba(255,255,255,.78);}
@@ -53,7 +55,8 @@
 .tlm-mband{position:relative;height:52px;border-radius:9px;overflow:hidden;background:#101725;display:flex;align-items:center;justify-content:space-between;padding:0 13px;}
 .tlm-mscrim{position:absolute;inset:0;background:linear-gradient(90deg,rgba(6,9,15,.52) 0%,rgba(6,9,15,.06) 22%,rgba(6,9,15,.06) 52%,rgba(6,9,15,.58) 100%);pointer-events:none;}
 .tlm-mname{position:relative;font-size:10px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;text-shadow:0 1px 5px rgba(0,0,0,.9);white-space:nowrap;}
-.tlm-mval{position:relative;display:flex;align-items:center;gap:11px;min-width:0;}
+.tlm-mval{position:relative;display:flex;flex-direction:column;align-items:flex-end;gap:1px;min-width:0;}
+.tlm-mnums{display:flex;align-items:center;gap:11px;}
 .tlm-mstack{display:flex;flex-direction:column;align-items:flex-end;line-height:1.12;}
 .tlm-mhilo{display:flex;flex-direction:column;align-items:flex-end;line-height:1.25;}
 .tlm-hl{font-size:12px;font-weight:600;color:rgba(255,255,255,.86);text-shadow:0 1px 5px rgba(0,0,0,.85);font-variant-numeric:tabular-nums;}
@@ -63,7 +66,6 @@
 .tlm-range-mode .tlm-mhilo{line-height:1.18;}
 .tlm-range-mode .tlm-mval{gap:8px;}
 /* confidence drops beneath the figure instead of sitting beside it */
-.tlm-mconf.below{display:block;margin-top:2px;text-align:right;}
 .tlm-range-mode .tlm-mstack{align-items:flex-end;justify-content:center;}
 .tlm-hl.lo{color:rgba(255,255,255,.64);}
 .tlm-darr{width:15px;height:15px;margin-left:5px;vertical-align:-3px;color:rgba(255,255,255,.85);filter:drop-shadow(0 1px 4px rgba(0,0,0,.85));}

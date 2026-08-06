@@ -1791,7 +1791,8 @@ function renderHourly(){
     const nowMs=locNowMs();
     return indices.map((hourIdx,ci)=>{
       const t=ref.time[hourIdx];
-      if(new Date(t).getTime()>=nowMs)return '<td class="empty">–</td>';
+      // only hours that have fully elapsed count as observed
+      if(new Date(t).getTime()+3600000>nowMs)return '<td class="empty">–</td>';
       const ai=actMap[t];
       if(ai===undefined)return '<td class="empty">–</td>';
       const v=actVals[ai];

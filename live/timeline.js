@@ -403,14 +403,16 @@ function tlBandsHTML() {
     const lab = key === 'temp'
       ? '<span class="tlm-mname" style="color:' + tlTempColor(dayHi) + '">' + name + '</span>'
       : '<span class="tlm-mname tlm-ic-' + key + '">' + name + '</span>';
-    const val = key === 'temp'
+    // Numbers on one row, confidence on its own row beneath — otherwise on
+    // days with no live figure the label ends up beside the range instead.
+    const nums = key === 'temp'
       ? '<span class="tlm-mstack"><span class="tlm-mfig" id="tlm-temp"></span>'
         + '<span class="tlm-msub" id="tlm-feels"></span></span>'
         + '<span class="tlm-mhilo" id="tlm-hilo-temp"></span>'
-      : '<span class="tlm-mstack"><span class="tlm-mfig" id="tlm-fig-' + key + '"></span>'
-        + '<span class="tlm-mconf" id="tlm-conf-' + key + '"></span></span>'
+      : '<span class="tlm-mstack"><span class="tlm-mfig" id="tlm-fig-' + key + '"></span></span>'
         + '<span class="tlm-mhilo" id="tlm-hilo-' + key + '"></span>';
-    // (conf renders under the figure; in range mode it moves under the hi/lo)
+    const val = '<span class="tlm-mnums">' + nums + '</span>'
+      + (key === 'temp' ? '' : '<span class="tlm-mconf" id="tlm-conf-' + key + '"></span>');
     return '<div class="tlm-mband">'
       + '<div class="tlm-lay" style="background:' + tlBandGrad(key, arr) + '"></div>'
       + past + '<div class="tlm-mscrim"></div>' + lab
@@ -534,8 +536,7 @@ function tlHeads() {
       const c = TL.dayConf[d.date] ? TL.dayConf[d.date][key] : null;
       set('tlm-conf-' + key,
         (confVisible[key] !== false && c != null) ? '<span class="tlm-cf">Conf.</span> ' + c + '%' : '');
-      const cEl = document.getElementById('tlm-conf-' + key);
-      if (cEl) cEl.classList.toggle('below', !live);
+
     }
   });
 

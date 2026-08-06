@@ -840,7 +840,8 @@ function mapBuildUI() {
   const ticks = [0, 6, 12, 18, 23].map(i =>
     `<span class="mp-tick" style="left:${((i / 23) * 100).toFixed(2)}%">${MAP.times.length ? mapClock(i) : ''}</span>`).join('');
   sec.innerHTML =
-    `<div class="mp-wrap">
+    `<div class="sec-divider"><span class="sec-divider-lab">Map</span></div>
+     <div class="mp-wrap">
       <div class="mp-chips" id="mp-chips">${chips}</div>
       <div class="mp-stage">
         <div id="mp-map"></div>
