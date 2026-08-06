@@ -24,6 +24,7 @@ const MAP = {
   times: [],                // UTC ISO strings, 24 of them
   nowIdx: 12,
   hourSel: 12, scrubbing: false, playing: false, playTimer: null,
+  frameMs: null, frameSamples: 0,
   layers: ['rain', 'cloud'], // painted bottom to top
   metric: 'rain',            // headline layer — must always be one of `layers`
   raw: {},                  // raw[modelKey] = [point][field][hour]
@@ -164,6 +165,34 @@ const MAP_COLOR = {
     return mapPx(mapRamp(v, (typeof TL_URAMP !== 'undefined') ? TL_URAMP : MAP_WIND_RAMP), 55 + 175 * t);
   }
 };
+
+// ── colour lookup tables ────────────────────────────────────────────────
+// Each colour function is resolved once into a 512-entry RGBA table, so a
+// pixel becomes an array index instead of a ramp interpolation. Built per
+// layer on demand and reused for every frame.
+const LUT_N = 512;
+const MAP_LUT_RANGE = {
+  temp: [-15, 48], rain: [0, 20], snow: [0, 6], wind: [0, 100], gust: [0, 130],
+  cloud: [0, 100], humid: [0, 100], press: [960, 1050], uv: [0, 14]
+};
+const MAP_LUTS = {};
+function mapLut(key) {
+  if (MAP_LUTS[key]) return MAP_LUTS[key];
+  const [lo, hi] = MAP_LUT_RANGE[key] || [0, 100];
+  const col = MAP_COLOR[key] || MAP_COLOR.temp;
+  const t = new Uint8ClampedArray(LUT_N * 4);
+  for (let i = 0; i < LUT_N; i++) {
+    const px = col(lo + ((hi - lo) * i) / (LUT_N - 1));
+    t[i * 4] = px[0]; t[i * 4 + 1] = px[1]; t[i * 4 + 2] = px[2]; t[i * 4 + 3] = px[3];
+  }
+  const lut = { t, lo, scale: (LUT_N - 1) / ((hi - lo) || 1) };
+  MAP_LUTS[key] = lut;
+  return lut;
+}
+function mapLutIdx(lut, v) {
+  const i = ((v - lut.lo) * lut.scale) | 0;
+  return i < 0 ? 0 : (i >= LUT_N ? LUT_N - 1 : i);
+}
 
 // legend stops, purely for the strip under the map
 const MAP_LEGEND = {
@@ -557,59 +586,84 @@ function mapSampleAt(vals, o) {
   return wsum > 0 ? acc / wsum : null;
 }
 
-function mapFrame(metric, h) {
-  const fkey = mapFramesKey();
-  if (!MAP.frames[fkey]) MAP.frames[fkey] = [];
-  if (MAP.frames[fkey][h]) return MAP.frames[fkey][h];
-  mapBuildWeights();
-  const W = MAP_IMG, H = MAP_IMG;
-  const layers = mapActiveLayers();
-  const grids = {};
-  layers.forEach(k => { grids[k] = mapBlendMetric(k)[h]; });
-  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-  const ctx = cv.getContext('2d');
-  const img = ctx.createImageData(W, H);
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const o = (y * W + x) * MAP_IDW_K;
-      // composite each layer over what is already painted
-      let R = 0, G = 0, B = 0, A = 0;
-      for (const k of layers) {
-        if (k === 'wind') continue;                  // arrows, not colour
-        const v = mapSampleAt(grids[k], o);
-        const px = (MAP_COLOR[k] || MAP_COLOR.temp)(v);
-        const sa = px[3] / 255; if (sa <= 0) continue;
-        if (k === 'cloud' && A > 0) {
-          // cloud drains colour from what is beneath instead of tinting it
-          const lum = 0.299 * R + 0.587 * G + 0.114 * B;
-          R += (lum - R) * sa * 0.55; G += (lum - G) * sa * 0.55; B += (lum - B) * sa * 0.55;
-          R += (238 - R) * sa * 0.30; G += (242 - G) * sa * 0.30; B += (250 - B) * sa * 0.30;
-          A = A + sa * (1 - A);
-          continue;
-        }
-        const na = sa + A * (1 - sa);
-        if (na > 0) {
-          R = (px[0] * sa + R * A * (1 - sa)) / na;
-          G = (px[1] * sa + G * A * (1 - sa)) / na;
-          B = (px[2] * sa + B * A * (1 - sa)) / na;
-        }
-        A = na;
-      }
-      const q = (y * W + x) * 4;
-      img.data[q] = R; img.data[q + 1] = G; img.data[q + 2] = B; img.data[q + 3] = A * 255;
-    }
+// ── sub-hourly frames ───────────────────────────────────────────────────
+// The API only ever returns hourly values, so anything between hours is
+// interpolated here, not fetched — it costs no API calls. Honest for
+// temperature, pressure and humidity, which vary smoothly; less so for
+// rain, where a shower can begin and end inside the hour. It is smoother
+// animation over the same hourly data, not extra resolution.
+const MAP_SUBSTEP = 10;                     // minutes between frames
+const MAP_STEPS_PER_HOUR = 60 / MAP_SUBSTEP;
+
+// values at fractional hour `fh`, interpolated across the grid points
+function mapValuesAt(metric, fh) {
+  const grid = mapBlendMetric(metric);
+  const n = grid.length;
+  const h0 = Math.max(0, Math.min(n - 1, Math.floor(fh)));
+  const h1 = Math.min(n - 1, h0 + 1);
+  const t = fh - h0;
+  const a = grid[h0], b = grid[h1];
+  if (t <= 0 || h1 === h0) return a;
+  const P = a.length, out = new Array(P);
+  for (let i = 0; i < P; i++) {
+    const x = a[i], y = b[i];
+    out[i] = (x == null || y == null) ? (x != null ? x : y) : x + (y - x) * t;
   }
-  ctx.putImageData(img, 0, 0);
-  if (layers.indexOf('wind') >= 0) mapDrawWind(ctx, W, H, h);
-  const url = cv.toDataURL('image/png');
-  MAP.frames[fkey][h] = url;
-  return url;
+  return out;
 }
 
-// wind as arrows — a channel of its own, legible over any colour field
-function mapDrawWind(ctx, W, H, h) {
-  const spd = mapBlendMetric('wind')[h];
-  const dir = mapBlendMetric('_winddir')[h];
+// Render straight into the layer's canvas. The old path encoded a PNG per
+// frame via toDataURL, which cost more than the pixels did.
+function mapRenderInto(ctx, W, H, fh) {
+  mapBuildWeights();
+  const layers = mapActiveLayers();
+  const vals = {}, luts = {};
+  layers.forEach(k => { vals[k] = mapValuesAt(k, fh); luts[k] = mapLut(k); });
+  const img = ctx.createImageData(W, H);
+  const data = img.data;
+  const wIdx = MAP._wIdx, wVal = MAP._wVal;
+  for (let p = 0; p < W * H; p++) {
+    const o = p * MAP_IDW_K;
+    let R = 0, G = 0, B = 0, A = 0;
+    for (let li = 0; li < layers.length; li++) {
+      const k = layers[li];
+      if (k === 'wind') continue;                    // arrows, drawn after
+      const arr = vals[k];
+      let acc = 0, ws = 0;
+      for (let n = 0; n < MAP_IDW_K; n++) {
+        const gi = wIdx[o + n]; if (gi < 0) continue;
+        const v = arr[gi]; if (v == null || isNaN(v)) continue;
+        const w = wVal[o + n]; acc += v * w; ws += w;
+      }
+      if (ws <= 0) continue;
+      const lut = luts[k], li4 = mapLutIdx(lut, acc / ws) * 4;
+      const sa = lut.t[li4 + 3] / 255; if (sa <= 0) continue;
+      if (k === 'cloud' && A > 0) {
+        // cloud drains colour from what is beneath rather than tinting it
+        const lum = 0.299 * R + 0.587 * G + 0.114 * B;
+        R += (lum - R) * sa * 0.55; G += (lum - G) * sa * 0.55; B += (lum - B) * sa * 0.55;
+        R += (238 - R) * sa * 0.30; G += (242 - G) * sa * 0.30; B += (250 - B) * sa * 0.30;
+        A = A + sa * (1 - A);
+        continue;
+      }
+      const na = sa + A * (1 - sa);
+      if (na > 0) {
+        R = (lut.t[li4] * sa + R * A * (1 - sa)) / na;
+        G = (lut.t[li4 + 1] * sa + G * A * (1 - sa)) / na;
+        B = (lut.t[li4 + 2] * sa + B * A * (1 - sa)) / na;
+      }
+      A = na;
+    }
+    const q = p * 4;
+    data[q] = R; data[q + 1] = G; data[q + 2] = B; data[q + 3] = A * 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  if (layers.indexOf('wind') >= 0) mapDrawWind(ctx, W, H, fh);
+}
+
+function mapDrawWind(ctx, W, H, fh) {
+  const spd = mapValuesAt('wind', fh);
+  const dir = mapValuesAt('_winddir', fh);
   const [[latS, lonW], [latN, lonE]] = MAP.bounds;
   const mN = mapMerc(latN), mS = mapMerc(latS);
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -801,7 +855,7 @@ function mapDiag() {
   // surface any drift between the grid and the table straight away
   if (MAP.ready) {
     try {
-      const g = mapBlendMetric(MAP.metric)[MAP.hourSel][mapCentreIdx()], t = mapTableValue();
+      const g = mapValuesAt(MAP.metric, MAP.hourSel)[mapCentreIdx()], t = mapTableValue();
       if (g != null && t != null) {
         const d = Math.abs(g - t);
         bits.push('grid vs table: ' + g.toFixed(1) + ' / ' + t.toFixed(1)
@@ -811,19 +865,58 @@ function mapDiag() {
   }
   if (MAP.error) bits.push('⚠ ' + MAP.error);
   if (MAP.log.length) bits.push(MAP.log[MAP.log.length - 1]);
+  const st = mapStepMinutes();
+  bits.push('frames every ' + st + ' min'
+    + (st < 60 ? ' (between-hour frames interpolated, not fetched)' : '')
+    + (MAP.frameMs != null ? ' · ' + MAP.frameMs.toFixed(0) + 'ms/frame' : ''));
   bits.push('blended across every enabled model, weighted by accuracy here');
   el.textContent = bits.join('   ·   ');
 }
 
+// A Leaflet layer backed by a canvas we draw into directly — no PNG encode
+// per frame, which was the real cost in the old image-overlay path.
+function mapFieldLayer() {
+  if (MAP.overlay) return MAP.overlay;
+  const Field = L.Layer.extend({
+    onAdd: function (map) {
+      const cv = this._cv = L.DomUtil.create('canvas', 'mp-field leaflet-zoom-animated');
+      cv.width = MAP_IMG; cv.height = MAP_IMG;
+      map.getPanes().overlayPane.appendChild(cv);
+      map.on('zoomend viewreset', this._reset, this);
+      this._reset();
+    },
+    onRemove: function (map) {
+      map.off('zoomend viewreset', this._reset, this);
+      if (this._cv && this._cv.parentNode) this._cv.parentNode.removeChild(this._cv);
+    },
+    _reset: function () {
+      if (!MAP.bounds || !this._cv) return;
+      const m = this._map;
+      const tl = m.latLngToLayerPoint(L.latLng(MAP.bounds[1][0], MAP.bounds[0][1]));
+      const br = m.latLngToLayerPoint(L.latLng(MAP.bounds[0][0], MAP.bounds[1][1]));
+      L.DomUtil.setPosition(this._cv, tl);
+      this._cv.style.width = (br.x - tl.x) + 'px';
+      this._cv.style.height = (br.y - tl.y) + 'px';
+    },
+    ctx: function () { return this._cv ? this._cv.getContext('2d') : null; },
+    refit: function () { this._reset(); }
+  });
+  MAP.overlay = new Field();
+  MAP.overlay.addTo(MAP.map);
+  return MAP.overlay;
+}
+
 function mapDraw(fit) {
   if (!MAP.ready || !MAP.map) return;
-  const url = mapFrame(MAP.metric, MAP.hourSel);
-  if (!MAP.overlay) {
-    MAP.overlay = L.imageOverlay(url, MAP.bounds, { opacity: 1, interactive: false, className: 'mp-field' }).addTo(MAP.map);
-  } else {
-    MAP.overlay.setUrl(url);
-    MAP.overlay.setBounds(MAP.bounds);
+  const layer = mapFieldLayer();
+  const ctx = layer.ctx();
+  if (ctx) {
+    const t0 = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+    mapRenderInto(ctx, MAP_IMG, MAP_IMG, MAP.hourSel);
+    const t1 = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+    mapNoteFrameCost(t1 - t0);
   }
+  layer.refit();
   if (fit) mapFit();
   mapMarkLocation();
   mapSyncScrub();
@@ -834,11 +927,14 @@ function mapDraw(fit) {
 // ── UI ──────────────────────────────────────────────────────────────────
 function mapLocalMs(i) {
   const off = (typeof locationOffsetSec === 'number' && locationOffsetSec != null) ? locationOffsetSec : 0;
-  return Date.parse(MAP.times[i] + 'Z') + off * 1000 + new Date().getTimezoneOffset() * 60000;
+  const h0 = Math.max(0, Math.min(MAP.times.length - 1, Math.floor(i)));
+  const frac = i - h0;
+  const base = Date.parse(MAP.times[h0] + 'Z');
+  return base + frac * 3600000 + off * 1000 + new Date().getTimezoneOffset() * 60000;
 }
 function mapClock(i) {
-  if (!MAP.times[i]) return '';
-  const d = new Date(mapLocalMs(i));
+  if (!MAP.times.length) return '';
+  const d = new Date(Math.round(mapLocalMs(i) / 60000) * 60000);
   let h = d.getHours(); const m = d.getMinutes();
   const ap = h < 12 ? 'am' : 'pm'; h = h % 12 || 12;
   return h + (m ? ':' + String(m).padStart(2, '0') : '') + ap;
@@ -941,7 +1037,8 @@ function mapTableValueFor(metric) {
   try {
     if (typeof refHourly !== 'function' || typeof wBlendAt !== 'function') return null;
     const ref = refHourly(); if (!ref || !ref.time) return null;
-    const iso = MAP.times[MAP.hourSel]; if (!iso) return null;
+    const hi = Math.round(MAP.hourSel);
+    const iso = MAP.times[hi]; if (!iso) return null;
     // map times are UTC; the table grid is local
     const off = (typeof locationOffsetSec === 'number' && locationOffsetSec != null) ? locationOffsetSec : 0;
     const local = new Date(Date.parse(iso + 'Z') + off * 1000).toISOString().slice(0, 16);
@@ -957,7 +1054,7 @@ function mapReadout() {
   const v = document.getElementById('mp-rd-val');
   if (!v || !MAP.ready) return;
   let val = mapTableValue();
-  if (val == null) val = mapBlendMetric(MAP.metric)[MAP.hourSel][mapCentreIdx()];
+  if (val == null) val = mapValuesAt(MAP.metric, MAP.hourSel)[mapCentreIdx()];
   const u = MAP_UNIT[MAP.metric];
   let txt = '—';
   if (val != null) {
@@ -984,6 +1081,7 @@ function mapReadout() {
 
 function mapSyncScrub() {
   const L2 = ((MAP.hourSel / 23) * 100).toFixed(2) + '%';
+  const atNow = Math.abs(MAP.hourSel - MAP.nowIdx) < 0.01;
   const line = document.getElementById('mp-line'), orb = document.getElementById('mp-orb'), lab = document.getElementById('mp-lab');
   if (line) line.style.left = L2;
   if (orb) orb.style.left = L2;
@@ -991,7 +1089,7 @@ function mapSyncScrub() {
     lab.style.left = L2;
     lab.textContent = mapClock(MAP.hourSel);
     lab.classList.toggle('past', MAP.hourSel < MAP.nowIdx);
-    lab.style.display = (MAP.scrubbing || MAP.playing || MAP.hourSel !== MAP.nowIdx) ? 'block' : 'none';
+    lab.style.display = (MAP.scrubbing || MAP.playing || !atNow) ? 'block' : 'none';
   }
   const nl = document.getElementById('mp-track');
   if (nl) nl.style.setProperty('--nowpc', ((MAP.nowIdx / 23) * 100).toFixed(2) + '%');
@@ -1003,7 +1101,8 @@ function mapBindScrub() {
   const setFrom = clientX => {
     const r = tr.getBoundingClientRect();
     const f = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
-    const h = Math.round(f * 23);
+    const stepH = mapStepMinutes() / 60;
+    const h = Math.round((f * 23) / stepH) * stepH;
     if (h !== MAP.hourSel) { MAP.hourSel = h; mapDraw(false); } else mapSyncScrub();
   };
   tr.addEventListener('pointerdown', ev => {
@@ -1015,11 +1114,31 @@ function mapBindScrub() {
   const up = () => {
     if (!down) return;
     down = false; MAP.scrubbing = false;
-    if (!MAP.playing && MAP.hourSel !== MAP.nowIdx) { MAP.hourSel = MAP.nowIdx; mapDraw(false); }
+    if (!MAP.playing && Math.abs(MAP.hourSel - MAP.nowIdx) > 0.001) { MAP.hourSel = MAP.nowIdx; mapDraw(false); }
     else mapSyncScrub();
   };
   tr.addEventListener('pointerup', up);
   tr.addEventListener('pointercancel', up);
+}
+
+// ── adaptive step ───────────────────────────────────────────────────────
+// Measure what a frame actually costs on this device and choose a step
+// size that can hold the rate. A smooth 3fps beats a stuttering 6.
+const MAP_HOUR_MS = 1000;                    // playback: 1 second per hour
+const MAP_STEP_CHOICES = [10, 15, 20, 30, 60];   // minutes
+function mapNoteFrameCost(ms) {
+  const prev = MAP.frameMs;
+  MAP.frameMs = prev == null ? ms : prev * 0.7 + ms * 0.3;   // smoothed
+  MAP.frameSamples = (MAP.frameSamples || 0) + 1;
+}
+function mapStepMinutes() {
+  const cost = MAP.frameMs;
+  if (cost == null || (MAP.frameSamples || 0) < 3) return MAP_SUBSTEP;
+  // a step of m minutes leaves (m/60)*MAP_HOUR_MS per frame; keep 35% spare
+  for (const m of MAP_STEP_CHOICES) {
+    if (cost <= (m / 60) * MAP_HOUR_MS * 0.65) return m;
+  }
+  return 60;
 }
 
 function mapTogglePlay() { MAP.playing ? mapStop() : mapPlay(); }
@@ -1027,15 +1146,31 @@ function mapPlay() {
   if (!MAP.ready) return;
   MAP.playing = true;
   const b = document.getElementById('mp-play'); if (b) { b.textContent = '❚❚'; b.classList.add('on'); }
-  MAP.playTimer = setInterval(() => {
-    MAP.hourSel = (MAP.hourSel + 1) % 24;
+  const startedAt = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+  const fromHour = MAP.hourSel;
+  const total = 24;
+  // Driven by the wall clock, not a frame counter — if the device drops a
+  // frame the animation skips rather than running slow, so a full pass is
+  // always 24 seconds however fast the hardware is.
+  const tick = () => {
+    if (!MAP.playing) return;
+    const now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+    const elapsedHours = (now - startedAt) / MAP_HOUR_MS;
+    const stepH = mapStepMinutes() / 60;
+    let fh = fromHour + Math.round(elapsedHours / stepH) * stepH;
+    if (fh >= total) fh = fh % total;
+    MAP.hourSel = fh;
     mapDraw(false);
-  }, 550);
+    MAP.playTimer = setTimeout(tick, Math.max(16, (stepH * MAP_HOUR_MS) - (MAP.frameMs || 0)));
+  };
+  tick();
 }
 function mapStop() {
   MAP.playing = false;
-  if (MAP.playTimer) { clearInterval(MAP.playTimer); MAP.playTimer = null; }
+  if (MAP.playTimer) { clearTimeout(MAP.playTimer); MAP.playTimer = null; }
   const b = document.getElementById('mp-play'); if (b) { b.textContent = '▶'; b.classList.remove('on'); }
+  MAP.hourSel = Math.round(MAP.hourSel);      // land back on a whole hour
+  if (MAP.ready) mapDraw(false);
 }
 
 function mapStatus(msg) {

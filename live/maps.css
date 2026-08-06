@@ -31,7 +31,9 @@
   background:linear-gradient(180deg,rgba(6,10,16,0) 0%,rgba(6,10,16,.58) 45%,rgba(6,10,16,.88) 100%);}
 
 /* the painted field: softened so a 9×9 grid doesn't read as facets */
-.mp-field{filter:blur(3px) saturate(1.05);mix-blend-mode:screen;}
+/* the canvas field layer: positioned by Leaflet, scaled by CSS */
+.mp-field{position:absolute;filter:blur(3px) saturate(1.05);mix-blend-mode:screen;
+  pointer-events:none;will-change:transform;}
 /* when the basemap has its own names baked in, ease the field back */
 .mp-baked-labels .mp-field{opacity:.72;}
 /* place names ride above the weather field */
