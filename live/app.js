@@ -1349,7 +1349,7 @@ function buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled,r
   if(actualData&&showActuals){
     const sh=actualData.hourly, map={}; (sh.time||[]).forEach((t,ai)=>{map[t]=ai;});
     const cells=indices.map((hourIdx,ci)=>{
-      if(new Date(ref.time[hourIdx]).getTime()>=nowMs)return'<td class="empty">–</td>';
+      if(new Date(ref.time[hourIdx]).getTime()+3600000>nowMs)return'<td class="empty">–</td>';
       const ai=map[ref.time[hourIdx]];
       if(ai===undefined)return'<td class="empty">–</td>';
       const v=sh.cloudcover?.[ai];
@@ -1441,7 +1441,7 @@ function renderVertical_cellVal(colId,i,onlyEnabled,actMap,nowMs,ref){
       return`<td class="${cloudCls(v)}">${v!=null?Math.round(v)+'%':'—'}</td>`;
     }
     case'act_cl':{
-      if(new Date(ref.time[i]).getTime()>=nowMs)return'<td class="empty">–</td>';
+      if(new Date(ref.time[i]).getTime()+3600000>nowMs)return'<td class="empty">–</td>';
       const ai=actMap[ref.time[i]];
       const v=ai!==undefined?actualData.hourly.cloudcover?.[ai]:null;
       return`<td class="${v!=null?cloudCls(v):''}">${v!=null?Math.round(v)+'%':'–'}</td>`;
@@ -2018,8 +2018,13 @@ function updatePills(){
     return`<span class="mpill ${s==='ok'?'ok':s==='fail'?'fail':'load'}">${s==='ok'?'✓':s==='fail'?'✗':'…'} ${m.label}</span>`;
   }).join(' ');
 }
-function showErr(msg){document.getElementById('err-area').innerHTML=`<div class="err-banner">⚠️ ${msg}</div>`;}
+function showErr(msg){
+  document.getElementById('err-area').innerHTML=`<div class="err-banner">⚠️ ${msg}</div>`;
+  try{ if(typeof bootDone==='function') bootDone(); }catch(e){}
+}
 function showCityPrompt(msg){
+  // asking for a location means we are not loading — drop the splash
+  try{ if(typeof bootDone==='function') bootDone(); }catch(e){}
   document.getElementById('city-prompt-msg').textContent=msg||'Start typing a town or city.';
   document.getElementById('city-input').value='';
   const box=document.getElementById('city-results'); if(box)box.innerHTML='';

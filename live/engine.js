@@ -80,6 +80,24 @@ let sectionsVisible = {cards:true,table:false,map:false};
 // Engine state
 let cachedCurrent = null;
 let firstRenderDone = false;
+// ── boot gate ───────────────────────────────────────────────────────────
+function bootSay(msg, sub){
+  const t=document.getElementById('boot-txt'); if(t&&msg)t.textContent=msg;
+  const u=document.getElementById('boot-sub'); if(u&&sub)u.textContent=sub;
+}
+function bootDone(){
+  const b=document.getElementById('boot'); const a=document.getElementById('app-body');
+  if(a)a.classList.remove('booting');
+  if(b&&!b.classList.contains('gone')){
+    b.classList.add('gone');
+    setTimeout(()=>{ if(b&&b.parentNode)b.parentNode.removeChild(b); },400);
+  }
+  // sections only become visible now, so this is the first honest moment
+  // to let the map decide whether it is on screen
+  try{ if(typeof mapEnsure==='function'&&sectionsVisible.map) setTimeout(mapEnsure,60); }catch(e){}
+}
+// never let a failure strand the user on the splash
+setTimeout(()=>{ try{ bootDone(); }catch(e){} }, 12000);
 let cachedForecastRain = null;
 let cachedHiLo = null;
 let modelWeights = {};
@@ -436,6 +454,7 @@ async function fetchAllModels(){
   setStatus('spin',`Fetching ${MODELS.length} models…`);
   buildSourcesPanel();
   updatePills();renderSkeleton();
+  bootSay('Fetching forecasts…','Seven global models');
   fetchCurrentConditions();
   if(secVisible.aqi) fetchAirQuality().then(()=>{ try{ renderCurrentBar(); renderTable(); }catch(e){} });
 
@@ -455,7 +474,8 @@ async function fetchAllModels(){
 
   const ok=MODELS.filter(m=>state.status[m.key]==='ok').length;
   dbg(`models loaded: ${ok}/${MODELS.length} ok`);
-  if(!ok){showErr('All models failed.');setStatus('err','No data');dbg('❌ all models failed — aborting');return;}
+  bootSay('Scoring accuracy…', ok+' of '+MODELS.length+' models loaded');
+  if(!ok){showErr('All models failed.');setStatus('err','No data');dbg('❌ all models failed — aborting');bootDone();return;}
   document.getElementById('err-area').innerHTML='';
   const failed=MODELS.filter(m=>state.status[m.key]==='fail').map(m=>m.label);
   const t=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
@@ -472,6 +492,7 @@ async function fetchAllModels(){
   if(_ck!==_lastCoordsKey){ selDate=localTodayStr(); _lastCoordsKey=_ck; }
   try{ renderCurrentBar(); renderTable(); firstRenderDone=true; dbg('✓ rendered (weighted, with actuals)'); }
   catch(e){ dbg('❌ render error: '+e.message); }
+  requestAnimationFrame(()=>bootDone());
 }
 
 // ── Current conditions endpoint (live now-card values) ──────────────────

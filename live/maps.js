@@ -105,6 +105,7 @@ const MAP_LABEL = {
   temp: 'Temp', rain: 'Rain', wind: 'Wind', cloud: 'Cloud',
   snow: 'Snow', gust: 'Gusts', humid: 'Humidity', press: 'Pressure', uv: 'UV'
 };
+const mapLabelOf = k => MAP_LABEL[k] || (k ? k.charAt(0).toUpperCase() + k.slice(1) : '');
 const MAP_UNIT = {
   temp: '°', rain: 'mm', wind: 'km/h', cloud: '%', snow: 'cm',
   gust: 'km/h', humid: '%', press: 'hPa', uv: ''
@@ -175,8 +176,13 @@ const mapInvMerc = y => (2 * Math.atan(Math.exp(y)) - Math.PI / 2) * 180 / Math.
 
 // ── which metrics are on ────────────────────────────────────────────────
 function mapMetrics() {
-  const main = ['temp', 'rain', 'wind', 'cloud'].filter(k => secVisible[k]);
-  const extra = (typeof XMET !== 'undefined') ? XMET.map(m => m.key).filter(k => secVisible[k]) : [];
+  // Only metrics the map can actually fetch and paint. Air quality comes
+  // from a separate single-source endpoint with no model grid, so it is
+  // deliberately not offered here.
+  const paintable = k => !!MAP_FIELD[k] && k.charAt(0) !== '_';
+  const main = ['temp', 'rain', 'wind', 'cloud'].filter(k => secVisible[k] && paintable(k));
+  const extra = (typeof XMET !== 'undefined')
+    ? XMET.map(m => m.key).filter(k => secVisible[k] && paintable(k)) : [];
   const all = main.concat(extra);
   return all.length ? all : ['temp', 'rain', 'wind', 'cloud'];
 }
@@ -302,6 +308,8 @@ async function mapFetch() {
 // A section can be toggled on and still be far below the fold. Only a real
 // intersection with the viewport counts as "the user is looking at it".
 function mapWatchVisibility() {
+  const boot = document.getElementById('boot');
+  if (boot && !boot.classList.contains('gone')) return;   // still on the splash
   const el = document.querySelector('#map-section .mp-stage') || document.getElementById('mp-map');
   if (!el || MAP._io) return;
   if (typeof IntersectionObserver === 'undefined') { MAP.onScreen = true; return; }
@@ -833,7 +841,7 @@ function mapBuildUI() {
   mapSyncMetric();
   const on = mapActiveLayers();
   const chips = metrics.map(k =>
-    `<button type="button" class="mp-chip${on.indexOf(k) >= 0 ? ' on' : ''} mp-c-${k}" data-m="${k}">${MAP_LABEL[k]}</button>`).join('');
+    `<button type="button" class="mp-chip${on.indexOf(k) >= 0 ? ' on' : ''} mp-c-${k}" data-m="${k}">${mapLabelOf(k)}</button>`).join('');
   const detail = `<div class="mp-ctl"><div class="mp-detail" id="mp-views">`
     + MAP_VIEWS.map((v, i) => `<button type="button" class="mp-dbtn${i === MAP.viewIdx ? ' on' : ''}" data-i="${i}">${v.label}</button>`).join('')
     + `</div></div>`;
@@ -902,7 +910,7 @@ function mapLegend() {
       const v = lo + (span * i) / 24, p = col(v);
       grad.push(`rgba(${p[0]},${p[1]},${p[2]},${(p[3] / 255).toFixed(2)}) ${((i / 24) * 100).toFixed(1)}%`);
     }
-    return `<div class="mp-lg-row"><span class="mp-lg-name mp-c-t-${k}">${MAP_LABEL[k]}</span>`
+    return `<div class="mp-lg-row"><span class="mp-lg-name mp-c-t-${k}">${mapLabelOf(k)}</span>`
       + `<div class="mp-lg-bar" style="background:linear-gradient(90deg,${grad.join(',')})"></div>`
       + `<span class="mp-lg-hi">${stops[stops.length - 1]}${MAP_UNIT[k]}</span></div>`;
   }).join('');
@@ -1060,9 +1068,18 @@ function mapReblend() {
   // Weights changed, so blended output is stale — but the raw grid is not,
   // and the disk cache holds raw data. Keep it.
   MAP.blend = {}; MAP.frames = {};
+  // a metric switched off in settings must stop being a map layer
+  const allowed = mapMetrics();
+  const kept = mapActiveLayers().filter(k => allowed.indexOf(k) >= 0);
+  const changed = kept.length !== mapActiveLayers().length;
+  if (changed) {
+    MAP.layers = kept.length ? kept : [allowed[0]];
+    try { localStorage.setItem('wb_map_layers', MAP.layers.join(',')); } catch (e) {}
+    MAP.ready = false;                      // the grid no longer matches
+  }
   mapSyncMetric();
+  if (typeof sectionsVisible !== 'undefined' && sectionsVisible.map) mapBuildUI();
   if (typeof sectionsVisible === 'undefined' || !sectionsVisible.map) return;
-  if (!MAP.built) mapBuildUI();
   mapInitLeaflet();
   if (MAP.ready) { mapDraw(true); return; }
   // only chase a fetch if the map is actually being looked at

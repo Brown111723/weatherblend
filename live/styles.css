@@ -509,3 +509,27 @@ body{padding-bottom:64px;}
 .aq3{background:rgba(249,115,22,0.22)!important;color:#fdba74!important;}
 .aq4{background:rgba(239,68,68,0.26)!important;color:#fca5a5!important;}
 .tog-btn.enabled.qt-aqi{color:var(--q-aqi,#A8E63E);}
+
+/* ── boot gate ──────────────────────────────────────────────────────────
+   Everything stays hidden until the first full render. Half-built sections
+   look broken, and a visible map would start fetching before the app even
+   knows where it is. */
+#app-body.booting{visibility:hidden;pointer-events:none;}
+.boot{position:fixed;inset:0;z-index:400;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:16px;background:var(--bg,#0c0f15);
+  transition:opacity .32s ease;}
+.boot.gone{opacity:0;pointer-events:none;}
+.boot-mark{position:relative;width:58px;height:58px;}
+.boot-dot{position:absolute;width:26px;height:26px;border-radius:50%;
+  animation:bootPulse 1.5s ease-in-out infinite;}
+.bd1{left:0;top:16px;background:var(--q-wind,#A8E63E);animation-delay:0s;}
+.bd2{left:16px;top:0;background:var(--q-temp,#7EE8A5);animation-delay:.16s;}
+.bd3{right:0;top:16px;background:var(--q-rain,#5FA4FF);animation-delay:.32s;}
+.bd4{left:16px;bottom:0;background:var(--q-cloud,#C8A6FF);animation-delay:.48s;}
+@keyframes bootPulse{
+  0%,100%{transform:scale(.82);opacity:.42;}
+  50%    {transform:scale(1.06);opacity:.95;}
+}
+.boot-txt{font-size:14px;font-weight:600;color:var(--text-primary,#f4f7fd);letter-spacing:.2px;}
+.boot-sub{font-size:12px;color:var(--text-dim,#5f6f82);}
+@media (prefers-reduced-motion:reduce){ .boot-dot{animation:none;opacity:.8;} }
