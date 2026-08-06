@@ -17,7 +17,7 @@ const MAP = {
   ready: false, loading: false, error: null, built: false,
   lat: null, lon: null,
   viewIdx: 0,
-  points: [], tier: 'coarse',
+  points: [], tier: 'adaptive', onScreen: false,
   spanLat: 9,               // ~1000km box; Nearby frames the middle 30%
   bounds: null,             // [[south,west],[north,east]]
   lats: [], lons: [],
@@ -197,9 +197,12 @@ function mapModels() {
 // rings out to the edge of the box. Weather fields are smooth enough at
 // 500km that edge points only need to anchor the interpolation, not
 // resolve structure. ~53 points where a 13x13 lattice needed 169.
+// With progressive loading gone there is no coarse pass to pay for, so the
+// single grid is sharper than the old refined one: 7x7 core, 77 points,
+// ~127km core spacing over a 1000km box.
 const MAP_TIERS = {
   coarse:   { core: 3, coreFrac: 0.42, rings: [{ f: 1.00, per: 3 }] },
-  adaptive: { core: 5, coreFrac: 0.38, rings: [{ f: 0.68, per: 3 }, { f: 1.00, per: 4 }] }
+  adaptive: { core: 7, coreFrac: 0.38, rings: [{ f: 0.68, per: 4 }, { f: 1.00, per: 5 }] }
 };
 function mapBuildPoints(tier) {
   const T = MAP_TIERS[tier] || MAP_TIERS.adaptive;
@@ -279,38 +282,44 @@ function mapAdopt(o) {
 // Progressive: a cheap coarse grid paints almost immediately, and the
 // finer one only loads if the map is still open a moment later. Most map
 // opens are a glance, so most never pay for the refinement.
-const MAP_REFINE_MS = 1400;
+// Scrolling to the map is a deliberate act, so there is no point paying for
+// a coarse preview first — go straight to the full grid. The saving now
+// comes from never fetching at all until the map is genuinely on screen.
+const MAP_TIER = 'adaptive';
 async function mapFetch() {
   if (MAP.loading) return;
   MAP.lat = state.lat; MAP.lon = state.lon;
   if (MAP.lat == null || MAP.lon == null) { mapWaitForLocation(); return; }
+  if (!MAP.onScreen) { mapStatus('Scroll down to load the map'); mapDiag(); return; }
 
-  // already have the fine grid for these settings?
-  const fineKey = mapCacheKey('adaptive');
-  const memF = MAP.cache[fineKey] || mapDiskGet(fineKey);
-  if (memF) { mapAdopt(memF); mapStatus(''); mapLog('cached (fine)'); mapDraw(true); return; }
-
-  const coarseKey = mapCacheKey('coarse');
-  const memC = MAP.cache[coarseKey] || mapDiskGet(coarseKey);
-  if (memC) { mapAdopt(memC); mapStatus(''); mapLog('cached (coarse)'); mapDraw(true); }
-  else {
-    const ok = await mapFetchTier('coarse');
-    if (!ok) return;
-  }
-  mapScheduleRefine();
+  const key = mapCacheKey(MAP_TIER);
+  const mem = MAP.cache[key] || mapDiskGet(key);
+  if (mem) { mapAdopt(mem); mapStatus(''); mapLog('cached'); mapDraw(true); return; }
+  await mapFetchTier(MAP_TIER);
 }
 
-function mapScheduleRefine() {
-  if (MAP._refineTimer) clearTimeout(MAP._refineTimer);
-  MAP._refineTimer = setTimeout(async () => {
-    MAP._refineTimer = null;
-    // only spend the extra calls if the map is genuinely still being looked at
-    if (typeof sectionsVisible === 'undefined' || !sectionsVisible.map) return;
-    if (document.hidden) return;
-    if (MAP.tier === 'adaptive') return;
-    mapLog('refining…');
-    await mapFetchTier('adaptive');
-  }, MAP_REFINE_MS);
+// ── on-screen detection ─────────────────────────────────────────────────
+// A section can be toggled on and still be far below the fold. Only a real
+// intersection with the viewport counts as "the user is looking at it".
+function mapWatchVisibility() {
+  const el = document.querySelector('#map-section .mp-stage') || document.getElementById('mp-map');
+  if (!el || MAP._io) return;
+  if (typeof IntersectionObserver === 'undefined') { MAP.onScreen = true; return; }
+  MAP._io = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      const seen = e.isIntersecting && e.intersectionRatio > 0.15;
+      if (seen === MAP.onScreen) return;
+      MAP.onScreen = seen;
+      if (!seen) { mapStop(); return; }
+      // first real look: size the map, then fetch
+      mapInitLeaflet();
+      if (MAP.map) mapKick();
+      if (!MAP.ready && !MAP.loading && !MAP._locTimer) mapFetch();
+      else if (MAP.ready) { mapDraw(false); mapFit(); }
+      mapDiag();
+    });
+  }, { threshold: [0, 0.15, 0.5] });
+  MAP._io.observe(el);
 }
 
 async function mapFetchTier(tier) {
@@ -759,7 +768,8 @@ function mapDiag() {
   const cost = Math.round(Math.max(1, (nMod * nLay) / 10) * P);
   const bits = [];
   bits.push(MAP.ready ? nMod + '/' + want + ' models · ' + P + ' pts · ~' + cost + ' API calls'
-    : MAP.loading ? 'fetching grid…' : 'no grid yet');
+    : MAP.loading ? 'fetching grid…'
+      : MAP.onScreen ? 'no grid yet' : 'idle (off screen — nothing fetched)');
   bits.push(MAP.tier + ' grid over ' + km + 'km · core ~' + spacing + 'km');
   bits.push('layers: ' + mapActiveLayers().join(', '));
   bits.push('showing ' + shownKm + 'km' + (vv.crop < 1 ? ' (zoomed, no extra fetch)' : ''));
@@ -1013,10 +1023,13 @@ function mapStatus(msg) {
 function mapEnsure() {
   if (!MAP.built) mapBuildUI();
   if (typeof L === 'undefined') { mapStatus('Map library did not load — check the connection.'); return; }
+  mapWatchVisibility();
   mapInitLeaflet();
   if (MAP.map) requestAnimationFrame(() => MAP.map.invalidateSize());
   if (MAP.ready) { mapDraw(false); mapFit(); return; }
   if (MAP.loading) return;
+  // Building the UI is free; fetching is not. Wait until it is on screen.
+  if (!MAP.onScreen) { mapStatus('Scroll down to load the map'); mapDiag(); return; }
   // Geolocation and the saved-location lookup both resolve after first
   // paint, so the map used to give up before the app knew where it was.
   if (state.lat == null) { mapWaitForLocation(); return; }
@@ -1030,7 +1043,7 @@ function mapWaitForLocation() {
     if (state.lat != null) {
       clearInterval(MAP._locTimer); MAP._locTimer = null;
       if (MAP.map) MAP.map.setView([state.lat, state.lon], 7);
-      mapFetch();
+      if (MAP.onScreen) mapFetch(); else { mapStatus('Scroll down to load the map'); mapDiag(); }
     } else if (++tries > 60) {                       // ~30s, then stop nagging
       clearInterval(MAP._locTimer); MAP._locTimer = null;
       mapStatus('No location yet — set one from the menu, then reopen the map.');
@@ -1048,8 +1061,8 @@ function mapReblend() {
   if (!MAP.built) mapBuildUI();
   mapInitLeaflet();
   if (MAP.ready) { mapDraw(true); return; }
-  // nothing on screen yet — make sure a fetch is actually running
-  if (!MAP.loading && !MAP._locTimer) mapFetch();
+  // only chase a fetch if the map is actually being looked at
+  if (MAP.onScreen && !MAP.loading && !MAP._locTimer) mapFetch();
 }
 // the tab can already be open from saved prefs, in which case nothing
 // would ever have called mapEnsure
@@ -1067,6 +1080,7 @@ window.addEventListener('load', () => {
 // location or model changes invalidate the grid
 function mapInvalidate() {
   mapStop();
+  if (MAP._io) { try { MAP._io.disconnect(); } catch (e) {} MAP._io = null; }
   if (MAP._locTimer) { clearInterval(MAP._locTimer); MAP._locTimer = null; }
   MAP.ready = false; MAP.built = false; MAP.raw = {}; MAP.blend = {}; MAP.frames = {};
   if (MAP.overlay && MAP.map) { try { MAP.map.removeLayer(MAP.overlay); } catch (e) {} MAP.overlay = null; }
