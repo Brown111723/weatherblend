@@ -150,12 +150,46 @@ const SHRINK_K = 60;    // sample count before learned skill outranks equal
 // stay closer to even rather than chasing a noisy signal.
 const SHRINK_K_RAIN = 260;
 const shrinkFor = sec => (sec==='rain'?SHRINK_K_RAIN:SHRINK_K);
+
+// ── Rain is NOT verified, and that is a deliberate decision ─────────────
+//
+// Checked against a Sydney gauge, 16-17 Aug 2026, hour by hour:
+//
+//   hour   gauge   analysis
+//   8pm    1.0mm     0.0mm   missed
+//   9pm    8.4mm     0.0mm   MISSED ENTIRELY
+//   10pm   0.0mm     0.1mm   invented
+//   11pm   0.0mm     0.4mm   invented
+//   12am   0.0mm     0.3mm   invented
+//   3am    0.0mm     0.4mm   invented
+//   6am    0.0mm     0.5mm   invented
+//   TOTAL 11.4mm     2.8mm   -> 25% of the real rainfall
+//
+// It missed a genuine rain band (dewpoint 9.7->11.8, humidity 70%->92%, so
+// not an isolated shower) while inventing drizzle across five dry hours. A
+// truth series that both misses real events and fabricates others cannot
+// rank forecasts: any model it favours has been favoured by noise.
+//
+// So rain is blended with EQUAL weights. That is not a downgrade — an
+// equal-weight multi-model mean is a strong, standard baseline. What is
+// dropped is only the claim that rain weighting is earned, which it wasn't.
+// Temperature, wind and cloud are smooth fields the analysis tracks well;
+// they keep full accuracy weighting.
+//
+// Flip this to true only if a genuine precipitation observation source is
+// wired up — a gauge network, not another gridded model.
+const RAIN_VERIFIED = false;
 const W_FLOOR  = 0.03;  // no model fully silenced
 const W_CAP    = 0.40;  // no model dominates
 
 // Inverse-SQUARED-error skill, shrunk toward equal by n/(n+SHRINK_K),
 // clamped to [W_FLOOR, W_CAP], renormalised. errMap: key->err (lower better,
 // may be missing); nMap: key->sample count; keys: all active model keys.
+function _equalWeights(keys){
+  const w={}, M=keys.length||1;
+  keys.forEach(k=>{w[k]=1/M;});
+  return w;
+}
 function _shrinkClampNorm(errMap, nMap, keys, kOverride){
   const K=kOverride||SHRINK_K;
   const M=keys.length||1;
@@ -1008,6 +1042,7 @@ function computeMetricWeights(truth){
     });
   });
   METS.forEach(([s])=>{
+    if(s==='rain'&&!RAIN_VERIFIED){ metricWeights[s]=_equalWeights(keys); return; }
     const errMap={}, nMap={};
     am.forEach(m=>{
       const o=err[m.key][s];
@@ -1065,7 +1100,7 @@ function computeMetricWeightsDaily(truth, daysX){
       if(days.length)errMap[m.key]=days.reduce((a,b)=>a+(s==='rain'?(b.se/b.n):Math.sqrt(b.se/b.n)),0)/days.length;
       nMap[m.key]=days.reduce((a,b)=>a+b.n,0);
     });
-    out[s]=_shrinkClampNorm(errMap,nMap,keys,shrinkFor(s));
+    out[s]=(s==='rain'&&!RAIN_VERIFIED)?_equalWeights(keys):_shrinkClampNorm(errMap,nMap,keys,shrinkFor(s));
   });
   return out;
 }
@@ -1125,6 +1160,11 @@ function computeActualsAndWeights(){
 // ── Accuracy stats for the panel (per model, vs Open-Meteo analysis) ─────
 // Hourly RMSE per metric over completed past hours, plus how often the
 // model called wet/dry days wrong (occurrence error, threshold 1mm/day).
+// rain is excluded from the panel's ranking for the same reason it is
+// excluded from the weights — the truth cannot support the comparison
+function accScoredMetrics(){
+  return RAIN_VERIFIED?['temp','rain','wind','cloud']:['temp','wind','cloud'];
+}
 function computeAccuracyStats(){
   const truth=selectedTruth();
   const am=activeAll();

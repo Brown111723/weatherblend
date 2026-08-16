@@ -559,3 +559,5 @@ body{padding-bottom:64px;}
 
 /* "tr" = trace: detectable but not measurable, the convention BOM and NWS use */
 .trace{opacity:.55;font-style:italic;font-size:.92em;letter-spacing:.5px;}
+
+.wbadge.wb-flat{color:var(--text-dim,#5f6f82);font-style:italic;opacity:.8;}

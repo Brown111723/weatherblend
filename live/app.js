@@ -1297,6 +1297,10 @@ function dirArrow(deg){const a=['↑','↗','→','↘','↓','↙','←','↖']
 
 // ── Table plumbing ──────────────────────────────────────────────────────
 function wBadge(sec,key){
+  // rain weights are equal by design — a badge on every row saying 14% just
+  // adds noise, so say once why it is not shown
+  if(sec==='rain'&&typeof RAIN_VERIFIED!=='undefined'&&!RAIN_VERIFIED)
+    return '<span class="wbadge wb-flat" title="Rain is blended with equal weights. Gridded analysis missed 8.4mm in a single hour at Sydney while inventing drizzle on dry hours, so it cannot rank models for rain.">equal</span>';
   const w=(metricWeights[sec]||{})[key];
   if(w==null||!isFinite(w))return '';
   const pct=Math.round(w*100);
