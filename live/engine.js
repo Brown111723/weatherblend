@@ -126,7 +126,8 @@ let cachedHiLo = null;
 let modelWeights = {};
 let metricWeights = {temp:{},rain:{},wind:{},cloud:{}};
 let actualSources = null;
-let learnDays = 14;                 // past days fetched per model (scores accuracy)
+let learnDays = 14;                 // past days scored; 14 is the ceiling —
+                                    // with a 48h half-life, day 15+ adds <1%
 let weightMethod = 'current';
 let weightDays = 3;
 let actualData = null;
@@ -366,7 +367,7 @@ function mergeHourly(base,extra){
 
 async function fetchModelsCombined(){
   const keys=MODELS.map(m=>m.key);
-  const past=Math.max(7,Math.min(31,learnDays));
+  const past=Math.max(7,Math.min(14,learnDays));
   const disp=hourlyFieldList();
   const base=`https://api.open-meteo.com/v1/forecast`
     +`?latitude=${state.lat}&longitude=${state.lon}`
@@ -438,7 +439,7 @@ async function fetchModelsCombined(){
 
 // the original path, kept as a safety net
 async function fetchModelsIndividually(){
-  const past=Math.max(7,Math.min(31,learnDays));
+  const past=Math.max(7,Math.min(14,learnDays));
   const H=hourlyFieldList().join(',');
   dbg('per-model fallback: '+MODELS.length+' requests');
   const baseH='precipitation,wind_speed_10m,wind_direction_10m,temperature_2m,weather_code,cloud_cover,relative_humidity_2m';
@@ -473,7 +474,7 @@ async function fetchAllModels(){
   dbg(`=== fetchAllModels: lat=${state.lat}, lon=${state.lon} ===`);
   state.data={};state.status={};state.ss={};
   autoHidden.clear();
-  if(_truthKey && _truthKey.indexOf((state.lat||0).toFixed(3))!==0){ truthData=null; _truthKey=null; }
+  if(_truthKey && _truthKey.indexOf((state.lat||0).toFixed(3))!==0){ truthData=null; _truthKey=null; skillData=null; _skillKey=null; }
   MODELS.forEach(m=>enabled.add(m.key));
   cachedCurrent=null;cachedForecastRain=null;
   MODELS.forEach(m=>{state.status[m.key]='load';});
@@ -501,8 +502,9 @@ async function fetchAllModels(){
   const ok=MODELS.filter(m=>state.status[m.key]==='ok').length;
   dbg(`models loaded: ${ok}/${MODELS.length} ok`);
   bootSay('Checking against observations…', ok+' of '+MODELS.length+' models loaded');
-  // the independent record of what actually happened — weights depend on it
-  await fetchTruth();
+  // the independent record of what happened, and what each model actually
+  // predicted 3 days out — weights need both
+  await Promise.all([fetchTruth(), fetchSkill()]);
   if(!ok){showErr('All models failed.');setStatus('err','No data');dbg('❌ all models failed — aborting');bootDone();return;}
   document.getElementById('err-area').innerHTML='';
   const failed=MODELS.filter(m=>state.status[m.key]==='fail').map(m=>m.label);
@@ -741,11 +743,75 @@ function _dailyFromHourly(H){
 // It is a single source, independent of the seven models' forecasts, and
 // available worldwide — which is what BOM could not offer.
 let truthData=null, _truthKey=null, truthPending=false;
+// ── What each model ACTUALLY predicted ─────────────────────────────────
+//
+// The forecast API's past_days does NOT return the forecast a model issued
+// days ago. Open-Meteo stitch each new run over the old one, so "the hourly
+// timeseries always reflects the latest available initialisation" — for
+// past hours you get the model's own analysis, which has already seen what
+// happened. Scoring that against the truth compared analysis to analysis:
+// every model looked accurate, real skill differences never appeared, and
+// the weights stayed near-equal no matter how long it ran.
+//
+// The Previous Runs API is built for exactly this. temperature_2m_previous_day3
+// is the value predicted 72 hours before valid time, so comparing it with
+// the truth measures genuine forecast skill with no look-ahead.
+let skillData=null, _skillKey=null, skillPending=false;
+const SKILL_LEAD=3;            // days ahead — far enough that models diverge
+const SKILL_FIELDS=['temperature_2m','precipitation','cloud_cover','wind_speed_10m'];
+
+async function fetchSkill(){
+  const days=Math.max(7,Math.min(14,learnDays));
+  const keys=MODELS.map(m=>m.key);
+  const key=[(state.lat||0).toFixed(3),(state.lon||0).toFixed(3),days,keys.join('')].join(',');
+  if(_skillKey===key && skillData) return skillData;
+  if(skillPending) return skillData;
+  skillPending=true;
+  try{
+    const iso=d=>d.toISOString().slice(0,10);
+    const end=new Date(Date.now()-86400000);          // yesterday: fully verified
+    const start=new Date(Date.now()-days*86400000);
+    const vars=SKILL_FIELDS.map(f=>f+'_previous_day'+SKILL_LEAD).join(',');
+    const url='https://previous-runs-api.open-meteo.com/v1/forecast'
+      +`?latitude=${state.lat}&longitude=${state.lon}`
+      +`&hourly=${vars}&models=${keys.join(',')}`
+      +`&start_date=${iso(start)}&end_date=${iso(end)}`
+      +'&timezone=auto&wind_speed_unit=kmh';
+    const r=await fetch(url,{signal:AbortSignal.timeout(30000)});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const j=await r.json();
+    if(j.error)throw new Error(j.reason||'API error');
+    if(!j?.hourly?.time?.length)throw new Error('no hours returned');
+    // split the suffixed arrays back out per model, dropping the lead-day tag
+    const single=keys.length===1, out={};
+    keys.forEach(k=>{
+      const H={time:j.hourly.time}; let any=false;
+      SKILL_FIELDS.forEach(f=>{
+        const name=f+'_previous_day'+SKILL_LEAD+(single?'':'_'+k);
+        const arr=j.hourly[name];
+        if(arr){ H[f]=arr; if(arr.some(v=>v!=null)) any=true; }
+      });
+      if(any){ const o={hourly:H}; normalizeOM(o); out[k]=o; }
+    });
+    if(!Object.keys(out).length)throw new Error('no model had archived runs');
+    skillData=out; _skillKey=key;
+    dbg('skill: day-'+SKILL_LEAD+' forecasts for '+Object.keys(out).length+'/'+keys.length+' models');
+  }catch(e){
+    dbg('skill fetch failed: '+e.message+' — falling back to analysis scoring');
+    skillData=null;
+  }
+  skillPending=false;
+  return skillData;
+}
+// what a model predicted for this hour, at a fixed lead time where possible
+function skillSeries(key){
+  return skillData && skillData[key] ? skillData[key].hourly : (state.data[key]?.hourly||null);
+}
 const TRUTH_FIELDS=['temperature_2m','precipitation','cloud_cover','wind_speed_10m',
   'apparent_temperature','snowfall','wind_gusts_10m','surface_pressure','uv_index','relative_humidity_2m'];
 
 async function fetchTruth(){
-  const days=Math.max(7,Math.min(31,learnDays));
+  const days=Math.max(7,Math.min(14,learnDays));
   const key=[(state.lat||0).toFixed(3),(state.lon||0).toFixed(3),days].join(',');
   if(_truthKey===key && truthData) return truthData;
   if(truthPending) return truthData;
@@ -850,7 +916,7 @@ function computeMetricWeights(truth){
   const DECAY=Math.log(2)/48;
   const err={}; am.forEach(m=>{err[m.key]={};METS.forEach(([s])=>err[m.key][s]={se:0,wn:0});});
   am.forEach(m=>{
-    const mh=state.data[m.key]?.hourly; if(!mh?.time)return;
+    const mh=skillSeries(m.key); if(!mh?.time)return;
     mh.time.forEach((t,i)=>{
       const bi=bMap[t]; if(bi===undefined)return;
       const rowMs=new Date(t).getTime(); if(rowMs>cutoff.getTime())return;
@@ -894,7 +960,7 @@ function computeMetricWeightsDaily(truth, daysX){
   const tMap={}; truth.time.forEach((t,i)=>tMap[t]=i);
   const acc={}; am.forEach(m=>{acc[m.key]={temp:{},rain:{},wind:{},cloud:{}};});
   am.forEach(m=>{
-    const mh=state.data[m.key]?.hourly; if(!mh?.time)return;
+    const mh=skillSeries(m.key); if(!mh?.time)return;
     mh.time.forEach((t,i)=>{
       const ms=new Date(t).getTime(); if(ms<startMs||ms>nowMs)return;
       const bi=tMap[t]; if(bi===undefined)return;
@@ -984,7 +1050,7 @@ function computeAccuracyStats(){
   const METS=[['temp','temperature_2m'],['rain','precipitation'],['wind','windspeed_10m'],['cloud','cloudcover']];
   const days=new Set(); let pairs=0;
   const stats=am.map(m=>{
-    const mh=state.data[m.key]?.hourly;
+    const mh=skillSeries(m.key);   // issued forecasts, same basis as the weights
     const acc={temp:{se:0,n:0},rain:{se:0,n:0},wind:{se:0,n:0},cloud:{se:0,n:0}};
     const dayR={};   // per-day rain sums: model vs observed
     if(mh?.time)mh.time.forEach((t,i)=>{
@@ -1005,5 +1071,5 @@ function computeAccuracyStats(){
     return r;
   }).filter(r=>r.temp!=null||r.rain!=null);
   accuracyStats=stats.length?stats:null;
-  accuracyMeta=stats.length?{days:days.size,pairs,window:Math.max(7,Math.min(31,learnDays)),source:'om'}:null;
+  accuracyMeta=stats.length?{days:days.size,pairs,window:Math.max(7,Math.min(14,learnDays)),source:'om'}:null;
 }

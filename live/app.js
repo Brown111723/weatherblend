@@ -105,9 +105,9 @@ function buildSourcesPanel(){
     `<div class="config-row-label">Learning window</div>`+
     `<div class="learn-row">`+
     `<select class="learn-select" onchange="setLearnDays(this.value)">`+
-    [7,14,21,31].map(d=>`<option value="${d}"${learnDays===d?' selected':''}>${d} days</option>`).join('')+
+    [7,10,14].map(d=>`<option value="${d}"${learnDays===d?' selected':''}>${d} days</option>`).join('')+
     `</select>`+
-    `<span class="learn-hint">Past days fetched per model to score accuracy (refetches data)</span>`+
+    `<span class="learn-hint">Days of day-3 forecasts scored against observations (refetches data)</span>`+
     `</div></div>`+
     `<div class="config-row">`+
     `<div class="config-row-label">Weight method</div>`+
@@ -216,7 +216,7 @@ function setWeightDays(v){
 }
 function setLearnDays(v){
   const d=parseInt(v,10); if(isNaN(d))return;
-  learnDays=Math.max(7,Math.min(31,d));
+  learnDays=Math.max(7,Math.min(14,d));
   savePrefs();
   accuracyMeta=null; accuracyStats=null;
   dbg('learning window → '+learnDays+' past days; refetching models…');
@@ -359,7 +359,8 @@ function loadPrefs(){
     if(p.showActuals!==undefined)showActuals=p.showActuals;
     if(p.weightMethod==='current'||p.weightMethod==='daily'||p.weightMethod==='blend')weightMethod=p.weightMethod;
     if(p.weightDays!==undefined&&p.weightDays>=1&&p.weightDays<=7)weightDays=p.weightDays;
-    if(p.learnDays!==undefined&&p.learnDays>=7&&p.learnDays<=31)learnDays=p.learnDays;
+    if(p.learnDays!==undefined&&p.learnDays>=7&&p.learnDays<=14)learnDays=p.learnDays;
+    else if(p.learnDays>14)learnDays=14;   // migrate saved 21/31
     if(p.showPredLine!==undefined)showPredLine=p.showPredLine;
     if(p.confVisible&&typeof p.confVisible==='object')Object.assign(confVisible,p.confVisible);
     else if(p.showConfidence===false)confVisible={temp:false,rain:false,wind:false,cloud:false};
