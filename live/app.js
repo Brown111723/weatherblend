@@ -1811,10 +1811,19 @@ function renderHourly(){
       return injectColCls(`<td class="${[cls,nc,prov].filter(Boolean).join(' ')}"${ttl}>${fmtFn(v)}</td>`,ndCls[ci]);
     }).join('');
   }
+  // precipitation gets a weaker label: it comes from the same analysis, but a
+  // 9-25km cell cannot represent point rainfall the way it can temperature
+  const _ANALYSIS_ONLY={precipitation:1,snowfall:1};
+  function actualLabel(field){
+    return _ANALYSIS_ONLY[field]
+      ? '<span title="Gridded model analysis, not a rain gauge. A cell of this size cannot resolve rain at a point, so this is indicative only and carries reduced weight in scoring.">≈ Analysis</span>'
+      : '✓ Observed';
+  }
   function actualRow1(field, fmtFn, clsFn, color){
     if(!actualData||!showActuals)return '';
     const cells=buildActualCells(actualData.hourly,field,indices,fmtFn,clsFn,nowCi);
-    return `<tr class="actual-row"><td class="row-label" style="color:${color}">✓ Observed</td>${cells}</tr>`;
+    const cls='actual-row'+(_ANALYSIS_ONLY[field]?' analysis-row':'');
+    return `<tr class="${cls}"><td class="row-label" style="color:${color}">${actualLabel(field)}</td>${cells}</tr>`;
   }
   // ── Secondary metric sections (off by default; content only built when on) ──
   const xSections=XMET.map(x=>{

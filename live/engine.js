@@ -143,13 +143,21 @@ let accuracyStats=null, accuracyMeta=null;
 
 // ── Weighting constants ─────────────────────────────────────────────────
 const SHRINK_K = 60;    // sample count before learned skill outranks equal
+// Rain is verified against a gridded analysis, not a rain gauge. That is
+// weaker evidence than the temperature, wind and cloud comparisons, so rain
+// weights need far more agreement before they move away from equal. This is
+// the honest way to say "we are less sure about this" — the weights simply
+// stay closer to even rather than chasing a noisy signal.
+const SHRINK_K_RAIN = 260;
+const shrinkFor = sec => (sec==='rain'?SHRINK_K_RAIN:SHRINK_K);
 const W_FLOOR  = 0.03;  // no model fully silenced
 const W_CAP    = 0.40;  // no model dominates
 
 // Inverse-SQUARED-error skill, shrunk toward equal by n/(n+SHRINK_K),
 // clamped to [W_FLOOR, W_CAP], renormalised. errMap: key->err (lower better,
 // may be missing); nMap: key->sample count; keys: all active model keys.
-function _shrinkClampNorm(errMap, nMap, keys){
+function _shrinkClampNorm(errMap, nMap, keys, kOverride){
+  const K=kOverride||SHRINK_K;
   const M=keys.length||1;
   const raw={}; let rsum=0;
   keys.forEach(k=>{
@@ -159,7 +167,7 @@ function _shrinkClampNorm(errMap, nMap, keys){
   const w={};
   keys.forEach(k=>{
     const prov=(rsum>0&&raw[k]!=null)?raw[k]/rsum:1/M;
-    const n=nMap[k]||0, lam=n/(n+SHRINK_K);
+    const n=nMap[k]||0, lam=n/(n+K);
     w[k]=lam*prov+(1-lam)*(1/M);
   });
   keys.forEach(k=>{ w[k]=Math.min(W_CAP,Math.max(W_FLOOR,w[k])); });
@@ -807,7 +815,11 @@ async function fetchSkill(){
 function skillSeries(key){
   return skillData && skillData[key] ? skillData[key].hourly : (state.data[key]?.hourly||null);
 }
-const TRUTH_FIELDS=['temperature_2m','precipitation','cloud_cover','wind_speed_10m',
+// rain and showers are fetched alongside precipitation purely so the split
+// can be inspected: precipitation = rain + showers + snow, and knowing which
+// component carries the phantom drizzle tells us whether switching variable
+// would help. Two extra variables, no meaningful cost.
+const TRUTH_FIELDS=['temperature_2m','precipitation','rain','showers','weather_code','cloud_cover','wind_speed_10m',
   'apparent_temperature','snowfall','wind_gusts_10m','surface_pressure','uv_index','relative_humidity_2m'];
 
 async function fetchTruth(){
@@ -833,13 +845,41 @@ async function fetchTruth(){
     normalizeOM(j);
     truthData=j; _truthKey=key;
     const n=j.hourly.temperature_2m.filter(v=>v!=null).length;
-    dbg('truth: '+n+' observed hours from historical-forecast analysis');
+    dbg('truth: '+n+' analysed hours from historical-forecast');
+    try{ _precipDiag(j.hourly); }catch(e){}
   }catch(e){
     dbg('truth fetch failed: '+e.message+' — weights will not update');
     truthData=null;
   }
   truthPending=false;
   return truthData;
+}
+
+// Where does the phantom rain live? precipitation = rain + showers + snow.
+// If the light amounts sit entirely in `showers` they are convective
+// parameterisation leak; if they sit in `rain` the problem is more
+// fundamental and no change of variable will help. Logged, never acted on
+// automatically — models differ in how they populate these fields.
+function _precipDiag(H){
+  if(!H?.time||!showDebug)return;
+  const now=Date.now(), rows=[];
+  for(let i=H.time.length-1;i>=0&&rows.length<14;i--){
+    const ms=new Date(H.time[i]).getTime();
+    if(ms>now)continue;
+    const p=H.precipitation?.[i], r=H.rain?.[i], sh=H.showers?.[i], c=H.cloud_cover?.[i], wc=H.weather_code?.[i];
+    if(p==null)continue;
+    rows.unshift(H.time[i].slice(11)+'  precip '+p.toFixed(1)
+      +' = rain '+(r==null?'?':r.toFixed(1))+' + showers '+(sh==null?'?':sh.toFixed(1))
+      +'   cloud '+(c==null?'?':Math.round(c))+'%  wx '+(wc==null?'?':wc));
+  }
+  const wet=rows.filter(x=>!/precip 0\.0/.test(x));
+  dbg('── precipitation split, last '+rows.length+'h ──');
+  rows.forEach(x=>dbg('  '+x));
+  if(wet.length){
+    const inShowers=wet.filter(x=>/showers 0\.[1-9]/.test(x)).length;
+    const inRain=wet.filter(x=>/rain 0\.[1-9]/.test(x)).length;
+    dbg('  wet hours: '+wet.length+' | carried by showers: '+inShowers+' | by rain: '+inRain);
+  }
 }
 
 function buildActualData(){
@@ -849,7 +889,7 @@ function buildActualData(){
   const now=Date.now();
   const TH=truthData.hourly;
   const tim={}; TH.time.forEach((t,i)=>{tim[t]=i;});
-  const FS=['temperature_2m','precipitation','cloudcover','windspeed_10m','apparent_temperature','snowfall','wind_gusts_10m','surface_pressure','uv_index','relative_humidity_2m'];
+  const FS=['temperature_2m','precipitation','rain','showers','cloudcover','windspeed_10m','apparent_temperature','snowfall','wind_gusts_10m','surface_pressure','uv_index','relative_humidity_2m'];
   const O={time:[]}; FS.forEach(f=>O[f]=[]);
   ref.time.forEach(t=>{
     // only fully elapsed hours can have been observed
@@ -888,15 +928,31 @@ function selectedTruth(){
 // TRACE is the WMO convention for "not really rain". Anything below it on
 // either side counts as dry, so a 0.3mm smear over a 10km grid cell on a
 // morning that was dry underfoot no longer swings the weights.
-const RAIN_TRACE=0.2;        // mm/h
-const RAIN_OCC_W=0.6;        // how much a wet/dry miss costs vs the amount
+// ── rain skill ─────────────────────────────────────────────────────────
+// RMSE is useless for precipitation: most hours are dry, so a model that
+// always predicts nothing scores brilliantly. This scores what matters —
+// did the model call wet-vs-dry right, and when both agreed it was wet,
+// how far off was the amount.
+//
+// TRACE is deliberately high. A 9-25km analysis cell routinely reports
+// 0.1-0.4mm/h from sub-grid drizzle or virga on hours that were dry
+// underfoot, so anything below this counts as dry on BOTH sides and
+// contributes nothing.
+//
+// Amount error applies ONLY when both agree it was wet. Charging occurrence
+// AND amount for the same miss penalised a model twice for one error, and
+// against a phantom-wet analysis it punished models for being right. A miss
+// costs the occurrence penalty scaled by how big the missed event was, so
+// missing a downpour still costs more than missing a shower.
+const RAIN_TRACE=0.5;        // mm/h below this is dry on both sides
+const RAIN_OCC_W=0.6;        // base cost of a wet/dry mistake
 function _rainErr(mv,av){
   const m=mv<RAIN_TRACE?0:mv, a=av<RAIN_TRACE?0:av;
   const mWet=m>0, aWet=a>0;
-  let e=0;
-  if(mWet!==aWet) e+=RAIN_OCC_W;                 // called it wrong
-  if(mWet||aWet) e+=Math.min(1.5,Math.abs(m-a)); // and by how much, capped
-  return e;
+  if(!mWet&&!aWet) return 0;                          // agreed dry
+  if(mWet&&aWet) return Math.min(1.5,Math.abs(m-a));  // hit: amount only
+  const mag=mWet?m:a;                                 // miss or false alarm
+  return RAIN_OCC_W+Math.min(0.9,mag/5);
 }
 
 function computeMetricWeights(truth){
@@ -938,7 +994,7 @@ function computeMetricWeights(truth){
       if(o.wn>=1)errMap[m.key]=(s==='rain')?(o.se/o.wn):Math.sqrt(o.se/o.wn);
       nMap[m.key]=o.wn;
     });
-    metricWeights[s]=_shrinkClampNorm(errMap,nMap,keys);
+    metricWeights[s]=_shrinkClampNorm(errMap,nMap,keys,shrinkFor(s));
   });
   am.forEach(m=>{ modelWeights[m.key]=(metricWeights.temp[m.key]+metricWeights.rain[m.key]+metricWeights.wind[m.key]+metricWeights.cloud[m.key])/4; });
   ['temp','rain','wind','cloud'].forEach(s=>{
@@ -988,7 +1044,7 @@ function computeMetricWeightsDaily(truth, daysX){
       if(days.length)errMap[m.key]=days.reduce((a,b)=>a+(s==='rain'?(b.se/b.n):Math.sqrt(b.se/b.n)),0)/days.length;
       nMap[m.key]=days.reduce((a,b)=>a+b.n,0);
     });
-    out[s]=_shrinkClampNorm(errMap,nMap,keys);
+    out[s]=_shrinkClampNorm(errMap,nMap,keys,shrinkFor(s));
   });
   return out;
 }

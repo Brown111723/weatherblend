@@ -551,3 +551,8 @@ body{padding-bottom:64px;}
    opening hours of each model run, so recent hours are revised as later
    runs land. Shown, but visibly unsettled — and never scored. */
 .actual-row td.prov{opacity:.62;border-bottom:1px dotted rgba(255,255,255,.28);}
+
+/* Precipitation truth is a gridded analysis, not a gauge — shown, but
+   visibly weaker than the rows that genuinely track measurement. */
+.analysis-row .row-label{opacity:.85;font-style:italic;}
+.analysis-row td:not(.row-label){opacity:.78;}
