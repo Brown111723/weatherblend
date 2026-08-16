@@ -1682,6 +1682,14 @@ function renderSkeleton(){
     Array(8).fill(`<tr class="data-row"><td class="row-label">${sk}</td>${Array(C).fill(`<td>${sk}</td>`).join('')}</tr>`).join('')+
     `</tbody>`;
 }
+// Trace notation for forecast amounts. A blended figure under 0.5mm/h means
+// "drizzle at most" rather than a measurable fall, and showing it as such
+// keeps the forecast row directly comparable with the analysis row beneath.
+const RAIN_TRACE_DISP_F=0.5;
+const _traceFmtF=v=>v<0.05?'<span class="empty">0</span>'
+  :v<RAIN_TRACE_DISP_F?'<span class="trace" title="Trace — the blend suggests drizzle at most, not a measurable fall.">tr</span>'
+  :v.toFixed(1);
+
 function renderTable(){
   const okModels=MODELS.filter(m=>state.data[m.key]).length;
   dbg(`renderTable: view=${state.view}, vertical=${verticalLayout}, models-with-data=${okModels}`);
@@ -1761,7 +1769,7 @@ function renderHourly(){
     return`<tr class="${srcRowClass(m,'rain')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span>${wBadge('rain',m.key)}</span></td>${cells}</tr>`;
   }).join('');
   const avgRain=indices.map(i=>wBlendAt('precipitation',i,horizonOf(ref.time[i].slice(0,10))));
-  const avgRainCells=avgRain.map((v,ci)=>{const cls=rainCls(v);const txt=v==null?'—':v<0.05?'<span class="empty">0</span>':v.toFixed(1);
+  const avgRainCells=avgRain.map((v,ci)=>{const cls=rainCls(v);const txt=v==null?'—':_traceFmtF(v);
     return injectColCls(`<td class="${cls}">${txt}</td>`,ndCls[ci]);
   }).join('');
   const confCellsFor=(key)=>indices.map((i,ci)=>{
@@ -1980,7 +1988,7 @@ function renderDaily(){
     return`<tr class="${srcRowClass(m,'rain')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span>${wBadge('rain',m.key)}</span></td>${cells}</tr>`;
   }).join('');
   const avgRain=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:dVals(m.key,'precipitation_sum')[ci]})),'rain',hzAt(ci)));
-  const avgRainCells=avgRain.map(v=>{const cls=rainCls(v),txt=v==null?'—':v<0.1?'<span class="empty">0</span>':v.toFixed(1);return`<td class="${cls}">${txt}</td>`;}).join('');
+  const avgRainCells=avgRain.map(v=>{const cls=rainCls(v),txt=v==null?'—':_traceFmtF(v);return`<td class="${cls}">${txt}</td>`;}).join('');
 
   // ── CLOUD ──
   const avgCloud=indices.map((_,ci)=>weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:dCloud(m.key,ci)})),'cloud',hzAt(ci),'cloudcover'));

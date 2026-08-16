@@ -465,22 +465,47 @@ function tlFmtFor(key) {
 }
 // what has fallen so far today vs what is still forecast — these add up to
 // the day total exactly, since both come from the same hourly series
+// "Received" must mean what actually fell, not what was forecast for hours
+// that have already happened — those are different numbers and the arrow
+// promises the former. Past hours read from the analysis where we have it,
+// future hours from the forecast blend.
+const TL_RAIN_TRACE = 0.5;         // mm/h — matches the scorer exactly
 function tlAccumSplit(key) {
-  const arr = tlMetricSeries(key), s = TL.sel * 24;
-  let got = 0, due = 0;
-  if (!arr) return { got, due };
+  const fc = tlMetricSeries(key), s = TL.sel * 24;
+  const act = (TL.act && TL.act[key]) ? TL.act[key] : null;
+  let got = 0, due = 0, gotTrace = false, dueTrace = false;
+  if (!fc) return { got, due, gotTrace, dueTrace };
   const nowH = Math.max(0, Math.min(24, Math.floor((TL.nowH != null ? TL.nowH : 0) - s)));
+  const accum = !!TL_ACCUM[key];
   for (let k = 0; k < 24; k++) {
-    const v = arr[s + k] || 0;
-    if (k < nowH) got += v; else due += v;
+    if (k < nowH) {
+      // observed where we have it; hours below the trace floor did not
+      // reach the ground in any measurable sense, so they add nothing
+      const a = act ? act[s + k] : null;
+      const v = (a != null && !isNaN(a)) ? a : (fc[s + k] || 0);
+      if (accum && v > 0 && v < TL_RAIN_TRACE) { gotTrace = true; continue; }
+      got += v;
+    } else {
+      const v = fc[s + k] || 0;
+      if (accum && v > 0 && v < TL_RAIN_TRACE) { dueTrace = true; continue; }
+      due += v;
+    }
   }
-  return { got, due };
+  return { got, due, gotTrace, dueTrace };
 }
 function tlBare(key, v) {
   if (key === 'snow') return v < 0.05 ? '0' : v.toFixed(1);
   return v < 0.05 ? '0' : v.toFixed(1);
 }
+// For an accumulating metric the day total has to equal received + to-come,
+// or the split contradicts the headline figure sitting next to it.
 function tlDayTotal(key) {
+  const d = TL.days[TL.sel];
+  if (TL_ACCUM[key] && d) {
+    const sp = tlAccumSplit(key);
+    if (d.isToday) return sp.got + sp.due;
+    if (d.past) return sp.got;              // wholly elapsed: all observed
+  }
   const arr = tlMetricSeries(key); if (!arr) return 0;
   const s = TL.sel * 24; let t = 0;
   for (let k = s; k < s + 24; k++) if (arr[k]) t += arr[k];
@@ -510,15 +535,21 @@ function tlHeads() {
     if (accum) {
       // rain and snow accumulate — a running total says more than a range
       const tot = tlDayTotal(key);
-      const dry = tot < 0.05;
+      const sp0 = tlAccumSplit(key);
+      const anyTrace = sp0.gotTrace || sp0.dueTrace;
+      const dry = tot < 0.05 && !anyTrace;
       main = TL.scrubbing ? (v != null ? fmt(v) : '\u2014') : (d.isToday ? fmt(tot) : '');
+      if (tot < 0.05 && anyTrace && !TL.scrubbing) main = d.isToday ? 'trace' : '';
       if (dry) hilo = d.isToday ? '' : '<span class="tlm-hl hi">' + fmt(0) + '</span>';
+      else if (tot < 0.05 && anyTrace && !d.isToday) hilo = '<span class="tlm-hl hi tlm-tr">trace</span>';
       else if (d.isToday) {
         // drop either half once it has nothing left to report
         const split = tlAccumSplit(key);
         const parts = [];
         if (split.got >= 0.05) parts.push('<span class="tlm-hl hi">\u2190' + tlBare(key, split.got) + '</span>');
+        else if (split.gotTrace) parts.push('<span class="tlm-hl hi tlm-tr">\u2190tr</span>');
         if (split.due >= 0.05) parts.push('<span class="tlm-hl lo">\u2192' + tlBare(key, split.due) + '</span>');
+        else if (split.dueTrace) parts.push('<span class="tlm-hl lo tlm-tr">\u2192tr</span>');
         hilo = parts.join('');
       } else {
         hilo = '<span class="tlm-hl hi">' + fmt(tot) + '</span>';
