@@ -212,7 +212,9 @@ function normalizeOM(j){
   }
 }
 
-// Equal-weight blend at a ref index (used for the Open-Meteo fallback actuals)
+// Equal-weight blend of the models at a ref index.
+// NOTE: this is a blend of FORECASTS. It must never be used as truth — that
+// was the bug that made accuracy circular. Display fallback only.
 function meanAt(field,idx){
   const a=activeEnabled();
   const vals=a.map(m=>state.data[m.key]?.hourly?.[field]?.[idx]).filter(v=>v!=null&&!isNaN(v));
@@ -471,6 +473,7 @@ async function fetchAllModels(){
   dbg(`=== fetchAllModels: lat=${state.lat}, lon=${state.lon} ===`);
   state.data={};state.status={};state.ss={};
   autoHidden.clear();
+  if(_truthKey && _truthKey.indexOf((state.lat||0).toFixed(3))!==0){ truthData=null; _truthKey=null; }
   MODELS.forEach(m=>enabled.add(m.key));
   cachedCurrent=null;cachedForecastRain=null;
   MODELS.forEach(m=>{state.status[m.key]='load';});
@@ -497,7 +500,9 @@ async function fetchAllModels(){
 
   const ok=MODELS.filter(m=>state.status[m.key]==='ok').length;
   dbg(`models loaded: ${ok}/${MODELS.length} ok`);
-  bootSay('Scoring accuracy…', ok+' of '+MODELS.length+' models loaded');
+  bootSay('Checking against observations…', ok+' of '+MODELS.length+' models loaded');
+  // the independent record of what actually happened — weights depend on it
+  await fetchTruth();
   if(!ok){showErr('All models failed.');setStatus('err','No data');dbg('❌ all models failed — aborting');bootDone();return;}
   document.getElementById('err-area').innerHTML='';
   const failed=MODELS.filter(m=>state.status[m.key]==='fail').map(m=>m.label);
@@ -715,21 +720,82 @@ function _dailyFromHourly(H){
 // Open-Meteo's own past-hours data (each model's analysis of hours already
 // gone, equal-weight mean) is the observation series everything verifies
 // against: the ✓ Actual rows, the accuracy weights, and the receipts.
+// ── Truth: an INDEPENDENT record of what actually happened ──────────────
+//
+// This used to be meanAt() — the average of the same seven forecasts being
+// scored. That made accuracy circular: a model was measured against how
+// closely it matched its peers, so the weights rewarded conformity, not
+// correctness. A model that alone called a clear sky correctly was
+// penalised for it. It also meant the "✓ Actual" row was not an
+// observation at all, which is why 0.2mm of rain could appear under a
+// cloudless sky.
+//
+// The replacement is Open-Meteo's Historical Forecast API: a continuous
+// series stitched from the FIRST hours of each successive model run. Those
+// hours are analysis, not forecast — each run is initialised from weather
+// stations, radar, satellites, aircraft and buoys. Open-Meteo describe it
+// as "nearly as accurate as direct measurements", with global coverage,
+// and it is the standard way forecasts are verified in meteorology:
+// against the analysis, not against other forecasts.
+//
+// It is a single source, independent of the seven models' forecasts, and
+// available worldwide — which is what BOM could not offer.
+let truthData=null, _truthKey=null, truthPending=false;
+const TRUTH_FIELDS=['temperature_2m','precipitation','cloud_cover','wind_speed_10m',
+  'apparent_temperature','snowfall','wind_gusts_10m','surface_pressure','uv_index','relative_humidity_2m'];
+
+async function fetchTruth(){
+  const days=Math.max(7,Math.min(31,learnDays));
+  const key=[(state.lat||0).toFixed(3),(state.lon||0).toFixed(3),days].join(',');
+  if(_truthKey===key && truthData) return truthData;
+  if(truthPending) return truthData;
+  truthPending=true;
+  try{
+    const end=new Date(Date.now()+86400000);      // include today
+    const start=new Date(Date.now()-days*86400000);
+    const iso=d=>d.toISOString().slice(0,10);
+    const url='https://historical-forecast-api.open-meteo.com/v1/forecast'
+      +`?latitude=${state.lat}&longitude=${state.lon}`
+      +`&hourly=${TRUTH_FIELDS.join(',')}`
+      +`&start_date=${iso(start)}&end_date=${iso(end)}`
+      +'&timezone=auto&wind_speed_unit=kmh';
+    const r=await fetch(url,{signal:AbortSignal.timeout(25000)});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const j=await r.json();
+    if(j.error)throw new Error(j.reason||'API error');
+    if(!j?.hourly?.time?.length)throw new Error('no hours returned');
+    normalizeOM(j);
+    truthData=j; _truthKey=key;
+    const n=j.hourly.temperature_2m.filter(v=>v!=null).length;
+    dbg('truth: '+n+' observed hours from historical-forecast analysis');
+  }catch(e){
+    dbg('truth fetch failed: '+e.message+' — weights will not update');
+    truthData=null;
+  }
+  truthPending=false;
+  return truthData;
+}
+
 function buildActualData(){
   const ref=refHourly();
   if(!ref?.time){ actualSources=null; actualData=null; return null; }
+  if(!truthData?.hourly?.time?.length){ actualSources=null; actualData=null; return null; }
   const now=Date.now();
+  const TH=truthData.hourly;
+  const tim={}; TH.time.forEach((t,i)=>{tim[t]=i;});
   const FS=['temperature_2m','precipitation','cloudcover','windspeed_10m','apparent_temperature','snowfall','wind_gusts_10m','surface_pressure','uv_index','relative_humidity_2m'];
   const O={time:[]}; FS.forEach(f=>O[f]=[]);
-  ref.time.forEach((t,i)=>{
-    if(new Date(t).getTime()>now) return;
+  ref.time.forEach(t=>{
+    // only fully elapsed hours can have been observed
+    if(new Date(t).getTime()+3600000>now) return;
+    const ti=tim[t];
     O.time.push(t);
     FS.forEach(f=>{
-      let omV=meanAt(f,i); if(omV==null||isNaN(omV))omV=null;
-      O[f].push(omV);
+      const v=(ti==null)?null:(TH[f]?.[ti]);
+      O[f].push((v==null||isNaN(v))?null:v);
     });
   });
-  actualSources={ om:{hourly:O,daily:_dailyFromHourly(O)}, stationName:'Open-Meteo' };
+  actualSources={ om:{hourly:O,daily:_dailyFromHourly(O)}, stationName:'Analysis' };
   return selectActual();
 }
 function selectActual(){
@@ -860,6 +926,17 @@ function applyWeights(){
 function computeActualsAndWeights(){
   try{
     buildActualData();
+    if(!truthData){
+      // No independent record, so nothing can be scored. Equal weights is
+      // the honest answer — inventing a truth from the forecasts themselves
+      // is what produced the false accuracy in the first place.
+      const am=activeEnabled();
+      metricWeights={temp:{},rain:{},wind:{},cloud:{}}; modelWeights={};
+      am.forEach(m=>{['temp','rain','wind','cloud'].forEach(k=>metricWeights[k][m.key]=1/am.length);modelWeights[m.key]=1/am.length;});
+      accuracyStats=null;
+      dbg('no truth available — equal weights, nothing scored');
+      return;
+    }
     applyWeights();
   }catch(e){
     console.warn('Actuals/weights failed:',e.message);

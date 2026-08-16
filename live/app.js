@@ -1359,7 +1359,7 @@ function buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled,r
       const cls=cloudCls(v);const nc=ci===nowCi?"now-col":"";
       return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(" ")}">${Math.round(v)}%</td>`,(ndCls[ci]+" "+pastCls[ci]).trim());
     }).join("");
-    actRow=`<tr class="actual-row"><td class="row-label" style="color:${QT.cloud}">✓ Actual</td>${cells}</tr>`;
+    actRow=`<tr class="actual-row"><td class="row-label" style="color:${QT.cloud}">✓ Observed</td>${cells}</tr>`;
   }
   return`<tr class="sec-head-cloud">${secHeadLabel('cloud','Cloud')}${avgCells}</tr>${typeof confRow==='function'?confRow('cloud'):''}${srcRows}`+actRow+`<tr class="spacer"><td colspan="${C}"></td></tr>`;
 }
@@ -1806,7 +1806,7 @@ function renderHourly(){
   function actualRow1(field, fmtFn, clsFn, color){
     if(!actualData||!showActuals)return '';
     const cells=buildActualCells(actualData.hourly,field,indices,fmtFn,clsFn,nowCi);
-    return `<tr class="actual-row"><td class="row-label" style="color:${color}">✓ Actual</td>${cells}</tr>`;
+    return `<tr class="actual-row"><td class="row-label" style="color:${color}">✓ Observed</td>${cells}</tr>`;
   }
   // ── Secondary metric sections (off by default; content only built when on) ──
   const xSections=XMET.map(x=>{
@@ -1986,13 +1986,13 @@ function renderDaily(){
     ${secGroup('temp',`
       <tr class="sec-head-temp">${secHeadLabel('temp','Temp')}${avgTempCells}</tr>
       ${tempModelRows}
-      ${actualData&&showActuals?`<tr class="actual-row"><td class="row-label" style="color:${QT.temp}">✓ Actual</td>${actualTempCells}</tr>`:''}
+      ${actualData&&showActuals?`<tr class="actual-row"><td class="row-label" style="color:${QT.temp}">✓ Observed</td>${actualTempCells}</tr>`:''}
       <tr class="spacer"><td colspan="${C}"></td></tr>
     `)}
     ${secGroup('rain',`
       <tr class="sec-head-rain">${secHeadLabel('rain','Rain')}${avgRainCells}</tr>
       ${rainModelRows}
-      ${actualData&&showActuals?`<tr class="actual-row"><td class="row-label" style="color:${QT.rain}">✓ Actual</td>${actualRainCells}</tr>`:''}
+      ${actualData&&showActuals?`<tr class="actual-row"><td class="row-label" style="color:${QT.rain}">✓ Observed</td>${actualRainCells}</tr>`:''}
       <tr class="spacer"><td colspan="${C}"></td></tr>
     `)}
     ${secGroup('wind',`
