@@ -812,6 +812,27 @@ function selectedTruth(){
 // Recency-decayed RMSE vs the chosen truth, then _shrinkClampNorm — the same
 // philosophy as the server's learned weights, so switching sources never
 // produces a wildly different-shaped blend.
+// ── rain skill ─────────────────────────────────────────────────────────
+// RMSE is close to useless for precipitation: most hours are dry, so a
+// model that always predicts nothing scores brilliantly, and drizzle-level
+// noise in the analysis then dominates the ranking. This scores what
+// actually matters instead — did the model call wet-vs-dry correctly, and
+// when it was wet, how far off was the amount.
+//
+// TRACE is the WMO convention for "not really rain". Anything below it on
+// either side counts as dry, so a 0.3mm smear over a 10km grid cell on a
+// morning that was dry underfoot no longer swings the weights.
+const RAIN_TRACE=0.2;        // mm/h
+const RAIN_OCC_W=0.6;        // how much a wet/dry miss costs vs the amount
+function _rainErr(mv,av){
+  const m=mv<RAIN_TRACE?0:mv, a=av<RAIN_TRACE?0:av;
+  const mWet=m>0, aWet=a>0;
+  let e=0;
+  if(mWet!==aWet) e+=RAIN_OCC_W;                 // called it wrong
+  if(mWet||aWet) e+=Math.min(1.5,Math.abs(m-a)); // and by how much, capped
+  return e;
+}
+
 function computeMetricWeights(truth){
   const am=activeEnabled();
   metricWeights={temp:{},rain:{},wind:{},cloud:{}};
@@ -835,8 +856,9 @@ function computeMetricWeights(truth){
       const rowMs=new Date(t).getTime(); if(rowMs>cutoff.getTime())return;
       const rw=Math.exp(-DECAY*Math.max(0,(cutoff.getTime()-rowMs)/3600000));
       METS.forEach(([s,field])=>{
-        const mv=mh[field]?.[i], av=truth[field]?.[bi];
+        let mv=mh[field]?.[i], av=truth[field]?.[bi];
         if(mv==null||av==null||isNaN(mv)||isNaN(av))return;
+        if(s==='rain'){ err[m.key][s].se+=rw*_rainErr(mv,av); err[m.key][s].wn+=rw; return; }
         err[m.key][s].se+=rw*(mv-av)**2;
         err[m.key][s].wn+=rw;
       });
@@ -846,7 +868,8 @@ function computeMetricWeights(truth){
     const errMap={}, nMap={};
     am.forEach(m=>{
       const o=err[m.key][s];
-      if(o.wn>=1)errMap[m.key]=Math.sqrt(o.se/o.wn);
+      // rain is already a mean error; the rest are squared
+      if(o.wn>=1)errMap[m.key]=(s==='rain')?(o.se/o.wn):Math.sqrt(o.se/o.wn);
       nMap[m.key]=o.wn;
     });
     metricWeights[s]=_shrinkClampNorm(errMap,nMap,keys);
@@ -880,7 +903,8 @@ function computeMetricWeightsDaily(truth, daysX){
         const mv=mh[field]?.[i], av=truth[field]?.[bi];
         if(mv==null||av==null||isNaN(mv)||isNaN(av))return;
         const b=acc[m.key][s][day]||(acc[m.key][s][day]={se:0,n:0});
-        b.se+=(mv-av)**2; b.n++;
+        if(s==='rain') b.se+=_rainErr(mv,av); else b.se+=(mv-av)**2;
+        b.n++;
       });
     });
   });
@@ -888,7 +912,7 @@ function computeMetricWeightsDaily(truth, daysX){
     const errMap={}, nMap={};
     am.forEach(m=>{
       const days=Object.values(acc[m.key][s]).filter(b=>b.n>0);
-      if(days.length)errMap[m.key]=days.reduce((a,b)=>a+Math.sqrt(b.se/b.n),0)/days.length;
+      if(days.length)errMap[m.key]=days.reduce((a,b)=>a+(s==='rain'?(b.se/b.n):Math.sqrt(b.se/b.n)),0)/days.length;
       nMap[m.key]=days.reduce((a,b)=>a+b.n,0);
     });
     out[s]=_shrinkClampNorm(errMap,nMap,keys);
