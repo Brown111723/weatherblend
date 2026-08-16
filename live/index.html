@@ -7,7 +7,7 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%23A8E63E%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2220%22%20r%3D%2212%22%20fill%3D%22%237EE8A5%22%2F%3E%3Ccircle%20cx%3D%2244%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%235FA4FF%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2244%22%20r%3D%2212%22%20fill%3D%22%23C8A6FF%22%2F%3E%3C%2Fsvg%3E">
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%23A8E63E%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2220%22%20r%3D%2212%22%20fill%3D%22%237EE8A5%22%2F%3E%3Ccircle%20cx%3D%2244%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%235FA4FF%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2244%22%20r%3D%2212%22%20fill%3D%22%23C8A6FF%22%2F%3E%3C%2Fsvg%3E">
 <meta name="theme-color" content="#7EE8A5">
-<link rel="stylesheet" href="styles.css?v=10">
+<link rel="stylesheet" href="styles.css?v=11">
 <link rel="stylesheet" href="timeline.css?v=23">
 <link rel="stylesheet" href="insights.css?v=4">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
@@ -124,7 +124,7 @@
     <p>The <strong>metric cards</strong> and <strong>hourly strip</strong> always reconcile with the table — the same blended (or observed) value appears everywhere.</p>
 
     <h3>Reading the table</h3>
-    <p>Each section heading row <em>is</em> the blended average. Open ☰ → Models &amp; sources and enable <strong>Sources</strong> to see individual model rows below it, each tagged with its current accuracy weight. The <strong>✓ Observed</strong> row shows what actually happened, from an independent record of past hours (see below). A <strong>Confidence</strong> row in each section shows the per-hour model agreement for that metric. Daytime columns are shaded lighter; a red column marks the current hour.</p>
+    <p>Each section heading row <em>is</em> the blended average. Open ☰ → Models &amp; sources and enable <strong>Sources</strong> to see individual model rows below it, each tagged with its current accuracy weight. The <strong>✓ Observed</strong> row shows what actually happened, from an independent record of past hours (see below). Today's observed values are shown faded: the record is stitched from the opening hours of each model run, so the most recent hours are still being revised as later runs land. Those hours are never used for scoring. A <strong>Confidence</strong> row in each section shows the per-hour model agreement for that metric. Daytime columns are shaded lighter; a red column marks the current hour.</p>
 
     <h3>Colour coding</h3>
     <p><strong style="color:#86efac">Temperature</strong></p>
@@ -236,8 +236,8 @@
   <div id="debug-lines" style="padding:8px 10px;overflow:auto;white-space:pre-wrap;word-break:break-word;flex:1 1 auto"></div>
 </div>
 
-<script src="engine.js?v=16"></script>
-<script src="app.js?v=16"></script>
+<script src="engine.js?v=17"></script>
+<script src="app.js?v=17"></script>
 <script src="timeline.js?v=24"></script>
 <script src="insights.js?v=7"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>

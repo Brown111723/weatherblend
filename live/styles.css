@@ -546,3 +546,8 @@ body{padding-bottom:64px;}
   .boot-mark{animation:none;}
   .boot-dot{animation:none;opacity:.85;transform:translate(var(--ox),var(--oy));}
 }
+
+/* Observed values for today are provisional: the analysis stitches the
+   opening hours of each model run, so recent hours are revised as later
+   runs land. Shown, but visibly unsettled — and never scored. */
+.actual-row td.prov{opacity:.62;border-bottom:1px dotted rgba(255,255,255,.28);}

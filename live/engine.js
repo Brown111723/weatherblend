@@ -956,13 +956,20 @@ function computeMetricWeightsDaily(truth, daysX){
   const keys=am.map(m=>m.key);
   if(!(truth?.time?.length)){ am.forEach(m=>METS.forEach(([s])=>out[s][m.key]=1/am.length)); return out; }
   const X=Math.max(1,Math.min(7,daysX||7));
-  const nowMs=locNowMs(), startMs=nowMs - X*24*3600*1000;
+  // The truth series is provisional for the last few hours: it is stitched
+  // from the opening hours of each model run, so a very recent hour was
+  // analysed with less observational data and gets revised as later runs
+  // land. Scoring it would chase values that are still moving, so today is
+  // excluded — the same cutoff the recency scorer uses.
+  const cut=new Date(); cut.setDate(cut.getDate()-1); cut.setHours(23,0,0,0);
+  const endMs=cut.getTime();
+  const startMs=endMs - X*24*3600*1000;
   const tMap={}; truth.time.forEach((t,i)=>tMap[t]=i);
   const acc={}; am.forEach(m=>{acc[m.key]={temp:{},rain:{},wind:{},cloud:{}};});
   am.forEach(m=>{
     const mh=skillSeries(m.key); if(!mh?.time)return;
     mh.time.forEach((t,i)=>{
-      const ms=new Date(t).getTime(); if(ms<startMs||ms>nowMs)return;
+      const ms=new Date(t).getTime(); if(ms<startMs||ms>endMs)return;
       const bi=tMap[t]; if(bi===undefined)return;
       const day=t.slice(0,10);
       METS.forEach(([s,field])=>{

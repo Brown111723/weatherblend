@@ -1786,6 +1786,11 @@ function renderHourly(){
     return injectColCls(`<td class="${[pastCls[ci]||'',nc].filter(Boolean).join(' ')}">${wxIcon(code,_ph==='night',_ph)}</td>`,ndCls[ci]);
   }).join('');
 
+  // hours the analysis may still revise (same cutoff the scorer uses)
+  function _provisionalFrom(){
+    const c=new Date(); c.setDate(c.getDate()-1); c.setHours(23,0,0,0);
+    return c.getTime();
+  }
   function buildActualCells(seriesH, field, indices, fmtFn, clsFn, nowCiRef){
     if(!seriesH)return indices.map(()=>'<td class="empty">–</td>').join('');
     const actTimes=seriesH.time||[];
@@ -1801,7 +1806,9 @@ function renderHourly(){
       const v=actVals[ai];
       if(v==null)return '<td class="empty">–</td>';
       const cls=clsFn?clsFn(v):''; const nc=(nowCiRef!==undefined&&ci===nowCiRef)?'now-col':'';
-      return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(' ')}">${fmtFn(v)}</td>`,ndCls[ci]);
+      const prov=new Date(t).getTime()>_provisionalFrom()?'prov':'';
+      const ttl=prov?' title="Provisional — later model runs may revise this hour. Not used for scoring."':'';
+      return injectColCls(`<td class="${[cls,nc,prov].filter(Boolean).join(' ')}"${ttl}>${fmtFn(v)}</td>`,ndCls[ci]);
     }).join('');
   }
   function actualRow1(field, fmtFn, clsFn, color){
