@@ -1814,6 +1814,14 @@ function renderHourly(){
   // precipitation gets a weaker label: it comes from the same analysis, but a
   // 9-25km cell cannot represent point rainfall the way it can temperature
   const _ANALYSIS_ONLY={precipitation:1,snowfall:1};
+  // Below the trace threshold the analysis is reporting drizzle it cannot
+  // resolve at a point — the diagnostic for Sydney showed four such hours,
+  // all coded 51 (light drizzle), while the ground stayed dry. Reporting a
+  // number there overstates it; "tr" is the standard designation.
+  const RAIN_TRACE_DISP=0.5;
+  const _traceFmt=v=>v<0.05?'<span class="empty">0</span>'
+    :v<RAIN_TRACE_DISP?'<span class="trace" title="Trace — the analysis detected drizzle it cannot resolve at this scale. Too little to measure, and not counted in scoring.">tr</span>'
+    :v.toFixed(1);
   function actualLabel(field){
     return _ANALYSIS_ONLY[field]
       ? '<span title="Gridded model analysis, not a rain gauge. A cell of this size cannot resolve rain at a point, so this is indicative only and carries reduced weight in scoring.">≈ Analysis</span>'
@@ -1873,7 +1881,7 @@ function renderHourly(){
       <tr class="sec-head-rain">${secHeadLabel('rain','Rain')}${avgRainCells}</tr>
       ${confRow('rain')}
       ${rainModelRows}
-      ${actualRow1('precipitation',v=>v<0.05?'<span class="empty">0</span>':v.toFixed(1),rainCls,QT.rain)}
+      ${actualRow1('precipitation',_traceFmt,rainCls,QT.rain)}
       <tr class="spacer"><td colspan="${C}"></td></tr>
     `)}
     ${secGroup('wind',`

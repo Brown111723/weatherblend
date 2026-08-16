@@ -815,10 +815,12 @@ async function fetchSkill(){
 function skillSeries(key){
   return skillData && skillData[key] ? skillData[key].hourly : (state.data[key]?.hourly||null);
 }
-// rain and showers are fetched alongside precipitation purely so the split
-// can be inspected: precipitation = rain + showers + snow, and knowing which
-// component carries the phantom drizzle tells us whether switching variable
-// would help. Two extra variables, no meaningful cost.
+// rain/showers/weather_code fetched so the precipitation split can be
+// inspected. ANSWERED for Sydney 16 Aug 2026: the phantom hours split
+// 3-to-1 in favour of `rain` over `showers`, so switching variable would
+// NOT have fixed it. All four were coded 51 (light drizzle) while cloud
+// fell 65%->18% — textbook virga: drizzle aloft that evaporated before
+// reaching the ground. Kept for ongoing diagnosis.
 const TRUTH_FIELDS=['temperature_2m','precipitation','rain','showers','weather_code','cloud_cover','wind_speed_10m',
   'apparent_temperature','snowfall','wind_gusts_10m','surface_pressure','uv_index','relative_humidity_2m'];
 

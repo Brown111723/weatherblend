@@ -556,3 +556,6 @@ body{padding-bottom:64px;}
    visibly weaker than the rows that genuinely track measurement. */
 .analysis-row .row-label{opacity:.85;font-style:italic;}
 .analysis-row td:not(.row-label){opacity:.78;}
+
+/* "tr" = trace: detectable but not measurable, the convention BOM and NWS use */
+.trace{opacity:.55;font-style:italic;font-size:.92em;letter-spacing:.5px;}
