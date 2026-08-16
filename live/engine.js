@@ -882,6 +882,25 @@ function _precipDiag(H){
     const inRain=wet.filter(x=>/rain 0\.[1-9]/.test(x)).length;
     dbg('  wet hours: '+wet.length+' | carried by showers: '+inShowers+' | by rain: '+inRain);
   }
+  // Daily totals straight from the raw analysis, so they can be checked
+  // against a gauge without anything in between. Both windows are shown:
+  // BOM and many services total 9am-to-9am, not midnight-to-midnight, which
+  // is a common reason an app and an official figure disagree.
+  try{
+    const byDay={}, by9={};
+    H.time.forEach((t,i)=>{
+      const v=H.precipitation?.[i]; if(v==null)return;
+      const d=t.slice(0,10), hr=+t.slice(11,13);
+      byDay[d]=(byDay[d]||0)+v;
+      const dt=new Date(t); if(hr<9)dt.setDate(dt.getDate()-1);
+      const k9=dt.toISOString().slice(0,10);
+      by9[k9]=(by9[k9]||0)+v;
+    });
+    const days=Object.keys(byDay).sort().slice(-5);
+    dbg('── daily precip totals (raw analysis, nothing filtered) ──');
+    days.forEach(d=>dbg('  '+d+'   midnight-midnight '+byDay[d].toFixed(1)
+      +' mm   |   9am-9am '+(by9[d]!=null?by9[d].toFixed(1):'—')+' mm'));
+  }catch(e){}
 }
 
 function buildActualData(){

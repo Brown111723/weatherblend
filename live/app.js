@@ -1682,13 +1682,8 @@ function renderSkeleton(){
     Array(8).fill(`<tr class="data-row"><td class="row-label">${sk}</td>${Array(C).fill(`<td>${sk}</td>`).join('')}</tr>`).join('')+
     `</tbody>`;
 }
-// Trace notation for forecast amounts. A blended figure under 0.5mm/h means
-// "drizzle at most" rather than a measurable fall, and showing it as such
-// keeps the forecast row directly comparable with the analysis row beneath.
-const RAIN_TRACE_DISP_F=0.5;
-const _traceFmtF=v=>v<0.05?'<span class="empty">0</span>'
-  :v<RAIN_TRACE_DISP_F?'<span class="trace" title="Trace — the blend suggests drizzle at most, not a measurable fall.">tr</span>'
-  :v.toFixed(1);
+// Forecast amounts shown exactly as blended.
+const _traceFmtF=v=>v<0.05?'<span class="empty">0</span>':v.toFixed(1);
 
 function renderTable(){
   const okModels=MODELS.filter(m=>state.data[m.key]).length;
@@ -1822,14 +1817,10 @@ function renderHourly(){
   // precipitation gets a weaker label: it comes from the same analysis, but a
   // 9-25km cell cannot represent point rainfall the way it can temperature
   const _ANALYSIS_ONLY={precipitation:1,snowfall:1};
-  // Below the trace threshold the analysis is reporting drizzle it cannot
-  // resolve at a point — the diagnostic for Sydney showed four such hours,
-  // all coded 51 (light drizzle), while the ground stayed dry. Reporting a
-  // number there overstates it; "tr" is the standard designation.
-  const RAIN_TRACE_DISP=0.5;
-  const _traceFmt=v=>v<0.05?'<span class="empty">0</span>'
-    :v<RAIN_TRACE_DISP?'<span class="trace" title="Trace — the analysis detected drizzle it cannot resolve at this scale. Too little to measure, and not counted in scoring.">tr</span>'
-    :v.toFixed(1);
+  // Amounts are shown exactly as reported. Light values may sometimes
+  // overstate what reached the ground, but hiding them behind "tr" cost
+  // more than it gained — a real total must read as a real total.
+  const _traceFmt=v=>v<0.05?'<span class="empty">0</span>':v.toFixed(1);
   function actualLabel(field){
     return _ANALYSIS_ONLY[field]
       ? '<span title="Gridded model analysis, not a rain gauge. A cell of this size cannot resolve rain at a point, so this is indicative only and carries reduced weight in scoring.">≈ Analysis</span>'
