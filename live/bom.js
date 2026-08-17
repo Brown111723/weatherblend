@@ -30,7 +30,7 @@
 // Your Cloudflare Worker, e.g. 'https://wb-bom.<subdomain>.workers.dev/?u='
 // The worker should fetch the passed URL and return it with
 // Access-Control-Allow-Origin: *   (see BOM_WORKER_SOURCE at the bottom)
-const BOM_PROXY = '';          // ← set this to enable gauge truth
+const BOM_PROXY = 'https://wb-bom.brown111724.workers.dev/?u=';       // ← set this to enable gauge truth
 const BOM_MAX_KM = 35;         // beyond this a gauge is not your weather
 const BOM_KEEP_DAYS = 21;      // how much accumulated history to retain
 
