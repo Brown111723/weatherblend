@@ -1299,8 +1299,8 @@ function dirArrow(deg){const a=['↑','↗','→','↘','↓','↙','←','↖']
 function wBadge(sec,key){
   // rain weights are equal by design — a badge on every row saying 14% just
   // adds noise, so say once why it is not shown
-  if(sec==='rain'&&typeof RAIN_VERIFIED!=='undefined'&&!RAIN_VERIFIED)
-    return '<span class="wbadge wb-flat" title="Rain is blended with equal weights. Gridded analysis missed 8.4mm in a single hour at Sydney while inventing drizzle on dry hours, so it cannot rank models for rain.">equal</span>';
+  if(sec==='rain'&&typeof RAIN_VERIFIED==='function'&&!RAIN_VERIFIED())
+    return '<span class="wbadge wb-flat" title="No rain gauge covers this location, so rain is blended with equal weights. Gridded analysis alone cannot rank models for rain — measured against a Sydney gauge it missed 8.4mm in a single hour while inventing drizzle on dry hours.">equal</span>';
   const w=(metricWeights[sec]||{})[key];
   if(w==null||!isFinite(w))return '';
   const pct=Math.round(w*100);
@@ -1820,20 +1820,28 @@ function renderHourly(){
   }
   // precipitation gets a weaker label: it comes from the same analysis, but a
   // 9-25km cell cannot represent point rainfall the way it can temperature
+  // precipitation is analysis-grade UNLESS a gauge is backing it
+  const _gaugeRain=()=>(typeof truthTier!=='undefined'&&truthTier==='gauge');
   const _ANALYSIS_ONLY={precipitation:1,snowfall:1};
   // Amounts are shown exactly as reported. Light values may sometimes
   // overstate what reached the ground, but hiding them behind "tr" cost
   // more than it gained — a real total must read as a real total.
   const _traceFmt=v=>v<0.05?'<span class="empty">0</span>':v.toFixed(1);
   function actualLabel(field){
-    return _ANALYSIS_ONLY[field]
-      ? '<span title="Gridded model analysis, not a rain gauge. A cell of this size cannot resolve rain at a point, so this is indicative only and carries reduced weight in scoring.">≈ Analysis</span>'
-      : '✓ Observed';
+    if(!_ANALYSIS_ONLY[field]) return '✓ Observed';
+    if(field==='precipitation'&&_gaugeRain()){
+      const m=(typeof truthMeta!=='undefined'&&truthMeta)?truthMeta:null;
+      const t=m?`Measured at ${m.station}, ${m.km.toFixed(1)}km away — a real rain gauge, not a model.`
+              :'Measured at a nearby rain gauge.';
+      return `<span class="gauge-lab" title="${t}">\u2713 Gauge</span>`;
+    }
+    return '<span title="Gridded model analysis, not a rain gauge. A cell of this size cannot resolve rain at a point, so this is indicative only and carries no weight in scoring.">≈ Analysis</span>';
   }
   function actualRow1(field, fmtFn, clsFn, color){
     if(!actualData||!showActuals)return '';
     const cells=buildActualCells(actualData.hourly,field,indices,fmtFn,clsFn,nowCi);
-    const cls='actual-row'+(_ANALYSIS_ONLY[field]?' analysis-row':'');
+    const gauge=(field==='precipitation'&&_gaugeRain());
+    const cls='actual-row'+((_ANALYSIS_ONLY[field]&&!gauge)?' analysis-row':'');
     return `<tr class="${cls}"><td class="row-label" style="color:${color}">${actualLabel(field)}</td>${cells}</tr>`;
   }
   // ── Secondary metric sections (off by default; content only built when on) ──

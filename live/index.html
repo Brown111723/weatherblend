@@ -7,7 +7,7 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%23A8E63E%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2220%22%20r%3D%2212%22%20fill%3D%22%237EE8A5%22%2F%3E%3Ccircle%20cx%3D%2244%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%235FA4FF%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2244%22%20r%3D%2212%22%20fill%3D%22%23C8A6FF%22%2F%3E%3C%2Fsvg%3E">
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%23A8E63E%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2220%22%20r%3D%2212%22%20fill%3D%22%237EE8A5%22%2F%3E%3Ccircle%20cx%3D%2244%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22%235FA4FF%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2244%22%20r%3D%2212%22%20fill%3D%22%23C8A6FF%22%2F%3E%3C%2Fsvg%3E">
 <meta name="theme-color" content="#7EE8A5">
-<link rel="stylesheet" href="styles.css?v=14">
+<link rel="stylesheet" href="styles.css?v=15">
 <link rel="stylesheet" href="timeline.css?v=24">
 <link rel="stylesheet" href="insights.css?v=4">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
@@ -166,7 +166,7 @@
     <p><strong>Show:</strong> which metrics appear (Temp / Rain / Wind / Cloud). <strong>Options:</strong> Weighted blend, Vertical table, Actual rows, Predicted line, Debug. <strong>Confidence:</strong> per-metric model-agreement figures for Temp / Rain / Wind / Cloud. <strong>Models:</strong> enable/disable individual sources — disabled models leave the blend. Any change recalculates everything.</p>
 
     <h3>Accuracy &amp; weighting</h3>
-    <p><strong>Rain is not verified, and is blended with equal weights.</strong> Checked hour by hour against a Sydney rain gauge on 16&ndash;17 August 2026, the gridded analysis recorded <strong>0.0mm during an hour in which 8.4mm actually fell</strong>, and invented drizzle across five hours that were dry. Over that night it captured 25% of the real rainfall. A record that both misses genuine events and fabricates others cannot rank forecasts &mdash; any model it favoured would have been favoured by noise. So every model contributes equally to rain. That is a strong, standard baseline; what has been dropped is only the claim that rain weighting was earned, because it wasn't. Temperature, wind and cloud are smooth fields the analysis tracks closely, and they keep full accuracy weighting.</p>
+    <p><strong>Rain is verified against a real gauge where one exists.</strong> In Australia, BOM publishes actual rain-gauge readings, and when a station lies within 35km those measurements become the record rain is scored against &mdash; so rain weighting is earned, not assumed. The row is labelled <em>&check; Gauge</em> and names the station. Elsewhere, or when no station is close enough, rain falls back to <em>&asymp; Analysis</em> and every model is weighted <strong>equally</strong> for rain. That fallback matters: measured against a Sydney gauge the gridded analysis recorded 0.0mm during an hour in which 8.4mm fell, and invented drizzle across five dry hours, capturing 25% of the real rainfall. A record like that cannot rank forecasts, so it isn't allowed to. Temperature, wind and cloud are smooth fields the analysis tracks closely, and keep full accuracy weighting everywhere.</p>
     <p><strong>Rain is scored differently.</strong> Squared error is close to useless for precipitation — most hours are dry, so a model that always predicts nothing would score brilliantly. Rain is judged on whether it called wet-vs-dry correctly, and on the amount when it was wet. Anything under 0.2mm/h counts as dry on both sides, the meteorological convention for a trace, so a light smear across the grid cell on a morning that was dry underfoot does not swing the weights.</p>
     <p><strong>Scored on what was actually predicted.</strong> A model's history on the standard forecast feed is not the forecast it issued — each new run is stitched over the last, so past hours show the model's own analysis, which has already seen the outcome. Scoring that would compare analysis against analysis and every model would look equally good. Instead each model is scored on its <strong>day-3 forecast</strong>: what it predicted 72 hours before the hour arrived, with no hindsight.</p>
     <p>Models are blended by how accurate they've recently been at your location, scored per metric against an <strong>independent record</strong> of hours already gone — the same ✓ Observed data the table shows. Skill is sharpened (inverse-squared error), shrunk toward equal until enough evidence accumulates, and clamped so no model is silenced or dominates.</p>
@@ -237,8 +237,9 @@
   <div id="debug-lines" style="padding:8px 10px;overflow:auto;white-space:pre-wrap;word-break:break-word;flex:1 1 auto"></div>
 </div>
 
-<script src="engine.js?v=21"></script>
-<script src="app.js?v=22"></script>
+<script src="bom.js?v=1"></script>
+<script src="engine.js?v=22"></script>
+<script src="app.js?v=23"></script>
 <script src="timeline.js?v=26"></script>
 <script src="insights.js?v=7"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>

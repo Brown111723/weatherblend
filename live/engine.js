@@ -176,9 +176,12 @@ const shrinkFor = sec => (sec==='rain'?SHRINK_K_RAIN:SHRINK_K);
 // Temperature, wind and cloud are smooth fields the analysis tracks well;
 // they keep full accuracy weighting.
 //
-// Flip this to true only if a genuine precipitation observation source is
-// wired up — a gauge network, not another gridded model.
-const RAIN_VERIFIED = false;
+// RESOLVED: BOM gauge readings are now wired in for Australia (bom.js), so
+// this is decided at runtime. Rain weighting turns itself on only when real
+// measurements are backing the series.
+let truthTier = 'none';        // 'gauge' | 'analysis' | 'none'
+let truthMeta = null;          // { station, km, wmo, hours } when gauge-backed
+const RAIN_VERIFIED = () => truthTier === 'gauge';
 const W_FLOOR  = 0.03;  // no model fully silenced
 const W_CAP    = 0.40;  // no model dominates
 
@@ -880,9 +883,13 @@ async function fetchTruth(){
     if(!j?.hourly?.time?.length)throw new Error('no hours returned');
     normalizeOM(j);
     truthData=j; _truthKey=key;
+    truthTier='analysis'; truthMeta=null;
     const n=j.hourly.temperature_2m.filter(v=>v!=null).length;
     dbg('truth: '+n+' analysed hours from historical-forecast');
     try{ _precipDiag(j.hourly); }catch(e){}
+    // Gauge readings replace analysed rain wherever they exist — a real
+    // measurement outranks a model's opinion of one.
+    try{ await _overlayGauge(j); }catch(e){ dbg('gauge overlay failed: '+e.message); }
   }catch(e){
     dbg('truth fetch failed: '+e.message+' — weights will not update');
     truthData=null;
@@ -935,6 +942,32 @@ function _precipDiag(H){
     days.forEach(d=>dbg('  '+d+'   midnight-midnight '+byDay[d].toFixed(1)
       +' mm   |   9am-9am '+(by9[d]!=null?by9[d].toFixed(1):'—')+' mm'));
   }catch(e){}
+}
+
+// Only precipitation is overlaid. The analysis tracks temperature, wind and
+// cloud closely already, and one station's readings of those are no better.
+async function _overlayGauge(j){
+  if(typeof bomFetchTruth!=='function') return;
+  const g=await bomFetchTruth(state.lat,state.lon,locationOffsetSec,dbg);
+  if(!g?.hourly?.time?.length){ dbg('rain truth: analysis only — rain weighting stays OFF'); return; }
+  const gm={}; g.hourly.time.forEach((t,i)=>{gm[t]=i;});
+  let hit=0;
+  const P=j.hourly.precipitation;
+  j.hourly.time.forEach((t,i)=>{
+    const gi=gm[t]; if(gi==null)return;
+    const v=g.hourly.precipitation[gi];
+    if(v==null||isNaN(v))return;
+    P[i]=v; hit++;
+  });
+  // Only claim gauge truth once the record covers enough of the scoring
+  // window — a handful of hours cannot rank seven models.
+  if(hit>=48){
+    truthTier='gauge';
+    truthMeta={station:g.station,km:g.km,wmo:g.wmo,hours:hit};
+    dbg(`rain truth: GAUGE — ${g.station} (${g.km.toFixed(1)}km), ${hit}h covered — rain weighting ON`);
+  }else{
+    dbg(`rain truth: ${hit} gauge hours so far, need 48 — weighting stays OFF while the record builds`);
+  }
 }
 
 function buildActualData(){
@@ -1042,7 +1075,7 @@ function computeMetricWeights(truth){
     });
   });
   METS.forEach(([s])=>{
-    if(s==='rain'&&!RAIN_VERIFIED){ metricWeights[s]=_equalWeights(keys); return; }
+    if(s==='rain'&&!RAIN_VERIFIED()){ metricWeights[s]=_equalWeights(keys); return; }
     const errMap={}, nMap={};
     am.forEach(m=>{
       const o=err[m.key][s];
@@ -1100,7 +1133,7 @@ function computeMetricWeightsDaily(truth, daysX){
       if(days.length)errMap[m.key]=days.reduce((a,b)=>a+(s==='rain'?(b.se/b.n):Math.sqrt(b.se/b.n)),0)/days.length;
       nMap[m.key]=days.reduce((a,b)=>a+b.n,0);
     });
-    out[s]=(s==='rain'&&!RAIN_VERIFIED)?_equalWeights(keys):_shrinkClampNorm(errMap,nMap,keys,shrinkFor(s));
+    out[s]=(s==='rain'&&!RAIN_VERIFIED())?_equalWeights(keys):_shrinkClampNorm(errMap,nMap,keys,shrinkFor(s));
   });
   return out;
 }
@@ -1163,7 +1196,7 @@ function computeActualsAndWeights(){
 // rain is excluded from the panel's ranking for the same reason it is
 // excluded from the weights — the truth cannot support the comparison
 function accScoredMetrics(){
-  return RAIN_VERIFIED?['temp','rain','wind','cloud']:['temp','wind','cloud'];
+  return RAIN_VERIFIED()?['temp','rain','wind','cloud']:['temp','wind','cloud'];
 }
 function computeAccuracyStats(){
   const truth=selectedTruth();

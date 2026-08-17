@@ -561,3 +561,6 @@ body{padding-bottom:64px;}
 .trace{opacity:.55;font-style:italic;font-size:.92em;letter-spacing:.5px;}
 
 .wbadge.wb-flat{color:var(--text-dim,#5f6f82);font-style:italic;opacity:.8;}
+
+/* a real gauge reading earns full standing */
+.gauge-lab{font-weight:600;}
