@@ -94,8 +94,7 @@ function bootShow(msg, sub){
     b=document.createElement('div');
     b.id='boot'; b.className='boot';
     b.innerHTML='<div class="boot-mark" aria-hidden="true">'
-      +'<span class="boot-dot bd1"></span><span class="boot-dot bd2"></span>'
-      +'<span class="boot-dot bd3"></span><span class="boot-dot bd4"></span></div>'
+      +'<svg class="boot-svg" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><defs><clipPath id="b2cwind"><circle cx="11" cy="32" r="21"/></clipPath><clipPath id="b2ctemp"><circle cx="32" cy="11" r="21"/></clipPath><clipPath id="b2crain"><circle cx="53" cy="32" r="21"/></clipPath><clipPath id="b2ccloud"><circle cx="32" cy="53" r="21"/></clipPath></defs><circle class="ql ql-wind" cx="11" cy="32" r="21" fill="#A8E63E"/><circle class="ql ql-temp" cx="32" cy="11" r="21" fill="#7EE8A5"/><circle class="ql ql-rain" cx="53" cy="32" r="21" fill="#5FA4FF"/><circle class="ql ql-cloud" cx="32" cy="53" r="21" fill="#C8A6FF"/><g clip-path="url(#b2ctemp)"><circle cx="11" cy="32" r="21" fill="#D3FDBB"/></g><g clip-path="url(#b2crain)"><circle cx="32" cy="11" r="21" fill="#AEF7FF"/></g><g clip-path="url(#b2ccloud)"><circle cx="53" cy="32" r="21" fill="#DCDFFF"/></g><g clip-path="url(#b2cwind)"><circle cx="32" cy="53" r="21" fill="#ECF6FF"/></g></svg></div>'
       +'<div class="boot-txt" id="boot-txt"></div>'
       +'<div class="boot-sub" id="boot-sub"></div>';
     document.body.appendChild(b);

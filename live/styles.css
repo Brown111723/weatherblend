@@ -520,31 +520,36 @@ body{padding-bottom:64px;}
   transition:opacity .34s ease;}
 .boot.gone{opacity:0;pointer-events:none;}
 
-/* The quatrefoil assembling itself: the four lobes orbit in from their own
-   corners, meet at the centre, and blend where they overlap — which is the
-   whole idea of the app in one gesture. */
-.boot-mark{position:relative;width:96px;height:96px;animation:bootSpin 4.2s linear infinite;}
-.boot-dot{position:absolute;left:50%;top:50%;width:44px;height:44px;margin:-22px 0 0 -22px;
-  border-radius:50%;mix-blend-mode:screen;filter:blur(.4px);
-  animation:bootOrbit 2.6s cubic-bezier(.45,0,.35,1) infinite;}
-.bd1{background:var(--q-wind,#A8E63E);--ox:-19px;--oy:0px;animation-delay:0s;}
-.bd2{background:var(--q-temp,#7EE8A5);--ox:0px;--oy:-19px;animation-delay:.12s;}
-.bd3{background:var(--q-rain,#5FA4FF);--ox:19px;--oy:0px;animation-delay:.24s;}
-.bd4{background:var(--q-cloud,#C8A6FF);--ox:0px;--oy:19px;animation-delay:.36s;}
-@keyframes bootOrbit{
-  0%   {transform:translate(calc(var(--ox)*2.9),calc(var(--oy)*2.9)) scale(.52);opacity:.15;}
-  42%  {transform:translate(var(--ox),var(--oy)) scale(1);opacity:.95;}
-  68%  {transform:translate(calc(var(--ox)*.82),calc(var(--oy)*.82)) scale(1.04);opacity:1;}
-  100% {transform:translate(calc(var(--ox)*2.9),calc(var(--oy)*2.9)) scale(.52);opacity:.15;}
+/* The mark blending itself together: the whole quatrefoil turns slowly
+   while each lobe breathes in and out of the centre on its own beat, so
+   the overlaps swell and recede. Same geometry as the real logo, so it
+   resolves into the header mark rather than being a separate animation. */
+.boot-mark{position:relative;width:112px;height:112px;
+  animation:bootTurn 6.5s cubic-bezier(.42,0,.58,1) infinite;}
+.boot-svg{width:100%;height:100%;display:block;
+  filter:drop-shadow(0 0 22px rgba(126,232,165,.28));}
+.boot-svg .ql{transform-box:fill-box;transform-origin:center;
+  animation:bootBreathe 2.4s ease-in-out infinite;}
+.boot-svg .ql-temp {animation-delay:0s;}
+.boot-svg .ql-rain {animation-delay:.18s;}
+.boot-svg .ql-cloud{animation-delay:.36s;}
+.boot-svg .ql-wind {animation-delay:.54s;}
+@keyframes bootBreathe{
+  0%,100%{transform:scale(.80);opacity:.72;}
+  50%    {transform:scale(1.07);opacity:1;}
 }
-@keyframes bootSpin{ from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
+@keyframes bootTurn{
+  0%  {transform:rotate(0deg)   scale(.97);}
+  50% {transform:rotate(180deg) scale(1.03);}
+  100%{transform:rotate(360deg) scale(.97);}
+}
 
 .boot-txt{font-size:15px;font-weight:600;color:var(--text-primary,#f4f7fd);letter-spacing:.2px;
   text-align:center;padding:0 24px;}
 .boot-sub{font-size:12px;color:var(--text-dim,#5f6f82);text-align:center;padding:0 24px;margin-top:-14px;}
 @media (prefers-reduced-motion:reduce){
   .boot-mark{animation:none;}
-  .boot-dot{animation:none;opacity:.85;transform:translate(var(--ox),var(--oy));}
+  
 }
 
 /* Observed values for today are provisional: the analysis stitches the
@@ -564,3 +569,19 @@ body{padding-bottom:64px;}
 
 /* a real gauge reading earns full standing */
 .gauge-lab{font-weight:600;}
+
+@media (prefers-reduced-motion:reduce){
+  .boot-mark{animation:none;}
+  .boot-svg .ql{animation:none;}
+}
+
+/* header + drawer marks: same geometry, subtle life on load */
+.hdr-logo svg,.dh-logo svg{overflow:visible;}
+.hdr-logo svg .ql{transform-box:fill-box;transform-origin:center;
+  animation:markSettle .9s cubic-bezier(.34,1.4,.5,1) both;}
+.hdr-logo svg .ql-temp{animation-delay:.02s;}
+.hdr-logo svg .ql-rain{animation-delay:.08s;}
+.hdr-logo svg .ql-cloud{animation-delay:.14s;}
+.hdr-logo svg .ql-wind{animation-delay:.20s;}
+@keyframes markSettle{ from{transform:scale(.4);opacity:0;} to{transform:scale(1);opacity:1;} }
+@media (prefers-reduced-motion:reduce){ .hdr-logo svg .ql{animation:none;} }
