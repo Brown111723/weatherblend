@@ -27,10 +27,10 @@
 // scoring against the wrong place.
 // ════════════════════════════════════════════════════════════════════════
 
-// Your Cloudflare Worker, e.g. 'https://wb-bom.<subdomain>.workers.dev/?u='
-// The worker should fetch the passed URL and return it with
-// Access-Control-Allow-Origin: *   (see BOM_WORKER_SOURCE at the bottom)
-const BOM_PROXY = 'https://wb-bom.brown111724.workers.dev/?u=';       // ← set this to enable gauge truth
+// The Cloudflare Worker that adds the CORS header BOM omits. Must end with
+// ?u= — the target URL is appended to it. See BOM_WORKER_SOURCE at the
+// bottom of this file for the Worker's code.
+const BOM_PROXY = 'https://wb-bom.brown111723.workers.dev/?u=';
 const BOM_MAX_KM = 35;         // beyond this a gauge is not your weather
 const BOM_KEEP_DAYS = 21;      // how much accumulated history to retain
 
@@ -176,17 +176,50 @@ function bomSaveStore(wmo, H) {
 }
 
 // ── the fetch ───────────────────────────────────────────────────────────
+// AbortSignal.timeout is not on every browser; AbortController always is.
+function bomTimeout(ms) {
+  try { if (AbortSignal && AbortSignal.timeout) return { signal: AbortSignal.timeout(ms) }; } catch (e) {}
+  const c = new AbortController();
+  setTimeout(() => c.abort(), ms);
+  return { signal: c.signal };
+}
+
+// "Failed to fetch" is the browser's catch-all and says nothing useful. A
+// no-cors probe separates the two real possibilities: if the opaque request
+// succeeds the server is reachable and the response is simply missing its
+// CORS header; if it also fails, nothing is getting through at all.
+async function bomWhyFailed(url, say) {
+  try {
+    await fetch(url, Object.assign({ mode: 'no-cors' }, bomTimeout(8000)));
+    say('bom: server IS reachable, so the response is missing '
+      + 'access-control-allow-origin — the Worker is deployed but not adding the CORS header');
+    say('bom: check the Worker returns headers:{"access-control-allow-origin":"*"} '
+      + 'and that it deployed without an error');
+  } catch (e2) {
+    say('bom: nothing reached the server at all (' + (e2.message || e2.name) + ')');
+    say('bom: check BOM_PROXY spelling, that it ends with ?u=, and that the Worker URL loads in a browser tab');
+  }
+}
+
 async function bomFetchTruth(lat, lon, tzOffsetSec, log) {
   const say = log || (() => {});
   if (!BOM_PROXY) { say('bom: no proxy configured — gauge truth unavailable'); return null; }
+  if (!/\?u=$|&u=$/.test(BOM_PROXY)) {
+    say('bom: BOM_PROXY must end with ?u=  (currently "' + BOM_PROXY.slice(-12) + '")');
+  }
   const cands = bomCandidates(lat, lon);
   if (!cands.length) { say('bom: no station within ' + BOM_MAX_KM + 'km'); return null; }
 
+  let probed = false;
   for (const st of cands) {
+    const target = BOM_PROXY + encodeURIComponent(bomUrl(st));
     try {
-      const res = await fetch(BOM_PROXY + encodeURIComponent(bomUrl(st)),
-        { signal: AbortSignal.timeout(20000) });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
+      say('bom: requesting ' + target);
+      const res = await fetch(target, bomTimeout(20000));
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error('HTTP ' + res.status + (body ? ' — ' + body.slice(0, 120) : ''));
+      }
       const j = await res.json();
       const rows = j?.observations?.data;
       if (!Array.isArray(rows) || !rows.length) throw new Error('no observations');
@@ -223,7 +256,12 @@ async function bomFetchTruth(lat, lon, tzOffsetSec, log) {
         + `(${Object.keys(fresh).length} fresh this load)`);
       return { hourly, station: st.name, km: st.km, wmo: st.wmo, tier: 'gauge' };
     } catch (e) {
-      say('bom: ' + st.wmo + ' failed (' + e.message + ')');
+      const msg = e.message || e.name || String(e);
+      say('bom: ' + st.wmo + ' failed — ' + msg);
+      if (!probed && /failed to fetch|networkerror|load failed|cors/i.test(msg)) {
+        probed = true;
+        await bomWhyFailed(target, say);
+      }
     }
   }
   return null;
