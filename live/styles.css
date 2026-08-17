@@ -520,36 +520,33 @@ body{padding-bottom:64px;}
   transition:opacity .34s ease;}
 .boot.gone{opacity:0;pointer-events:none;}
 
-/* The mark blending itself together: the whole quatrefoil turns slowly
-   while each lobe breathes in and out of the centre on its own beat, so
-   the overlaps swell and recede. Same geometry as the real logo, so it
-   resolves into the header mark rather than being a separate animation. */
-.boot-mark{position:relative;width:112px;height:112px;
-  animation:bootTurn 6.5s cubic-bezier(.42,0,.58,1) infinite;}
+/* Two nested elements, two independent transforms: the wrapper turns, the
+   svg breathes. Deliberately avoids transform-box/fill-box on the circles —
+   mobile support for it is patchy, and scaling individual lobes would also
+   pull them away from the clip paths that draw their overlaps. Animating
+   the whole mark keeps the geometry intact and works everywhere. */
+.boot-mark{width:118px;height:118px;animation:bootTurn 9s linear infinite;}
 .boot-svg{width:100%;height:100%;display:block;
-  filter:drop-shadow(0 0 22px rgba(126,232,165,.28));}
-.boot-svg .ql{transform-box:fill-box;transform-origin:center;
-  animation:bootBreathe 2.4s ease-in-out infinite;}
-.boot-svg .ql-temp {animation-delay:0s;}
-.boot-svg .ql-rain {animation-delay:.18s;}
-.boot-svg .ql-cloud{animation-delay:.36s;}
-.boot-svg .ql-wind {animation-delay:.54s;}
+  animation:bootBreathe 2.8s ease-in-out infinite, bootGlow 9s linear infinite;}
+@keyframes bootTurn{ from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
 @keyframes bootBreathe{
-  0%,100%{transform:scale(.80);opacity:.72;}
-  50%    {transform:scale(1.07);opacity:1;}
+  0%,100%{transform:scale(.90);}
+  50%    {transform:scale(1.04);}
 }
-@keyframes bootTurn{
-  0%  {transform:rotate(0deg)   scale(.97);}
-  50% {transform:rotate(180deg) scale(1.03);}
-  100%{transform:rotate(360deg) scale(.97);}
+/* the glow cycles the palette as it turns, so the light matches whichever
+   lobe is leading */
+@keyframes bootGlow{
+  0%,100%{filter:drop-shadow(0 0 20px rgba(126,232,165,.45));}
+  25%    {filter:drop-shadow(0 0 20px rgba(95,164,255,.45));}
+  50%    {filter:drop-shadow(0 0 20px rgba(200,166,255,.45));}
+  75%    {filter:drop-shadow(0 0 20px rgba(168,230,62,.45));}
 }
 
 .boot-txt{font-size:15px;font-weight:600;color:var(--text-primary,#f4f7fd);letter-spacing:.2px;
   text-align:center;padding:0 24px;}
 .boot-sub{font-size:12px;color:var(--text-dim,#5f6f82);text-align:center;padding:0 24px;margin-top:-14px;}
 @media (prefers-reduced-motion:reduce){
-  .boot-mark{animation:none;}
-  
+  .boot-mark,.boot-svg{animation:none;}
 }
 
 /* Observed values for today are provisional: the analysis stitches the
@@ -575,13 +572,8 @@ body{padding-bottom:64px;}
   .boot-svg .ql{animation:none;}
 }
 
-/* header + drawer marks: same geometry, subtle life on load */
+/* header + drawer marks: whole-mark entrance, no per-circle transforms */
 .hdr-logo svg,.dh-logo svg{overflow:visible;}
-.hdr-logo svg .ql{transform-box:fill-box;transform-origin:center;
-  animation:markSettle .9s cubic-bezier(.34,1.4,.5,1) both;}
-.hdr-logo svg .ql-temp{animation-delay:.02s;}
-.hdr-logo svg .ql-rain{animation-delay:.08s;}
-.hdr-logo svg .ql-cloud{animation-delay:.14s;}
-.hdr-logo svg .ql-wind{animation-delay:.20s;}
-@keyframes markSettle{ from{transform:scale(.4);opacity:0;} to{transform:scale(1);opacity:1;} }
-@media (prefers-reduced-motion:reduce){ .hdr-logo svg .ql{animation:none;} }
+.hdr-logo svg{animation:markSettle .7s cubic-bezier(.34,1.45,.5,1) both;}
+@keyframes markSettle{ from{transform:scale(.55) rotate(-25deg);opacity:0;} to{transform:scale(1) rotate(0);opacity:1;} }
+@media (prefers-reduced-motion:reduce){ .hdr-logo svg{animation:none;} }
