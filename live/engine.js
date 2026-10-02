@@ -147,7 +147,10 @@ const SHRINK_K = 60;    // sample count before learned skill outranks equal
 // weights need far more agreement before they move away from equal. This is
 // the honest way to say "we are less sure about this" — the weights simply
 // stay closer to even rather than chasing a noisy signal.
-const SHRINK_K_RAIN = 260;
+// Rain is scored only on EVENT hours (see _rainEventSet), not every hour.
+// One wet hour carries far more information than one routine dry hour, so
+// fewer samples are needed before skill is trusted.
+const SHRINK_K_RAIN = 18;
 const shrinkFor = sec => (sec==='rain'?SHRINK_K_RAIN:SHRINK_K);
 
 // ── Rain is NOT verified, and that is a deliberate decision ─────────────
@@ -559,7 +562,9 @@ async function fetchAllModels(){
   try{ buildForecastRainCache(); buildHiLoCache(); buildSourcesPanel(); scheduleAutoRefresh(); }catch(e){ dbg('prep error: '+e.message); }
   try{
     computeActualsAndWeights();
-    dbg('actuals/weights ready'+(actualData?' — Open-Meteo analysis':' — no actuals'));
+    dbg('actuals/weights ready'+(!actualData?' — no actuals'
+      :(truthTier==='gauge'&&truthMeta)?' — rain from '+truthMeta.station+' gauge, other metrics from analysis'
+      :' — Open-Meteo analysis (rain equal-weighted)'));
   }catch(e){ dbg('❌ actuals/weights error: '+e.message); }
   setStatus('ok',`${ok}/${MODELS.length} models · ${t}${failed.length?' · unavail: '+failed.join(', '):''}`);
   const _ck=`${state.lat!=null?state.lat.toFixed(3):'x'},${state.lon!=null?state.lon.toFixed(3):'x'}`;
@@ -804,22 +809,31 @@ let skillData=null, _skillKey=null, skillPending=false;
 const SKILL_LEAD=3;            // days ahead — far enough that models diverge
 const SKILL_FIELDS=['temperature_2m','precipitation','cloud_cover','wind_speed_10m'];
 
+// YYYY-MM-DD in the location's own timezone, offset by whole days
+function _locDate(dayOffset){
+  const off=(typeof locationOffsetSec==='number'&&locationOffsetSec!=null)?locationOffsetSec:-new Date().getTimezoneOffset()*60;
+  return new Date(Date.now()+off*1000+(dayOffset||0)*86400000).toISOString().slice(0,10);
+}
+
 async function fetchSkill(){
   const days=Math.max(7,Math.min(14,learnDays));
   const keys=MODELS.map(m=>m.key);
-  const key=[(state.lat||0).toFixed(3),(state.lon||0).toFixed(3),days,keys.join('')].join(',');
+  const key=[(state.lat||0).toFixed(3),(state.lon||0).toFixed(3),days,keys.join(''),_locDate(0)].join(',');
   if(_skillKey===key && skillData) return skillData;
   if(skillPending) return skillData;
   skillPending=true;
   try{
-    const iso=d=>d.toISOString().slice(0,10);
-    const end=new Date(Date.now()-86400000);          // yesterday: fully verified
-    const start=new Date(Date.now()-days*86400000);
+    // Dates must be the LOCATION's calendar dates — the API is called with
+    // timezone=auto. Building them with toISOString() gave UTC dates, so in
+    // the morning in Australia "yesterday" came out as two days ago and the
+    // most recent day of rain was never requested at all.
+    const end=_locDate(0);                            // through today; the scorer
+    const start=_locDate(-days);                      // cuts off at yesterday 23:00
     const vars=SKILL_FIELDS.map(f=>f+'_previous_day'+SKILL_LEAD).join(',');
     const url='https://previous-runs-api.open-meteo.com/v1/forecast'
       +`?latitude=${state.lat}&longitude=${state.lon}`
       +`&hourly=${vars}&models=${keys.join(',')}`
-      +`&start_date=${iso(start)}&end_date=${iso(end)}`
+      +`&start_date=${start}&end_date=${end}`
       +'&timezone=auto&wind_speed_unit=kmh';
     const r=await fetch(url,{signal:AbortSignal.timeout(30000)});
     if(!r.ok)throw new Error('HTTP '+r.status);
@@ -952,11 +966,15 @@ async function _overlayGauge(j){
   const gm={}; g.hourly.time.forEach((t,i)=>{gm[t]=i;});
   let hit=0;
   const P=j.hourly.precipitation;
+  // Which hours are measured, not modelled. The gauge record only reaches
+  // back as far as it has been accumulating, so the start of the window is
+  // still analysis — and that must never be scored as if it were a gauge.
+  const G=j.hourly._gauge=new Array(j.hourly.time.length).fill(false);
   j.hourly.time.forEach((t,i)=>{
     const gi=gm[t]; if(gi==null)return;
     const v=g.hourly.precipitation[gi];
     if(v==null||isNaN(v))return;
-    P[i]=v; hit++;
+    P[i]=v; G[i]=true; hit++;
   });
   // Only claim gauge truth once the record covers enough of the scoring
   // window — a handful of hours cannot rank seven models.
@@ -977,7 +995,7 @@ function buildActualData(){
   const TH=truthData.hourly;
   const tim={}; TH.time.forEach((t,i)=>{tim[t]=i;});
   const FS=['temperature_2m','precipitation','rain','showers','cloudcover','windspeed_10m','apparent_temperature','snowfall','wind_gusts_10m','surface_pressure','uv_index','relative_humidity_2m'];
-  const O={time:[]}; FS.forEach(f=>O[f]=[]);
+  const O={time:[],_gauge:[]}; FS.forEach(f=>O[f]=[]);
   ref.time.forEach(t=>{
     // only fully elapsed hours can have been observed
     if(new Date(t).getTime()+3600000>now) return;
@@ -987,8 +1005,11 @@ function buildActualData(){
       const v=(ti==null)?null:(TH[f]?.[ti]);
       O[f].push((v==null||isNaN(v))?null:v);
     });
+    // carry the measured/modelled flag through — the rain scorer depends on it
+    O._gauge.push(!!(ti!=null&&TH._gauge&&TH._gauge[ti]));
   });
-  actualSources={ om:{hourly:O,daily:_dailyFromHourly(O)}, stationName:'Analysis' };
+  const src=(truthTier==='gauge'&&truthMeta)?truthMeta.station:'Analysis';
+  actualSources={ om:{hourly:O,daily:_dailyFromHourly(O)}, stationName:src };
   return selectActual();
 }
 function selectActual(){
@@ -1031,7 +1052,11 @@ function selectedTruth(){
 // against a phantom-wet analysis it punished models for being right. A miss
 // costs the occurrence penalty scaled by how big the missed event was, so
 // missing a downpour still costs more than missing a shower.
-const RAIN_TRACE=0.5;        // mm/h below this is dry on both sides
+// 0.2mm is the resolution of a BOM tipping-bucket gauge — the smallest
+// amount it can register. Rain is only weighted when a gauge is the truth
+// (analysis-grade rain stays equal-weighted), so the threshold can match
+// what the instrument actually measures rather than masking grid drizzle.
+const RAIN_TRACE=0.2;        // mm/h below this is dry on both sides
 const RAIN_OCC_W=0.6;        // base cost of a wet/dry mistake
 function _rainErr(mv,av){
   const m=mv<RAIN_TRACE?0:mv, a=av<RAIN_TRACE?0:av;
@@ -1040,6 +1065,35 @@ function _rainErr(mv,av){
   if(mWet&&aWet) return Math.min(1.5,Math.abs(m-a));  // hit: amount only
   const mag=mWet?m:a;                                 // miss or false alarm
   return RAIN_OCC_W+Math.min(0.9,mag/5);
+}
+
+// Hours worth scoring rain on. Scoring every hour let ~230 agreed-dry hours
+// drown the handful that matter: every model's mean error fell under the
+// 0.05 error floor, every model received an identical weight, and rain
+// weighting was on in name only. An hour counts if the gauge measured it
+// AND either the gauge or any model says it rained. The set is shared by
+// all models so they are judged on exactly the same hours.
+function _rainEventSet(truth, am, cutMs, startMs){
+  const out=new Set();
+  if(!truth?.time||!truth._gauge) return out;
+  const gIdx={};
+  truth.time.forEach((t,i)=>{
+    if(!truth._gauge[i]) return;
+    const ms=new Date(t).getTime();
+    if(ms>cutMs||(startMs!=null&&ms<startMs)) return;
+    gIdx[t]=i;
+    const a=truth.precipitation?.[i];
+    if(a!=null&&a>=RAIN_TRACE) out.add(t);
+  });
+  am.forEach(m=>{
+    const mh=skillSeries(m.key); if(!mh?.time) return;
+    mh.time.forEach((t,i)=>{
+      if(gIdx[t]==null) return;
+      const v=mh.precipitation?.[i];
+      if(v!=null&&v>=RAIN_TRACE) out.add(t);
+    });
+  });
+  return out;
 }
 
 function computeMetricWeights(truth){
@@ -1058,6 +1112,7 @@ function computeMetricWeights(truth){
   const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-1); cutoff.setHours(23,0,0,0);
   const DECAY=Math.log(2)/48;
   const err={}; am.forEach(m=>{err[m.key]={};METS.forEach(([s])=>err[m.key][s]={se:0,wn:0});});
+  const rainEvt=_rainEventSet(truth,am,cutoff.getTime(),null);
   am.forEach(m=>{
     const mh=skillSeries(m.key); if(!mh?.time)return;
     mh.time.forEach((t,i)=>{
@@ -1067,7 +1122,10 @@ function computeMetricWeights(truth){
       METS.forEach(([s,field])=>{
         let mv=mh[field]?.[i], av=truth[field]?.[bi];
         if(mv==null||av==null||isNaN(mv)||isNaN(av))return;
-        if(s==='rain'){ err[m.key][s].se+=rw*_rainErr(mv,av); err[m.key][s].wn+=rw; return; }
+        if(s==='rain'){
+          if(!rainEvt.has(t))return;                 // only hours that discriminate
+          err[m.key][s].se+=rw*_rainErr(mv,av); err[m.key][s].wn+=rw; return;
+        }
         err[m.key][s].se+=rw*(mv-av)**2;
         err[m.key][s].wn+=rw;
       });
@@ -1088,6 +1146,10 @@ function computeMetricWeights(truth){
   ['temp','rain','wind','cloud'].forEach(s=>{
     dbg('w·'+s+': '+am.map(m=>m.short+' '+Math.round((metricWeights[s][m.key]||0)*100)+'%').join(' '));
   });
+  if(RAIN_VERIFIED()){
+    dbg('rain scored on '+rainEvt.size+' gauge event hours'
+      +(rainEvt.size?' | err: '+am.map(m=>{const o=err[m.key].rain;return m.short+' '+(o.wn>0?(o.se/o.wn).toFixed(2):'—');}).join(' '):' — no rain to judge yet, weights stay equal'));
+  }
 }
 // Per-previous-day scoring over the last X days (each day counts equally),
 // mean of daily RMSEs -> _shrinkClampNorm (median fallback removed; the
@@ -1109,6 +1171,7 @@ function computeMetricWeightsDaily(truth, daysX){
   const endMs=cut.getTime();
   const startMs=endMs - X*24*3600*1000;
   const tMap={}; truth.time.forEach((t,i)=>tMap[t]=i);
+  const rainEvt=_rainEventSet(truth,am,endMs,startMs);
   const acc={}; am.forEach(m=>{acc[m.key]={temp:{},rain:{},wind:{},cloud:{}};});
   am.forEach(m=>{
     const mh=skillSeries(m.key); if(!mh?.time)return;
@@ -1119,6 +1182,7 @@ function computeMetricWeightsDaily(truth, daysX){
       METS.forEach(([s,field])=>{
         const mv=mh[field]?.[i], av=truth[field]?.[bi];
         if(mv==null||av==null||isNaN(mv)||isNaN(av))return;
+        if(s==='rain'&&!rainEvt.has(t))return;       // only hours that discriminate
         const b=acc[m.key][s][day]||(acc[m.key][s][day]={se:0,n:0});
         if(s==='rain') b.se+=_rainErr(mv,av); else b.se+=(mv-av)**2;
         b.n++;
