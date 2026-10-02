@@ -126,12 +126,16 @@ function buildSourcesPanel(){
     `<div class="config-row">`+
     `<div class="config-row-label">Sources</div>`+
     `<div class="config-icons-row">`+
-    MODELS.map(m=>
-      `<div class="tog-item">`+
-      `<div class="tog-btn enabled" id="toggle-${m.key}" onclick="toggleModel('${m.key}')" title="${m.desc}">`+
+    // each toggle shows the model's real state — this used to draw every
+    // model as on, so switching one off looked as if it hadn't worked
+    MODELS.map(m=>{
+      const na=autoHidden.has(m.key)||state.status[m.key]==='fail';
+      const on=enabled.has(m.key)&&!na;
+      return `<div class="tog-item">`+
+      `<div class="tog-btn ${on?'enabled':'disabled'}" id="toggle-${m.key}" onclick="toggleModel('${m.key}')" title="${m.desc}${na?' — no data right now':''}">`+
       `<span class="mdot" style="background:${m.color}">${m.short}</span></div>`+
-      `<span class="tog-label" onclick="toggleModel('${m.key}')">${m.label}</span></div>`
-    ).join("")+
+      `<span class="tog-label" onclick="toggleModel('${m.key}')">${m.label}${na?' <span class="munavail">n/a</span>':''}</span></div>`;
+    }).join("")+
     `</div></div>`;
 }
 
@@ -157,7 +161,12 @@ function stepDay(delta){
 function toggleModel(key){
   if(autoHidden.has(key))return;
   const el=document.getElementById('toggle-'+key);
-  if(enabled.has(key)){enabled.delete(key);if(el){el.classList.remove('enabled');el.classList.add('disabled');}}
+  if(enabled.has(key)){
+    // the blend needs at least one model — refuse to switch off the last
+    const left=MODELS.filter(m=>m.key!==key&&enabled.has(m.key)&&!autoHidden.has(m.key));
+    if(!left.length)return;
+    enabled.delete(key);if(el){el.classList.remove('enabled');el.classList.add('disabled');}
+  }
   else{enabled.add(key);if(el){el.classList.remove('disabled');el.classList.add('enabled');}}
   savePrefs(); _recalcAndRender();
 }
@@ -266,6 +275,30 @@ function scheduleAutoRefresh(){
   autoRefreshTimer=null; nextRefreshAt=null;
   return;
 }
+// Nothing is fetched in the background. But a phone keeps a tab alive for
+// hours, and coming back to it used to show the old "now" — after midnight,
+// even yesterday labelled as today. On return the page catches up the way
+// a reload would: after a short absence it only redraws (no network), after
+// a long one it fetches again — about the cost of opening the app.
+const RESUME_REDRAW_MS=2*60000, RESUME_REFETCH_MS=45*60000, RESUME_RETRY_MS=30000;
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState!=='visible')return;
+  if(state.lat==null||allLoading)return;
+  // a first load that failed (offline when opened) gets another go
+  if(!lastLoadAt){
+    if(Date.now()-lastLoadTry>=RESUME_RETRY_MS){ dbg('back — retrying the load that failed'); fetchAllModels(); }
+    return;
+  }
+  const away=Date.now()-lastLoadAt;
+  if(away>=RESUME_REFETCH_MS || localTodayStr()!==_lastTodayStr){
+    dbg('back after '+Math.round(away/60000)+' min — refreshing');
+    fetchAllModels();
+  }else if(away>=RESUME_REDRAW_MS){
+    try{ buildActualData(); renderCurrentBar(); if(sectionsVisible.table) renderTable(); }catch(e){}
+    // the map keeps its own clock — let it notice a new hour too
+    try{ if(sectionsVisible.map&&typeof mapEnsure==='function') mapEnsure(); }catch(e){}
+  }
+});
 
 // ── Location ────────────────────────────────────────────────────────────
 async function getLocation(){
@@ -343,7 +376,7 @@ function savePrefs(){
       showDetail,useWeightedAvg,verticalLayout,showDebug,showActuals,learnDays,weightMethod,weightDays,showPredLine,confVisible:{...confVisible},
       secVisible:{...secVisible},
       secDetail:{...secDetail},
-      enabled:[...enabled],
+      enabled:[...enabled], enabledV:2,
       view:state.view,
       sectionsVisible:{...sectionsVisible}
     }));
@@ -366,7 +399,13 @@ function loadPrefs(){
     else if(p.showConfidence===false)confVisible={temp:false,rain:false,wind:false,cloud:false};
     if(p.secVisible)Object.assign(secVisible,p.secVisible);
     if(p.secDetail)Object.assign(secDetail,p.secDetail);
-    if(p.enabled){enabled.clear();p.enabled.forEach(k=>{if(MODELS.find(m=>m.key===k))enabled.add(k);});}
+    // Model choices only count from this version on: every load used to
+    // switch all models back on, so an older saved list was never what the
+    // app actually ran and may be stale. Older prefs start with all seven.
+    if(p.enabled&&p.enabledV===2){
+      const keep=p.enabled.filter(k=>MODELS.find(m=>m.key===k));
+      if(keep.length){ enabled.clear(); keep.forEach(k=>enabled.add(k)); }
+    }
     state.view='1h';
     if(p.sectionsVisible)Object.assign(sectionsVisible,p.sectionsVisible);
   }catch(e){}
@@ -1082,7 +1121,7 @@ function hourTileData(iso){
   const hz=horizonOf(iso.slice(0,10));
   let temp=wBlendAt('temperature_2m',idx,hz), rain=wBlendAt('precipitation',idx,hz),
       wind=wBlendAt('windspeed_10m',idx,hz), cloud=wBlendAt('cloudcover',idx,hz);
-  const past=new Date(iso).getTime()<locNowMs();
+  const past=lblMs(iso)<nowLblMs();
   let isAct=false;
   if(past && actualData?.hourly?.time){
     const ai=actualData.hourly.time.indexOf(iso);
@@ -1218,7 +1257,7 @@ function uvCls(v){if(v==null||v<0.5)return'uv0';if(v<3)return'uv1';if(v<6)return
 function aqiCls(v){if(v==null)return'';if(v<50)return'aq0';if(v<100)return'aq1';if(v<150)return'aq2';if(v<200)return'aq3';return'aq4';}
 function aqiWord(v){if(v==null)return'';if(v<50)return'good';if(v<100)return'moderate';if(v<150)return'poor';if(v<200)return'unhealthy';return'hazardous';}
 const XSTYLE={
-  snow:{fmt:v=>v<0.05?'<span class="empty">0</span>':v.toFixed(1),cls:snowCls},
+  snow:{fmt:v=>_mmCell(v),cls:snowCls},
   gust:{fmt:v=>String(Math.round(v)),cls:windCls},
   humid:{fmt:v=>Math.round(v)+'%',cls:humidCls},
   press:{fmt:v=>String(Math.round(v)),cls:()=>''},
@@ -1351,12 +1390,12 @@ function buildCloudSection(indices,ndCls,pastCls,nowCi,C,allActive,onlyEnabled,r
   const avg=indices.map(i=>wBlendAt('cloudcover',i,horizonOf(ref.time[i].slice(0,10))));
   const avgCells=avg.map((v,ci)=>{const cls=cloudCls(v);const nc=ci===nowCi?"now-col":"";const txt=v!=null?Math.round(v)+"%":"—";return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(" ")}">${txt}</td>`,(ndCls[ci]+" "+pastCls[ci]).trim());}).join("");
   const srcRows=allActive.map(m=>{const v=hVals(m.key,"cloudcover",indices);const cells=v.map((x,ci)=>{const cls=cloudCls(x);const nc=ci===nowCi?"now-col":"";return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(" ")}">${x!=null?Math.round(x)+"%":"—"}</td>`,(ndCls[ci]+" "+pastCls[ci]).trim());}).join("");return`<tr class="${srcRowClass(m,'cloud')}"><td class="row-label"><span class="model-badge"><span class="mdot" style="background:${m.color}">${m.short}</span>${wBadge('cloud',m.key)}</span></td>${cells}</tr>`;}).join("");
-  const nowMs=locNowMs();
+  const nowMs=nowLblMs();
   let actRow='';
   if(actualData&&showActuals){
     const sh=actualData.hourly, map={}; (sh.time||[]).forEach((t,ai)=>{map[t]=ai;});
     const cells=indices.map((hourIdx,ci)=>{
-      if(new Date(ref.time[hourIdx]).getTime()+3600000>nowMs)return'<td class="empty">–</td>';
+      if(lblMs(ref.time[hourIdx])+3600000>nowMs)return'<td class="empty">–</td>';
       const ai=map[ref.time[hourIdx]];
       if(ai===undefined)return'<td class="empty">–</td>';
       const v=sh.cloudcover?.[ai];
@@ -1376,7 +1415,7 @@ function renderVertical(){
 }
 function _vh(icon,q){return `<span style="color:var(--q-${q})">${icon}</span>`;}
 function renderVertical_buildColDef(){
-  const nowMs=Date.now();
+  const nowMs=nowLblMs();            // label space: the location's clock, not the browser's
   const actMap={};
   if(actualData)actualData.hourly.time.forEach((t,i)=>{actMap[t]=i;});
   const cols=[];
@@ -1403,7 +1442,7 @@ function renderVertical_buildColDef(){
   return{cols,actMap,nowMs};
 }
 function renderVertical_cellVal(colId,i,onlyEnabled,actMap,nowMs,ref){
-  const isPast=new Date(ref.time[i]).getTime()<nowMs;
+  const isPast=lblMs(ref.time[i])+3600000<=nowMs;     // finished hours only
   const hz=horizonOf(ref.time[i].slice(0,10));
   if(colId.startsWith('x_')||colId.startsWith('xa_')){
     const key=colId.replace(/^xa?_/,'');
@@ -1425,7 +1464,7 @@ function renderVertical_cellVal(colId,i,onlyEnabled,actMap,nowMs,ref){
     }
     case'rain':{
       const v=weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.hourly?.precipitation?.[i]??null})),'rain',hz,'precipitation');
-      return`<td class="${rainCls(v)}">${v!=null?(v<0.05?'<span class="empty">0</span>':v.toFixed(1)):'—'}</td>`;
+      return`<td class="${rainCls(v)}">${v!=null?_mmCell(v):'—'}</td>`;
     }
     case'wind':{
       const v=weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.hourly?.windspeed_10m?.[i]??null})),'wind',hz,'windspeed_10m');
@@ -1441,14 +1480,14 @@ function renderVertical_cellVal(colId,i,onlyEnabled,actMap,nowMs,ref){
       if(!isPast)return'<td class="empty">–</td>';
       const ai=actMap[ref.time[i]];
       const v=ai!==undefined?actualData.hourly.precipitation?.[ai]:null;
-      return`<td class="${v!=null?rainCls(v):''}">${v!=null?(v<0.05?'<span class="empty">0</span>':v.toFixed(1)):'–'}</td>`;
+      return`<td class="${v!=null?rainCls(v):''}">${v!=null?_mmCell(v):'–'}</td>`;
     }
     case'cloud':{
       const v=weightedAvgOf(onlyEnabled.map(m=>({key:m.key,val:state.data[m.key]?.hourly?.cloudcover?.[i]??null})),'cloud',hz,'cloudcover');
       return`<td class="${cloudCls(v)}">${v!=null?Math.round(v)+'%':'—'}</td>`;
     }
     case'act_cl':{
-      if(new Date(ref.time[i]).getTime()+3600000>nowMs)return'<td class="empty">–</td>';
+      if(lblMs(ref.time[i])+3600000>nowMs)return'<td class="empty">–</td>';
       const ai=actMap[ref.time[i]];
       const v=ai!==undefined?actualData.hourly.cloudcover?.[ai]:null;
       return`<td class="${v!=null?cloudCls(v):''}">${v!=null?Math.round(v)+'%':'–'}</td>`;
@@ -1687,7 +1726,12 @@ function renderSkeleton(){
     `</tbody>`;
 }
 // Forecast amounts shown exactly as blended.
-const _traceFmtF=v=>v<0.05?'<span class="empty">0</span>':v.toFixed(1);
+// Every amount cell is rounded exactly the way the cards round before they
+// add up (_rcell: half up to 0.1mm). toFixed rounds 0.35 down to 0.3 while
+// the cards counted 0.4, so a column of cells could add to 0.1 less than
+// the card beside it.
+function _mmCell(v){ const r=_rcell(v); return r===0?'<span class="empty">0</span>':r.toFixed(1); }
+const _traceFmtF=_mmCell;
 
 function renderTable(){
   const okModels=MODELS.filter(m=>state.data[m.key]).length;
@@ -1769,7 +1813,8 @@ function renderHourly(){
   }).join('');
   const avgRain=indices.map(i=>wBlendAt('precipitation',i,horizonOf(ref.time[i].slice(0,10))));
   const avgRainCells=avgRain.map((v,ci)=>{const cls=rainCls(v);const txt=v==null?'—':_traceFmtF(v);
-    return injectColCls(`<td class="${cls}">${txt}</td>`,ndCls[ci]);
+    const nc=ci===nowCi?'now-col':'';
+    return injectColCls(`<td class="${[cls,nc].filter(Boolean).join(' ')}">${txt}</td>`,(ndCls[ci]+' '+pastCls[ci]).trim());
   }).join('');
   const confCellsFor=(key)=>indices.map((i,ci)=>{
     const c=confVisible[key]?confHourMetric(i,key):null; const nc=ci===nowCi?'now-col':'';
@@ -1793,29 +1838,34 @@ function renderHourly(){
     return injectColCls(`<td class="${[pastCls[ci]||'',nc].filter(Boolean).join(' ')}">${wxIcon(code,_ph==='night',_ph)}</td>`,ndCls[ci]);
   }).join('');
 
-  // hours the analysis may still revise (same cutoff the scorer uses)
-  function _provisionalFrom(){
-    const c=new Date(); c.setDate(c.getDate()-1); c.setHours(23,0,0,0);
-    return c.getTime();
-  }
+  // hours the analysis may still revise (same cutoff the scorer uses —
+  // the location's yesterday, not the browser's)
+  const _provFrom=scoreCutoffMs();
   function buildActualCells(seriesH, field, indices, fmtFn, clsFn, nowCiRef){
     if(!seriesH)return indices.map(()=>'<td class="empty">–</td>').join('');
     const actTimes=seriesH.time||[];
     const actVals=seriesH[field]||[];
     const actMap={};actTimes.forEach((t,ai)=>{actMap[t]=ai;});
-    const nowMs=locNowMs();
+    const nowL=nowLblMs();
+    // In a gauge-backed rain row, say which cells are measurements and
+    // which fell back to the analysis (before the record began, or an hour
+    // the feed couldn't fully cover). A gauge reading is never provisional.
+    const gaugeRow=(field==='precipitation'&&_gaugeRain()&&Array.isArray(seriesH._gauge));
     return indices.map((hourIdx,ci)=>{
       const t=ref.time[hourIdx];
       // only hours that have fully elapsed count as observed
-      if(new Date(t).getTime()+3600000>nowMs)return '<td class="empty">–</td>';
+      if(lblMs(t)+3600000>nowL)return '<td class="empty">–</td>';
       const ai=actMap[t];
       if(ai===undefined)return '<td class="empty">–</td>';
       const v=actVals[ai];
       if(v==null)return '<td class="empty">–</td>';
       const cls=clsFn?clsFn(v):''; const nc=(nowCiRef!==undefined&&ci===nowCiRef)?'now-col':'';
-      const prov=new Date(t).getTime()>_provisionalFrom()?'prov':'';
-      const ttl=prov?' title="Provisional — later model runs may revise this hour. Not used for scoring."':'';
-      return injectColCls(`<td class="${[cls,nc,prov].filter(Boolean).join(' ')}"${ttl}>${fmtFn(v)}</td>`,ndCls[ci]);
+      const measured=gaugeRow&&!!seriesH._gauge[ai];
+      const anl=gaugeRow&&!measured?'anl':'';
+      const prov=(!measured&&new Date(t).getTime()>_provFrom)?'prov':'';
+      const ttl=anl?' title="No gauge reading for this hour — this is the gridded analysis, and it is not scored."'
+        :prov?' title="Provisional — later model runs may revise this hour. Not used for scoring."':'';
+      return injectColCls(`<td class="${[cls,nc,prov,anl].filter(Boolean).join(' ')}"${ttl}>${fmtFn(v)}</td>`,ndCls[ci]);
     }).join('');
   }
   // precipitation gets a weaker label: it comes from the same analysis, but a
@@ -1826,7 +1876,7 @@ function renderHourly(){
   // Amounts are shown exactly as reported. Light values may sometimes
   // overstate what reached the ground, but hiding them behind "tr" cost
   // more than it gained — a real total must read as a real total.
-  const _traceFmt=v=>v<0.05?'<span class="empty">0</span>':v.toFixed(1);
+  const _traceFmt=_mmCell;
   function actualLabel(field){
     if(!_ANALYSIS_ONLY[field]) return '✓ Observed';
     if(field==='precipitation'&&_gaugeRain()){
@@ -2104,15 +2154,20 @@ function renderAccuracyPanel(){
   const j=accuracyStats, meta=accuracyMeta;
   if(!j||!j.length||!meta){
     sub.textContent='';
-    body.innerHTML='<div class="acc-status none">Model accuracy appears once enough past hours have loaded to score the models against Open-Meteo\u2019s analysis. Try again in a moment \u2014 or increase the learning window in \u2630 \u2192 Models &amp; sources.</div>';
+    body.innerHTML='<div class="acc-status none">Model accuracy appears once enough past hours have loaded to score the models against the observed record. Try again in a moment \u2014 or increase the learning window in \u2630 \u2192 Models &amp; sources.</div>';
     return;
   }
-  sub.textContent=`Scored against Open-Meteo\u2019s analysis of past hours \u00b7 ${meta.days} days \u00b7 ${meta.pairs.toLocaleString()} forecast\u2013observation pairs`;
+  const gaugeRain=meta.rain==='gauge';
+  sub.textContent=(meta.skill?'Each model\u2019s day-3 forecasts':'Each model\u2019s forecasts')
+    +` scored against what happened \u00b7 ${meta.days} days \u00b7 ${meta.pairs.toLocaleString()} forecast\u2013observation pairs`
+    +(gaugeRain?` \u00b7 rain from the ${meta.station||'BOM'} gauge`:'');
   const METS=['temp','rain','wind','cloud'];
   const _modelKeys=new Set(MODELS.map(m=>m.key));
   const stats=j.filter(s=>_modelKeys.has(s.model));
   if(!stats.length){ body.innerHTML='<div class="acc-status none">No scored models yet \u2014 check back shortly.</div>'; return; }
-  const best={}; METS.forEach(m=>{ let bv=Infinity,bk=null; stats.forEach(s=>{ if(s[m]!=null&&s[m]<bv){bv=s[m];bk=s.model;} }); best[m]=bk; });
+  // Without a gauge, rain is not ranked — the same reason it is not weighted
+  const ranked=(typeof accScoredMetrics==='function')?accScoredMetrics():METS;
+  const best={}; METS.forEach(m=>{ if(ranked.indexOf(m)<0){best[m]=null;return;} let bv=Infinity,bk=null; stats.forEach(s=>{ if(s[m]!=null&&s[m]<bv){bv=s[m];bk=s.model;} }); best[m]=bk; });
   const wmap=metricWeights||{};
   const colorOf=k=>(MODELS.find(m=>m.key===k)||{}).color||'#64748b';
   const shortOf=k=>(MODELS.find(m=>m.key===k)||{}).short||'?';
@@ -2129,13 +2184,16 @@ function renderAccuracyPanel(){
     }).join('');
     return `<tr><td><span class="acc-mdot" style="background:${colorOf(s.model)}">${shortOf(s.model)}</span>${labelOf(s.model)}</td>${cells}</tr>`;
   }).join('');
+  const status=useWeightedAvg
+    ? `<div class="acc-status learned">\u2713 The blend is weighting models by how accurate each has been here over the learning window${gaugeRain?'':' \u2014 rain stays equal-weighted, as no gauge is close enough to judge it'}.</div>`
+    : `<div class="acc-status none">Weighting is switched off, so the blend is a plain average. Turn on <strong>Weighted</strong> in \u2630 \u2192 Models &amp; sources to use these scores.</div>`;
   body.innerHTML=`
-    <div class="acc-status learned">\u2713 The blend is weighting models by how accurate each has been here over the learning window.</div>
+    ${status}
     <table class="acc-table">
       <thead><tr><th>Model</th>${METS.map(m=>`<th>${_MET_LABEL[m]}</th>`).join('')}</tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <div class="acc-note">Figures are average error (RMSE) vs Open-Meteo\u2019s analysis of hours already gone \u2014 lower is better; the greenest value leads each column. Under each: that model\u2019s current blend weight. Rain also shows how often the model called wet/dry days wrong (\u201cocc\u201d). Change the learning window in \u2630 \u2192 Models &amp; sources.</div>`;
+    <div class="acc-note">Figures are average error (RMSE) against hours already gone \u2014 lower is better; the greenest value leads each column. Temperature, wind and cloud are checked against Open-Meteo\u2019s analysis${gaugeRain?`; rain against the ${meta.station||'BOM'} rain gauge, on the hours it measured`:'; rain against the same analysis, shown for interest only and not ranked'}. Under each: that model\u2019s current blend weight. Rain also shows how often the model called wet/dry days wrong (\u201cocc\u201d). Change the learning window in \u2630 \u2192 Models &amp; sources.</div>`;
 }
 
 // ═══ end app.js (phase 2) 

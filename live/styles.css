@@ -566,6 +566,10 @@ body{padding-bottom:64px;}
 
 /* a real gauge reading earns full standing */
 .gauge-lab{font-weight:600;}
+/* in a gauge row, an hour the gauge did not measure (before the record
+   began, or one the feed could not fully cover) falls back to the analysis
+   — shown, but visibly not a measurement */
+.actual-row td.anl{opacity:.5;text-decoration:underline dotted rgba(255,255,255,.35);text-underline-offset:3px;}
 
 @media (prefers-reduced-motion:reduce){
   .boot-mark{animation:none;}

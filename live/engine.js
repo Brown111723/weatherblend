@@ -134,6 +134,11 @@ let manualLocationOverride = false;
 let locationOffsetSec = null;
 let selDate = null;
 let _lastCoordsKey = null;
+let _lastTodayStr = null;          // "today" as of the last full load
+let lastLoadAt = 0;                // epoch ms of the last full load
+let lastLoadTry = 0;               // epoch ms a full load last started
+let allLoading = false;            // a full load is in flight
+let _loadGen = 0;                  // bumps per load; an overtaken load stops
 let state = { lat:null, lon:null, data:{}, status:{}, view:'1h', ss:{} };
 let autoRefreshTimer=null, nextRefreshAt=null;
 const AUTO_MS = 60*60*1000;
@@ -224,6 +229,52 @@ function locNowDate(){
 function locNowMs(){ return locNowDate().getTime(); }
 function locNowLabel(){ return locNowDate().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}); }
 function localTodayStr(){const n=locNowDate();const p=x=>String(x).padStart(2,'0');return `${n.getFullYear()}-${p(n.getMonth()+1)}-${p(n.getDate())}`;}
+
+// Open-Meteo stamps every response at ONE fixed UTC offset, captured when
+// the request is made — there is no daylight-saving change inside a
+// response. Hour arithmetic done through the browser's own clock gains or
+// loses an hour the day the clocks change, because the browser skips an
+// hour the data doesn't. These do the arithmetic in "label space" instead:
+// a label read as if it were UTC, and now expressed the same way.
+function lblMs(iso){ return Date.parse(String(iso).slice(0,16)+':00Z'); }
+function nowLblMs(){
+  const off=(typeof locationOffsetSec==='number')?locationOffsetSec:-new Date().getTimezoneOffset()*60;
+  return Date.now()+off*1000;
+}
+// Scoring stops at 11pm yesterday, the location's yesterday. Hours after it
+// are still being revised by later runs (or are today's, not yet finished).
+function scoreCutoffMs(){ const c=locNowDate(); c.setDate(c.getDate()-1); c.setHours(23,0,0,0); return c.getTime(); }
+
+// ── One convention for rain: an hour's rain sits under the hour it STARTS ─
+// Open-Meteo stamps an amount at the END of its hour: precipitation at
+// "05:00" is what fell from 4 to 5am. Every column, card and map frame here
+// is read as the hour beginning at its label, so the raw stamps put each
+// hour's rain one column early, made "today" run from 11pm yesterday to
+// 11pm, and left the last finished hour counted as still to come. Every
+// accumulated series is re-stamped once, as it arrives: afterwards index i
+// holds the rain that falls from time[i] to time[i]+1h. Models, the
+// analysis, the day-3 forecasts and the map grid all get the same shift,
+// so scoring compares like with like exactly as before. Gusts are the same
+// kind of value — the strongest gust of the preceding hour — so they move
+// with the rain and stay in the same column as it.
+const ACCUM_RE=/^(precipitation|rain|showers|snowfall|wind_gusts_10m|windgusts_10m)(_|$)/;
+const _restamped=(typeof WeakSet!=='undefined')?new WeakSet():null;
+function restampAccum(hourly){
+  if(!hourly||!Array.isArray(hourly.time)) return hourly;
+  if(_restamped&&_restamped.has(hourly)) return hourly;
+  const T=hourly.time, n=T.length;
+  const next=new Array(n).fill(false);
+  for(let i=0;i<n-1;i++) next[i]=(lblMs(T[i+1])-lblMs(T[i]))===3600000;
+  Object.keys(hourly).forEach(name=>{
+    if(!ACCUM_RE.test(name)) return;
+    const a=hourly[name]; if(!Array.isArray(a)) return;
+    const out=new Array(n);
+    for(let i=0;i<n;i++){ const v=next[i]?a[i+1]:null; out[i]=(v==null||isNaN(v))?null:v; }
+    hourly[name]=out;
+  });
+  if(_restamped) _restamped.add(hourly);
+  return hourly;
+}
 
 function carouselDates(){
   const onlyEnabled=activeEnabled();if(!onlyEnabled.length)return [];
@@ -412,7 +463,7 @@ function mergeHourly(base,extra){
   return base;
 }
 
-async function fetchModelsCombined(){
+async function fetchModelsCombined(gen){
   const keys=MODELS.map(m=>m.key);
   const past=Math.max(7,Math.min(14,learnDays));
   const disp=hourlyFieldList();
@@ -459,6 +510,10 @@ async function fetchModelsCombined(){
         }
       }
     }catch(eB){ dbg('history window failed ('+eB.message+') — scoring uses 2 days'); }
+    // a newer load (another city, a new window) started while this one was
+    // in flight — its data must not land in the state that load now owns
+    if(gen!=null&&gen!==_loadGen) return;
+    restampAccum(json.hourly);            // rain under the hour it falls in
     const single=keys.length===1;
     let ok=0;
     keys.forEach(k=>{
@@ -481,11 +536,12 @@ async function fetchModelsCombined(){
   }catch(e){
     dbg('combined fetch failed ('+e.message+') — falling back to per-model');
   }
-  await fetchModelsIndividually();
+  if(gen!=null&&gen!==_loadGen) return;
+  await fetchModelsIndividually(gen);
 }
 
 // the original path, kept as a safety net
-async function fetchModelsIndividually(){
+async function fetchModelsIndividually(gen){
   const past=Math.max(7,Math.min(14,learnDays));
   const H=hourlyFieldList().join(',');
   dbg('per-model fallback: '+MODELS.length+' requests');
@@ -498,6 +554,7 @@ async function fetchModelsIndividually(){
       const res=await fetch(buildUrl(h),{signal:AbortSignal.timeout(20000)});if(!res.ok)throw new Error(`HTTP ${res.status}`);
       const json=await res.json();if(json.error)throw new Error(json.reason||'API error');
       normalizeOM(json);
+      restampAccum(json.hourly);
       if(!json.hourly?.temperature_2m?.some(v=>v!=null))throw new Error('No data');
       return json;
     };
@@ -505,13 +562,14 @@ async function fetchModelsIndividually(){
       let json;
       try{ json=await tryFetch(H); }
       catch(e1){ dbg(m.key+': extras failed ('+e1.message+') — retrying base fields'); json=await tryFetch(baseH); }
+      if(gen!=null&&gen!==_loadGen) return;
       state.data[m.key]=json;state.status[m.key]='ok';
       if(locationOffsetSec==null&&typeof json.utc_offset_seconds==='number')locationOffsetSec=json.utc_offset_seconds;
       if(!state.ss.loaded&&json.daily?.sunrise){
         state.ss.rise=json.daily.sunrise;state.ss.set=json.daily.sunset;
         state.ss.dates=json.daily.time;state.ss.loaded=true;
       }
-    }catch(e){console.warn(m.key,e.message);state.status[m.key]='fail';autoHidden.add(m.key);}
+    }catch(e){ if(gen!=null&&gen!==_loadGen) return; console.warn(m.key,e.message);state.status[m.key]='fail';autoHidden.add(m.key);}
     updatePills();
   }));
 }
@@ -519,10 +577,16 @@ async function fetchModelsIndividually(){
 // ── Fetch: the 7 global models ──────────────────────────────────────────
 async function fetchAllModels(){
   dbg(`=== fetchAllModels: lat=${state.lat}, lon=${state.lon} ===`);
+  // the day the user was looking at, if it was "today" — so a refresh after
+  // midnight lands on the new today rather than leaving them on yesterday
+  const wasOnToday=(selDate!=null && selDate===_lastTodayStr);
+  const gen=++_loadGen;
+  allLoading=true; lastLoadTry=Date.now();
   state.data={};state.status={};state.ss={};
   autoHidden.clear();
   if(_truthKey && _truthKey.indexOf((state.lat||0).toFixed(3))!==0){ truthData=null; _truthKey=null; skillData=null; _skillKey=null; }
-  MODELS.forEach(m=>enabled.add(m.key));
+  // (models the user switched off stay off — this used to re-enable every
+  // model on each load, so a model toggle never survived a refresh)
   cachedCurrent=null;cachedForecastRain=null;
   MODELS.forEach(m=>{state.status[m.key]='load';});
   setStatus('spin',`Fetching ${MODELS.length} models…`);
@@ -530,21 +594,23 @@ async function fetchAllModels(){
   updatePills();renderSkeleton();
   bootSay('Fetching forecasts…','Seven global models');
   fetchCurrentConditions();
-  if(secVisible.aqi) fetchAirQuality().then(()=>{ try{ renderCurrentBar(); renderTable(); }catch(e){} });
+  // a render while the models are still loading would draw from an empty
+  // state and blank the cards — the final render below picks the data up
+  if(secVisible.aqi) fetchAirQuality().then(()=>{ if(allLoading) return; try{ renderCurrentBar(); renderTable(); }catch(e){} });
 
   locationOffsetSec=null;
 
-  await fetchModelsCombined();
+  await fetchModelsCombined(gen);
+  if(gen!==_loadGen) return;            // overtaken — the newer load finishes the job
 
   if(locationOffsetSec==null)locationOffsetSec=-new Date().getTimezoneOffset()*60;
-
-  MODELS.forEach(m=>{
-    const el=document.getElementById('toggle-'+m.key);if(!el)return;
-    if(autoHidden.has(m.key)){
-      el.className='model-toggle unavail';
-      el.innerHTML=`<span class="mdot" style="background:${m.color};opacity:.5">${m.short}</span><span class="mname">${m.label}</span><span class="munavail">unavailable</span>`;
-    }
-  });
+  // If none of the models the user picked came back, blending nothing would
+  // leave every view blank with no explanation. Use whatever did load.
+  if(!activeEnabled().length && MODELS.some(m=>state.data[m.key])){
+    MODELS.forEach(m=>{ if(state.data[m.key]) enabled.add(m.key); });
+    dbg('none of the chosen models returned data — blending every model that did');
+  }
+  try{ buildSourcesPanel(); }catch(e){}     // shows any model that failed to load
 
   const ok=MODELS.filter(m=>state.status[m.key]==='ok').length;
   dbg(`models loaded: ${ok}/${MODELS.length} ok`);
@@ -552,7 +618,8 @@ async function fetchAllModels(){
   // the independent record of what happened, and what each model actually
   // predicted 3 days out — weights need both
   await Promise.all([fetchTruth(), fetchSkill()]);
-  if(!ok){showErr('All models failed.');setStatus('err','No data');dbg('❌ all models failed — aborting');bootDone();return;}
+  if(gen!==_loadGen) return;
+  if(!ok){allLoading=false;showErr('All models failed.');setStatus('err','No data');dbg('❌ all models failed — aborting');bootDone();return;}
   document.getElementById('err-area').innerHTML='';
   const failed=MODELS.filter(m=>state.status[m.key]==='fail').map(m=>m.label);
   const t=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
@@ -565,10 +632,24 @@ async function fetchAllModels(){
     dbg('actuals/weights ready'+(!actualData?' — no actuals'
       :(truthTier==='gauge'&&truthMeta)?' — rain from '+truthMeta.station+' gauge, other metrics from analysis'
       :' — Open-Meteo analysis (rain equal-weighted)'));
+    // the "received" figure, itemised, so it can be checked against BOM
+    if(actualData?.hourly?.time){
+      const td=localTodayStr(), H=actualData.hourly; let mm=0, n=0, ng=0, end=null;
+      H.time.forEach((t,i)=>{
+        if(t.slice(0,10)!==td) return;
+        const v=H.precipitation[i]; if(v==null) return;
+        mm+=v; n++; if(H._gauge&&H._gauge[i]) ng++;
+        end=new Date(lblMs(t)+3600000).toISOString().slice(11,16);
+      });
+      dbg('rain received today: '+mm.toFixed(1)+'mm, midnight to '+(end||'00:00')
+        +' ('+n+' finished hour'+(n===1?'':'s')+(truthTier==='gauge'?', '+ng+' measured by the gauge':'')+')');
+    }
   }catch(e){ dbg('❌ actuals/weights error: '+e.message); }
   setStatus('ok',`${ok}/${MODELS.length} models · ${t}${failed.length?' · unavail: '+failed.join(', '):''}`);
   const _ck=`${state.lat!=null?state.lat.toFixed(3):'x'},${state.lon!=null?state.lon.toFixed(3):'x'}`;
-  if(_ck!==_lastCoordsKey){ selDate=localTodayStr(); _lastCoordsKey=_ck; }
+  if(_ck!==_lastCoordsKey || wasOnToday){ selDate=localTodayStr(); _lastCoordsKey=_ck; }
+  _lastTodayStr=localTodayStr();
+  lastLoadAt=Date.now(); allLoading=false;
   try{ renderCurrentBar(); renderTable(); firstRenderDone=true; dbg('✓ rendered (weighted, with actuals)'); }
   catch(e){ dbg('❌ render error: '+e.message); }
   requestAnimationFrame(()=>bootDone());
@@ -592,7 +673,7 @@ async function fetchCurrentConditions(){
       if(c.winddirection_10m==null&&c.wind_direction_10m!=null)c.winddirection_10m=c.wind_direction_10m;
     }
     cachedCurrent={c:d.current,precipHourly:d.hourly?.precipitation||[],daily:d.daily};
-    if(firstRenderDone)renderCurrentBar();
+    if(firstRenderDone&&!allLoading)renderCurrentBar();
   }catch(e){console.warn('Current:',e.message);}
 }
 
@@ -627,27 +708,47 @@ function buildHiLoCache(){
 // ── Current / day summaries (canonical figures for cards & tiles) ───────
 // Air quality: one request per location, cached. Not model-dependent, so
 // it never needs refetching when weights or models change.
-let _aqiKey = null;
+let _aqiKey = null, _aqiAt = 0, _aqiJob = null, _aqiFail = null;
+const AQI_TTL = 60*60000, AQI_RETRY = 10*60000;
+// One request per place per hour, shared by everyone who asks. A failure is
+// remembered for a while — the panels that want this are rebuilt on every
+// render, and without the pause each redraw fired another request.
 async function fetchAirQuality(){
-  const key = (state.lat||0).toFixed(3)+','+(state.lon||0).toFixed(3);
-  if(_aqiKey===key && aqiData) return aqiData;
-  try{
-    const u='https://air-quality-api.open-meteo.com/v1/air-quality'
-      +`?latitude=${state.lat}&longitude=${state.lon}`
-      +'&hourly=us_aqi&past_days=7&forecast_days=5&timezone=auto';
-    const r=await fetch(u,{signal:AbortSignal.timeout(15000)});
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    const j=await r.json();
-    if(!j?.hourly?.time) throw new Error('no data');
-    const im={}; j.hourly.time.forEach((t,i)=>{im[t]=i;});
-    aqiData={hourly:j.hourly,im}; _aqiKey=key;
-    dbg('air quality: '+j.hourly.time.length+' hours');
-  }catch(e){ dbg('air quality failed: '+e.message); aqiData=null; }
-  return aqiData;
+  const key = (state.lat||0).toFixed(3)+','+(state.lon||0).toFixed(3)+','+locationOffsetSec;
+  if(_aqiKey===key && aqiData && Date.now()-_aqiAt<AQI_TTL) return aqiData;
+  if(_aqiJob && _aqiJob.key===key) return _aqiJob.p;
+  if(_aqiFail && _aqiFail.key===key && Date.now()-_aqiFail.at<AQI_RETRY) return (_aqiKey===key)?aqiData:null;
+  const lat=state.lat, lon=state.lon;
+  const job={key}; _aqiJob=job;
+  job.p=(async()=>{
+    try{
+      const u='https://air-quality-api.open-meteo.com/v1/air-quality'
+        +`?latitude=${lat}&longitude=${lon}`
+        +'&hourly=us_aqi&past_days=7&forecast_days=5&timezone=auto';
+      const r=await fetch(u,{signal:AbortSignal.timeout(15000)});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const j=await r.json();
+      if(!j?.hourly?.time?.length) throw new Error('no data');
+      if(_aqiJob!==job) return aqiData;
+      const im={}; j.hourly.time.forEach((t,i)=>{im[t]=i;});
+      aqiData={hourly:j.hourly,im}; _aqiKey=key; _aqiAt=Date.now(); _aqiFail=null;
+      dbg('air quality: '+j.hourly.time.length+' hours');
+    }catch(e){
+      if(_aqiJob===job){
+        dbg('air quality failed: '+e.message);
+        _aqiFail={key,at:Date.now()};
+        if(_aqiKey!==key) aqiData=null;        // keep an older reading for the same place
+      }
+    }finally{ if(_aqiJob===job) _aqiJob=null; }
+    return (_aqiKey===key)?aqiData:null;
+  })();
+  return job.p;
 }
 // value for a single-source metric at a ref index
 function singleAt(key, idx){
   if(key!=='aqi' || !aqiData) return null;
+  // never another place's air: a reading is only used for the place it is for
+  if(!_aqiKey || _aqiKey.indexOf((state.lat||0).toFixed(3)+','+(state.lon||0).toFixed(3)+',')!==0) return null;
   const ref=refHourly(); if(!ref||!ref.time) return null;
   const i=aqiData.im[ref.time[idx]];
   return i==null?null:(aqiData.hourly.us_aqi[i] ?? null);
@@ -791,7 +892,13 @@ function _dailyFromHourly(H){
 //
 // It is a single source, independent of the seven models' forecasts, and
 // available worldwide — which is what BOM could not offer.
-let truthData=null, _truthKey=null, truthPending=false;
+let truthData=null, _truthKey=null;
+let truthAt=0;          // when the record was fetched (epoch ms)
+let truthAsOfLbl=0;     // the same moment in label space — no hour
+                        // after it can count as observed, however long the
+                        // page then stays open
+let truthAnaPrecip=null;// the analysis' own rain, before any gauge overlay
+const TRUTH_TTL=20*60000;
 // ── What each model ACTUALLY predicted ─────────────────────────────────
 //
 // The forecast API's past_days does NOT return the forecast a model issued
@@ -805,7 +912,7 @@ let truthData=null, _truthKey=null, truthPending=false;
 // The Previous Runs API is built for exactly this. temperature_2m_previous_day3
 // is the value predicted 72 hours before valid time, so comparing it with
 // the truth measures genuine forecast skill with no look-ahead.
-let skillData=null, _skillKey=null, skillPending=false;
+let skillData=null, _skillKey=null;
 const SKILL_LEAD=3;            // days ahead — far enough that models diverge
 const SKILL_FIELDS=['temperature_2m','precipitation','cloud_cover','wind_speed_10m'];
 
@@ -815,51 +922,63 @@ function _locDate(dayOffset){
   return new Date(Date.now()+off*1000+(dayOffset||0)*86400000).toISOString().slice(0,10);
 }
 
+// Keys carry the UTC offset: Open-Meteo stamps a whole response at the
+// offset in force when it is requested, so on the morning the clocks change
+// a record cached before the change is labelled an hour apart from one
+// fetched after it, and the two must never be compared hour for hour.
+let _skillJob=null;
 async function fetchSkill(){
   const days=Math.max(7,Math.min(14,learnDays));
   const keys=MODELS.map(m=>m.key);
-  const key=[(state.lat||0).toFixed(3),(state.lon||0).toFixed(3),days,keys.join(''),_locDate(0)].join(',');
+  const lat=state.lat, lon=state.lon;
+  const key=[(lat||0).toFixed(3),(lon||0).toFixed(3),days,keys.join(''),_locDate(0),locationOffsetSec].join(',');
   if(_skillKey===key && skillData) return skillData;
-  if(skillPending) return skillData;
-  skillPending=true;
-  try{
-    // Dates must be the LOCATION's calendar dates — the API is called with
-    // timezone=auto. Building them with toISOString() gave UTC dates, so in
-    // the morning in Australia "yesterday" came out as two days ago and the
-    // most recent day of rain was never requested at all.
-    const end=_locDate(0);                            // through today; the scorer
-    const start=_locDate(-days);                      // cuts off at yesterday 23:00
-    const vars=SKILL_FIELDS.map(f=>f+'_previous_day'+SKILL_LEAD).join(',');
-    const url='https://previous-runs-api.open-meteo.com/v1/forecast'
-      +`?latitude=${state.lat}&longitude=${state.lon}`
-      +`&hourly=${vars}&models=${keys.join(',')}`
-      +`&start_date=${start}&end_date=${end}`
-      +'&timezone=auto&wind_speed_unit=kmh';
-    const r=await fetch(url,{signal:AbortSignal.timeout(30000)});
-    if(!r.ok)throw new Error('HTTP '+r.status);
-    const j=await r.json();
-    if(j.error)throw new Error(j.reason||'API error');
-    if(!j?.hourly?.time?.length)throw new Error('no hours returned');
-    // split the suffixed arrays back out per model, dropping the lead-day tag
-    const single=keys.length===1, out={};
-    keys.forEach(k=>{
-      const H={time:j.hourly.time}; let any=false;
-      SKILL_FIELDS.forEach(f=>{
-        const name=f+'_previous_day'+SKILL_LEAD+(single?'':'_'+k);
-        const arr=j.hourly[name];
-        if(arr){ H[f]=arr; if(arr.some(v=>v!=null)) any=true; }
+  if(_skillJob && _skillJob.key===key) return _skillJob.p;    // already on its way
+  const job={key}; _skillJob=job;
+  job.p=(async()=>{
+    try{
+      // Dates must be the LOCATION's calendar dates — the API is called with
+      // timezone=auto. Building them with toISOString() gave UTC dates, so in
+      // the morning in Australia "yesterday" came out as two days ago and the
+      // most recent day of rain was never requested at all.
+      const end=_locDate(0);                            // through today; the scorer
+      const start=_locDate(-days);                      // cuts off at yesterday 23:00
+      const vars=SKILL_FIELDS.map(f=>f+'_previous_day'+SKILL_LEAD).join(',');
+      const url='https://previous-runs-api.open-meteo.com/v1/forecast'
+        +`?latitude=${lat}&longitude=${lon}`
+        +`&hourly=${vars}&models=${keys.join(',')}`
+        +`&start_date=${start}&end_date=${end}`
+        +'&timezone=auto&wind_speed_unit=kmh';
+      const r=await fetch(url,{signal:AbortSignal.timeout(30000)});
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      const j=await r.json();
+      if(j.error)throw new Error(j.reason||'API error');
+      if(!j?.hourly?.time?.length)throw new Error('no hours returned');
+      if(_skillJob!==job) return skillData;             // a newer request replaced this one
+      restampAccum(j.hourly);                 // same hour convention as the truth
+      // split the suffixed arrays back out per model, dropping the lead-day tag
+      const single=keys.length===1, out={};
+      keys.forEach(k=>{
+        const H={time:j.hourly.time}; let any=false;
+        SKILL_FIELDS.forEach(f=>{
+          const name=f+'_previous_day'+SKILL_LEAD+(single?'':'_'+k);
+          const arr=j.hourly[name];
+          if(arr){ H[f]=arr; if(arr.some(v=>v!=null)) any=true; }
+        });
+        if(any){ const o={hourly:H}; normalizeOM(o); out[k]=o; }
       });
-      if(any){ const o={hourly:H}; normalizeOM(o); out[k]=o; }
-    });
-    if(!Object.keys(out).length)throw new Error('no model had archived runs');
-    skillData=out; _skillKey=key;
-    dbg('skill: day-'+SKILL_LEAD+' forecasts for '+Object.keys(out).length+'/'+keys.length+' models');
-  }catch(e){
-    dbg('skill fetch failed: '+e.message+' — falling back to analysis scoring');
-    skillData=null;
-  }
-  skillPending=false;
-  return skillData;
+      if(!Object.keys(out).length)throw new Error('no model had archived runs');
+      skillData=out; _skillKey=key;
+      dbg('skill: day-'+SKILL_LEAD+' forecasts for '+Object.keys(out).length+'/'+keys.length+' models');
+    }catch(e){
+      if(_skillJob===job){
+        dbg('skill fetch failed: '+e.message+' — falling back to analysis scoring');
+        skillData=null; _skillKey=null;
+      }
+    }finally{ if(_skillJob===job) _skillJob=null; }
+    return skillData;
+  })();
+  return job.p;
 }
 // what a model predicted for this hour, at a fixed lead time where possible
 function skillSeries(key){
@@ -874,41 +993,61 @@ function skillSeries(key){
 const TRUTH_FIELDS=['temperature_2m','precipitation','rain','showers','weather_code','cloud_cover','wind_speed_10m',
   'apparent_temperature','snowfall','wind_gusts_10m','surface_pressure','uv_index','relative_humidity_2m'];
 
+let _truthJob=null;
 async function fetchTruth(){
   const days=Math.max(7,Math.min(14,learnDays));
-  const key=[(state.lat||0).toFixed(3),(state.lon||0).toFixed(3),days].join(',');
-  if(_truthKey===key && truthData) return truthData;
-  if(truthPending) return truthData;
-  truthPending=true;
-  try{
-    const end=new Date(Date.now()+86400000);      // include today
-    const start=new Date(Date.now()-days*86400000);
-    const iso=d=>d.toISOString().slice(0,10);
-    const url='https://historical-forecast-api.open-meteo.com/v1/forecast'
-      +`?latitude=${state.lat}&longitude=${state.lon}`
-      +`&hourly=${TRUTH_FIELDS.join(',')}`
-      +`&start_date=${iso(start)}&end_date=${iso(end)}`
-      +'&timezone=auto&wind_speed_unit=kmh';
-    const r=await fetch(url,{signal:AbortSignal.timeout(25000)});
-    if(!r.ok)throw new Error('HTTP '+r.status);
-    const j=await r.json();
-    if(j.error)throw new Error(j.reason||'API error');
-    if(!j?.hourly?.time?.length)throw new Error('no hours returned');
-    normalizeOM(j);
-    truthData=j; _truthKey=key;
-    truthTier='analysis'; truthMeta=null;
-    const n=j.hourly.temperature_2m.filter(v=>v!=null).length;
-    dbg('truth: '+n+' analysed hours from historical-forecast');
-    try{ _precipDiag(j.hourly); }catch(e){}
-    // Gauge readings replace analysed rain wherever they exist — a real
-    // measurement outranks a model's opinion of one.
-    try{ await _overlayGauge(j); }catch(e){ dbg('gauge overlay failed: '+e.message); }
-  }catch(e){
-    dbg('truth fetch failed: '+e.message+' — weights will not update');
-    truthData=null;
-  }
-  truthPending=false;
-  return truthData;
+  const lat=state.lat, lon=state.lon;
+  const key=[(lat||0).toFixed(3),(lon||0).toFixed(3),days,locationOffsetSec].join(',');
+  // The record moves: a new model run lands every few hours and BOM posts a
+  // reading every half hour. A copy older than TRUTH_TTL is refetched —
+  // without this a session that stayed open kept its first record forever.
+  if(_truthKey===key && truthData && Date.now()-truthAt<TRUTH_TTL) return truthData;
+  if(_truthJob && _truthJob.key===key) return _truthJob.p;    // already on its way
+  const job={key}; _truthJob=job;
+  job.p=(async()=>{
+    // taken BEFORE the request: an hour that ends while it is in flight was
+    // not yet observed in what comes back
+    const asOf=nowLblMs();
+    try{
+      // the LOCATION's calendar dates — the API is called with timezone=auto
+      const url='https://historical-forecast-api.open-meteo.com/v1/forecast'
+        +`?latitude=${lat}&longitude=${lon}`
+        +`&hourly=${TRUTH_FIELDS.join(',')}`
+        +`&start_date=${_locDate(-days)}&end_date=${_locDate(0)}`
+        +'&timezone=auto&wind_speed_unit=kmh';
+      const r=await fetch(url,{signal:AbortSignal.timeout(25000)});
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      const j=await r.json();
+      if(j.error)throw new Error(j.reason||'API error');
+      if(!j?.hourly?.time?.length)throw new Error('no hours returned');
+      if(_truthJob!==job) return truthData;             // a newer request replaced this one
+      normalizeOM(j);
+      restampAccum(j.hourly);
+      const ana=(j.hourly.precipitation||[]).slice();
+      const n=j.hourly.temperature_2m.filter(v=>v!=null).length;
+      dbg('truth: '+n+' analysed hours from historical-forecast');
+      try{ _precipDiag(j.hourly); }catch(e){}
+      // Gauge readings replace analysed rain wherever they exist — a real
+      // measurement outranks a model's opinion of one. The overlay is built
+      // on this response before anything global changes, so a load that is
+      // overtaken half way can't leave one place's gauge on another's record.
+      let gauge=null;
+      try{ gauge=await _overlayGauge(j, ana, lat, lon); }catch(e){ dbg('gauge overlay failed: '+e.message); }
+      if(_truthJob!==job) return truthData;
+      truthAnaPrecip=ana;
+      truthData=j; _truthKey=key; truthAt=Date.now(); truthAsOfLbl=asOf;
+      truthTier=gauge?'gauge':'analysis'; truthMeta=gauge;
+    }catch(e){
+      if(_truthJob===job){
+        // Keep an older record for the same place rather than drop to nothing:
+        // its hours are still real, and truthAsOfLbl stops it claiming new ones.
+        if(_truthKey===key && truthData) dbg('truth refresh failed: '+e.message+' — keeping the earlier record');
+        else { dbg('truth fetch failed: '+e.message+' — weights will not update'); truthData=null; _truthKey=null; truthTier='none'; truthMeta=null; }
+      }
+    }finally{ if(_truthJob===job) _truthJob=null; }
+    return truthData;
+  })();
+  return job.p;
 }
 
 // Where does the phantom rain live? precipitation = rain + showers + snow.
@@ -918,10 +1057,10 @@ async function fetchTruth(){
 // automatically — models differ in how they populate these fields.
 function _precipDiag(H){
   if(!H?.time||!showDebug)return;
-  const now=Date.now(), rows=[];
+  const now=locNowMs(), rows=[];
   for(let i=H.time.length-1;i>=0&&rows.length<14;i--){
     const ms=new Date(H.time[i]).getTime();
-    if(ms>now)continue;
+    if(ms+3600000>now)continue;          // the hour must be over
     const p=H.precipitation?.[i], r=H.rain?.[i], sh=H.showers?.[i], c=H.cloud_cover?.[i], wc=H.weather_code?.[i];
     if(p==null)continue;
     rows.unshift(H.time[i].slice(11)+'  precip '+p.toFixed(1)
@@ -946,8 +1085,8 @@ function _precipDiag(H){
       const v=H.precipitation?.[i]; if(v==null)return;
       const d=t.slice(0,10), hr=+t.slice(11,13);
       byDay[d]=(byDay[d]||0)+v;
-      const dt=new Date(t); if(hr<9)dt.setDate(dt.getDate()-1);
-      const k9=dt.toISOString().slice(0,10);
+      // label-space date maths: the browser's own zone must not leak in
+      const k9=new Date(lblMs(t)-(hr<9?86400000:0)).toISOString().slice(0,10);
       by9[k9]=(by9[k9]||0)+v;
     });
     const days=Object.keys(byDay).sort().slice(-5);
@@ -959,18 +1098,26 @@ function _precipDiag(H){
 
 // Only precipitation is overlaid. The analysis tracks temperature, wind and
 // cloud closely already, and one station's readings of those are no better.
-async function _overlayGauge(j){
-  if(typeof bomFetchTruth!=='function') return;
-  const g=await bomFetchTruth(state.lat,state.lon,locationOffsetSec,dbg);
-  if(!g?.hourly?.time?.length){ dbg('rain truth: analysis only — rain weighting stays OFF'); return; }
-  const gm={}; g.hourly.time.forEach((t,i)=>{gm[t]=i;});
-  let hit=0;
-  const P=j.hourly.precipitation;
+// Returns the gauge's details when it can stand as rain truth, else null.
+// Works only on the response it is given — the caller decides what to keep.
+async function _overlayGauge(j, ana, lat, lon){
+  const H=j.hourly;
+  // always start from the analysis' own rain, so an overlay can never stack
+  if(ana&&ana.length===H.time.length) H.precipitation=ana.slice();
   // Which hours are measured, not modelled. The gauge record only reaches
   // back as far as it has been accumulating, so the start of the window is
   // still analysis — and that must never be scored as if it were a gauge.
-  const G=j.hourly._gauge=new Array(j.hourly.time.length).fill(false);
-  j.hourly.time.forEach((t,i)=>{
+  const G=H._gauge=new Array(H.time.length).fill(false);
+  if(typeof bomFetchTruth!=='function') return null;
+  const off=(typeof j.utc_offset_seconds==='number')?j.utc_offset_seconds:locationOffsetSec;
+  const g=await bomFetchTruth(lat,lon,off,dbg);
+  if(!g?.hourly?.time?.length){ dbg('rain truth: analysis only — rain weighting stays OFF'); return null; }
+  const gm={}; g.hourly.time.forEach((t,i)=>{gm[t]=i;});
+  let hit=0;
+  const P=H.precipitation;
+  // only COMPLETE gauge hours arrive here; the hour in progress and any
+  // hour the feed could not fully cover stay with the analysis
+  H.time.forEach((t,i)=>{
     const gi=gm[t]; if(gi==null)return;
     const v=g.hourly.precipitation[gi];
     if(v==null||isNaN(v))return;
@@ -979,26 +1126,30 @@ async function _overlayGauge(j){
   // Only claim gauge truth once the record covers enough of the scoring
   // window — a handful of hours cannot rank seven models.
   if(hit>=48){
-    truthTier='gauge';
-    truthMeta={station:g.station,km:g.km,wmo:g.wmo,hours:hit};
-    dbg(`rain truth: GAUGE — ${g.station} (${g.km.toFixed(1)}km), ${hit}h covered — rain weighting ON`);
-  }else{
-    dbg(`rain truth: ${hit} gauge hours so far, need 48 — weighting stays OFF while the record builds`);
+    dbg(`rain truth: GAUGE — ${g.station} (${g.km.toFixed(1)}km), ${hit}h covered`
+      +(g.stale?' (saved readings — the live feed did not answer)':'')+' — rain weighting ON');
+    return {station:g.station,km:g.km,wmo:g.wmo,hours:hit,todayMm:g.todayMm,todayTo:g.todayTo,stale:!!g.stale};
   }
+  dbg(`rain truth: ${hit} gauge hours so far, need 48 — weighting stays OFF while the record builds`);
+  return null;
 }
 
 function buildActualData(){
   const ref=refHourly();
   if(!ref?.time){ actualSources=null; actualData=null; return null; }
   if(!truthData?.hourly?.time?.length){ actualSources=null; actualData=null; return null; }
-  const now=Date.now();
+  // Hours count as observed once they are over — and only up to when the
+  // record was fetched. An hour that finished after the fetch was still a
+  // forecast in that response, however long ago the page was loaded.
+  const now=Math.min(nowLblMs(), truthAsOfLbl||Infinity);
   const TH=truthData.hourly;
   const tim={}; TH.time.forEach((t,i)=>{tim[t]=i;});
   const FS=['temperature_2m','precipitation','rain','showers','cloudcover','windspeed_10m','apparent_temperature','snowfall','wind_gusts_10m','surface_pressure','uv_index','relative_humidity_2m'];
   const O={time:[],_gauge:[]}; FS.forEach(f=>O[f]=[]);
   ref.time.forEach(t=>{
-    // only fully elapsed hours can have been observed
-    if(new Date(t).getTime()+3600000>now) return;
+    // only fully elapsed hours can have been observed (label space, so the
+    // morning the clocks change doesn't hide an hour that has finished)
+    if(lblMs(t)+3600000>now) return;
     const ti=tim[t];
     O.time.push(t);
     FS.forEach(f=>{
@@ -1109,16 +1260,17 @@ function computeMetricWeights(truth){
     return;
   }
   const bMap={}; truth.time.forEach((t,i)=>{bMap[t]=i;});
-  const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-1); cutoff.setHours(23,0,0,0);
+  // the location's yesterday, not the browser's
+  const cutMs=scoreCutoffMs();
   const DECAY=Math.log(2)/48;
   const err={}; am.forEach(m=>{err[m.key]={};METS.forEach(([s])=>err[m.key][s]={se:0,wn:0});});
-  const rainEvt=_rainEventSet(truth,am,cutoff.getTime(),null);
+  const rainEvt=_rainEventSet(truth,am,cutMs,null);
   am.forEach(m=>{
     const mh=skillSeries(m.key); if(!mh?.time)return;
     mh.time.forEach((t,i)=>{
       const bi=bMap[t]; if(bi===undefined)return;
-      const rowMs=new Date(t).getTime(); if(rowMs>cutoff.getTime())return;
-      const rw=Math.exp(-DECAY*Math.max(0,(cutoff.getTime()-rowMs)/3600000));
+      const rowMs=new Date(t).getTime(); if(rowMs>cutMs)return;
+      const rw=Math.exp(-DECAY*Math.max(0,(cutMs-rowMs)/3600000));
       METS.forEach(([s,field])=>{
         let mv=mh[field]?.[i], av=truth[field]?.[bi];
         if(mv==null||av==null||isNaN(mv)||isNaN(av))return;
@@ -1167,9 +1319,14 @@ function computeMetricWeightsDaily(truth, daysX){
   // analysed with less observational data and gets revised as later runs
   // land. Scoring it would chase values that are still moving, so today is
   // excluded — the same cutoff the recency scorer uses.
-  const cut=new Date(); cut.setDate(cut.getDate()-1); cut.setHours(23,0,0,0);
-  const endMs=cut.getTime();
-  const startMs=endMs - X*24*3600*1000;
+  const endMs=scoreCutoffMs();
+  // X whole days: midnight X days ago up to and including 11pm yesterday.
+  // Counted in calendar days, not milliseconds — "X x 24h" before 11pm
+  // yesterday lands on 11pm the day before, which crept in as a one-hour
+  // "day" weighing as much as each full one (and across a daylight-saving
+  // change, 24h is not a day).
+  const s0=locNowDate(); s0.setDate(s0.getDate()-X); s0.setHours(0,0,0,0);
+  const startMs=s0.getTime();
   const tMap={}; truth.time.forEach((t,i)=>tMap[t]=i);
   const rainEvt=_rainEventSet(truth,am,endMs,startMs);
   const acc={}; am.forEach(m=>{acc[m.key]={temp:{},rain:{},wind:{},cloud:{}};});
@@ -1268,6 +1425,10 @@ function computeAccuracyStats(){
   const tMap={}; truth.time.forEach((t,i)=>{tMap[t]=i;});
   const today=localTodayStr();
   const METS=[['temp','temperature_2m'],['rain','precipitation'],['wind','windspeed_10m'],['cloud','cloudcover']];
+  // With a gauge, rain is judged only on the hours the gauge measured — the
+  // same hours the weights use. Mixing in analysis hours would grade the
+  // models partly against the record the gauge exists to replace.
+  const gaugeRain=RAIN_VERIFIED()&&Array.isArray(truth._gauge);
   const days=new Set(); let pairs=0;
   const stats=am.map(m=>{
     const mh=skillSeries(m.key);   // issued forecasts, same basis as the weights
@@ -1277,6 +1438,7 @@ function computeAccuracyStats(){
       const d=t.slice(0,10); if(d>=today)return;
       const bi=tMap[t]; if(bi===undefined)return;
       METS.forEach(([s,field])=>{
+        if(s==='rain'&&gaugeRain&&!truth._gauge[bi])return;
         const mv=mh[field]?.[i], av=truth[field]?.[bi];
         if(mv==null||av==null||isNaN(mv)||isNaN(av))return;
         acc[s].se+=(mv-av)**2; acc[s].n++;
@@ -1291,5 +1453,7 @@ function computeAccuracyStats(){
     return r;
   }).filter(r=>r.temp!=null||r.rain!=null);
   accuracyStats=stats.length?stats:null;
-  accuracyMeta=stats.length?{days:days.size,pairs,window:Math.max(7,Math.min(14,learnDays)),source:'om'}:null;
+  accuracyMeta=stats.length?{days:days.size,pairs,window:Math.max(7,Math.min(14,learnDays)),source:'om',
+    rain:gaugeRain?'gauge':'analysis', station:gaugeRain&&truthMeta?truthMeta.station:null,
+    skill:!!skillData}:null;
 }

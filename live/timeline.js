@@ -26,7 +26,7 @@ const TL_RAIN_CEIL_MIN = 0.5;                     // rain lane ceiling floor
 const TL = {
   days: [], n: 0, idx: [], temp: [], rain: [], wind: [], cloud: [], wdir: [],
   fc: { temp: [], rain: [], wind: [], cloud: [] },    // pure blend (no actual substitution)
-  act: { temp: [], rain: [], wind: [], cloud: [] },   // observed only (Open-Meteo analysis)
+  act: { temp: [], rain: [], wind: [], cloud: [] },   // observed only: analysis, rain from the gauge where there is one
   confH: { temp: [], rain: [], wind: [], cloud: [] }, dayConf: {},
   lanes: [], suns: [], streamT0: 0, nowH: null,
   sel: 0, hourSel: 12, scrubbing: false, snapFrac: null, snapMs: null, snapSun: null,
@@ -34,8 +34,13 @@ const TL = {
 };
 
 // ── helpers ─────────────────────────────────────────────────────────────
-// light smoothing (weighted 3-pt moving average, run twice) for a calmer line
-function tlClock(ms) { const d = new Date(ms); let h = d.getHours(); const m = d.getMinutes(); const ap = h < 12 ? 'am' : 'pm'; h = h % 12 || 12; return h + ':' + String(m).padStart(2, '0') + ap; }
+// Times on this strip live in "label space" (see lblMs in engine.js): the
+// forecast's own wall-clock read as if UTC. Hour maths then matches the
+// data exactly, even across a daylight-saving change, and the clock is
+// read back with the UTC getters.
+function tlClock(ms) { const d = new Date(ms); let h = d.getUTCHours(); const m = d.getUTCMinutes(); const ap = h < 12 ? 'am' : 'pm'; h = h % 12 || 12; return h + ':' + String(m).padStart(2, '0') + ap; }
+const tlLbl = iso => lblMs(iso);
+const tlNowLbl = () => nowLblMs();
 
 // ── colour system ───────────────────────────────────────────────────────
 // Temperature owns the blue→cyan→lime→gold→red ramp. Rain is deliberately
@@ -224,7 +229,8 @@ function tlBuild() {
       const aT = actOf('temperature_2m'), aR = actOf('precipitation');
       TL.act.temp.push(aT); TL.act.rain.push(aR != null ? _rcell(aR) : null);
       TL.act.wind.push(actOf('windspeed_10m')); TL.act.cloud.push(actOf('cloudcover'));
-      // secondary metrics: observed where we have it, blended forecast otherwise
+      // secondary metrics: the blended forecast, exactly like the main four —
+      // a past hour shows what was predicted, not what happened
       XM.forEach(m => {
         if (m.single) {                       // no ensemble to blend
           let v = null;
@@ -232,10 +238,11 @@ function tlBuild() {
           TL.x[m.key].push(v);
           return;
         }
-        let v = actOf(m.field);
-        if (v == null && idx != null && typeof wBlendAt === 'function') {
+        let v = null;
+        if (idx != null && typeof wBlendAt === 'function') {
           try { v = wBlendAt(m.field, idx, hz); } catch (e) { v = null; }
         }
+        if (m.key === 'snow' && v != null) v = _rcell(v);   // amounts: rounded like the table
         TL.x[m.key].push(v);
       });
       let wd = null;
@@ -244,12 +251,18 @@ function tlBuild() {
       ['temp', 'rain', 'wind', 'cloud'].forEach(k => TL.confH[k].push(idx != null ? confHourMetric(idx, k) : null));
     }
   });
-  TL.streamT0 = new Date(days[0] + 'T00:00').getTime();
-  TL.nowH = (locNowMs() - TL.streamT0) / 3600000;
+  // label space throughout, so hour N of the strip is exactly hour N of the
+  // data — the browser's clock would slip an hour across a DST change
+  TL.streamT0 = tlLbl(days[0] + 'T00:00');
+  TL.nowH = (tlNowLbl() - TL.streamT0) / 3600000;
   TL.suns = [];
+  const SS = (typeof state !== 'undefined' && state.ss) ? state.ss : null;
   days.forEach(d => {
-    const s = getSunTimes(d); if (!s) return;
-    TL.suns.push({ h: (s.riseMs - TL.streamT0) / 3600000, kind: 'rise', ms: s.riseMs }, { h: (s.setMs - TL.streamT0) / 3600000, kind: 'set', ms: s.setMs });
+    const di = (SS && SS.loaded && SS.dates) ? SS.dates.indexOf(d) : -1;
+    if (di < 0 || !SS.rise[di] || !SS.set[di]) return;
+    const r = tlLbl(SS.rise[di]), st = tlLbl(SS.set[di]);
+    if (!isFinite(r) || !isFinite(st)) return;
+    TL.suns.push({ h: (r - TL.streamT0) / 3600000, kind: 'rise', ms: r }, { h: (st - TL.streamT0) / 3600000, kind: 'set', ms: st });
   });
   let lanes = ['temp', 'rain', 'wind', 'cloud'].filter(m => secVisible[m]);
   if (!lanes.length) lanes = ['temp', 'rain', 'wind', 'cloud'];
@@ -463,42 +476,47 @@ function tlFmtFor(key) {
   if (key === 'cloud') return v => Math.round(v) + '%';
   return TL_XSTYLE[key] ? TL_XSTYLE[key].fmt : (v => String(v));
 }
-// what has fallen so far today vs what is still forecast — these add up to
-// the day total exactly, since both come from the same hourly series
-// "Received" must mean what actually fell, not what was forecast for hours
-// that have already happened — those are different numbers and the arrow
-// promises the former. Past hours read from the analysis where we have it,
-// future hours from the forecast blend.
-// Every hour counts toward the total, at its true amount. The trace floor
-// belongs in scoring, not in a figure the user reads as rainfall.
+// Received vs still to come. The day is midnight to midnight and each column
+// is the hour starting at its label (see restampAccum in engine.js), so:
+//   received = what was OBSERVED, midnight up to the last finished hour —
+//              the ✓ row of the table, cell for cell
+//   to come  = the forecast blend from there to midnight — the blended row
+//   total    = received + to come, exactly, by construction
+// The boundary is the last hour that actually has an observation, not the
+// clock: if the record lags (a stale page, a failed fetch), an unobserved
+// hour is still "to come" rather than a forecast passed off as received.
+// Every hour counts at its true amount — the trace floor belongs in
+// scoring, not in a figure read as rainfall.
 function tlAccumSplit(key) {
   const fc = tlMetricSeries(key), s = TL.sel * 24;
-  const act = (TL.act && TL.act[key]) ? TL.act[key] : null;
-  let got = 0, due = 0;
-  if (!fc) return { got, due };
+  const act = (TL.act && TL.act[key] && TL.act[key].length) ? TL.act[key] : null;
+  let got = 0, due = 0, obsTo = 0;
+  if (!fc) return { got, due, obsTo, hasObs: false };
   const nowH = Math.max(0, Math.min(24, Math.floor((TL.nowH != null ? TL.nowH : 0) - s)));
+  if (act) for (let k = 0; k < nowH; k++) { const a = act[s + k]; if (a != null && !isNaN(a)) obsTo = k + 1; }
   for (let k = 0; k < 24; k++) {
-    if (k < nowH) {
-      const a = act ? act[s + k] : null;          // observed where available
-      got += (a != null && !isNaN(a)) ? a : (fc[s + k] || 0);
+    const f = fc[s + k] || 0;
+    if (k < obsTo) {
+      const a = act[s + k];                        // a rare gap inside the record
+      got += (a != null && !isNaN(a)) ? a : f;      // is bridged by the forecast
     } else {
-      due += fc[s + k] || 0;
+      due += f;
     }
   }
-  return { got, due };
+  return { got, due, obsTo, hasObs: !!act };
 }
 function tlBare(key, v) {
-  if (key === 'snow') return v < 0.05 ? '0' : v.toFixed(1);
   return v < 0.05 ? '0' : v.toFixed(1);
 }
 // For an accumulating metric the day total has to equal received + to-come,
-// or the split contradicts the headline figure sitting next to it.
+// or the split contradicts the headline figure sitting next to it. A past
+// day is the same sum with nothing left to come — unless its record has a
+// hole, which the forecast fills.
 function tlDayTotal(key) {
   const d = TL.days[TL.sel];
-  if (TL_ACCUM[key] && d) {
+  if (TL_ACCUM[key] && d && (d.isToday || d.past)) {
     const sp = tlAccumSplit(key);
-    if (d.isToday) return sp.got + sp.due;
-    if (d.past) return sp.got;              // wholly elapsed: all observed
+    return sp.got + sp.due;
   }
   const arr = tlMetricSeries(key); if (!arr) return 0;
   const s = TL.sel * 24; let t = 0;
@@ -533,11 +551,14 @@ function tlHeads() {
       main = TL.scrubbing ? (v != null ? fmt(v) : '\u2014') : (d.isToday ? fmt(tot) : '');
       if (dry) hilo = d.isToday ? '' : '<span class="tlm-hl hi">' + fmt(0) + '</span>';
       else if (d.isToday) {
-        // drop either half once it has nothing left to report
+        // drop either half once it has nothing left to report; with no
+        // observation series at all there is no "received" to split off
         const split = tlAccumSplit(key);
         const parts = [];
-        if (split.got >= 0.05) parts.push('<span class="tlm-hl hi">\u2190' + tlBare(key, split.got) + '</span>');
-        if (split.due >= 0.05) parts.push('<span class="tlm-hl lo">\u2192' + tlBare(key, split.due) + '</span>');
+        if (split.hasObs && split.obsTo > 0) {
+          if (split.got >= 0.05) parts.push('<span class="tlm-hl hi">\u2190' + tlBare(key, split.got) + '</span>');
+          if (split.due >= 0.05) parts.push('<span class="tlm-hl lo">\u2192' + tlBare(key, split.due) + '</span>');
+        }
         hilo = parts.join('');
       } else {
         hilo = '<span class="tlm-hl hi">' + fmt(tot) + '</span>';
@@ -587,7 +608,7 @@ function tlHeads() {
   if (lab) {
     lab.textContent = TL.scrubbing
       ? tlClock(TL.snapMs != null ? TL.snapMs : TL.streamT0 + h * 3600000)
-      : tlClock(locNowMs());
+      : tlClock(tlNowLbl());
     lab.classList.toggle('sun', !!(TL.scrubbing && TL.snapSun));
     lab.style.display = (tlNowVisible() && TL.scrubbing) ? 'block' : 'none';
   }
@@ -714,10 +735,11 @@ function tlBindWeek() {
 async function tlSecFetch() {
   if (state.lat == null || state.lon == null) return;
   const key = state.lat.toFixed(3) + ',' + state.lon.toFixed(3);
-  if (TL.secKey === key) return;
   TL.secKey = key; TL.sec = null;
-  // These five all arrive with the model fetch now, so there is no second
+  // These five all arrive with the model fetch, so there is no second
   // request — and they come out of the blend rather than a single model.
+  // Rebuilt on every render: it used to be built once per location, so a
+  // refresh, a model toggle or new weights never reached this panel.
   try {
     const ref = refHourly();
     if (ref && ref.time) {
@@ -736,9 +758,9 @@ async function tlSecFetch() {
   // air quality now comes through the engine's own cached fetch
   try {
     if (typeof fetchAirQuality === 'function') {
-      await fetchAirQuality();
-      if (TL.sec && typeof aqiData !== 'undefined' && aqiData) {
-        TL.sec.aqi = aqiData.hourly.us_aqi; TL.sec.aqiIm = aqiData.im;
+      const aq = await fetchAirQuality();          // cached, shared, rate-limited
+      if (TL.sec && aq && aq.hourly && aq.hourly.us_aqi) {
+        TL.sec.aqi = aq.hourly.us_aqi; TL.sec.aqiIm = aq.im;
         tlSecRender();
       }
     }

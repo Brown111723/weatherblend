@@ -47,7 +47,23 @@ const MAP_VIEWS = [
   { key: 'nearby', label: 'Nearby', crop: 0.30 },
   { key: 'region', label: 'Region', crop: 1 }
 ];
+// Expired or old-format grids are dead weight in localStorage, which the
+// gauge record shares — clear them out once per page load.
+function mapSweepDisk() {
+  try {
+    Object.keys(localStorage).filter(k => k.startsWith('wb_map_')).forEach(k => {
+      if (/^wb_map_(view|layers)$/.test(k)) return;               // prefs, not grids
+      let dead = !k.startsWith('wb_map_' + MAP_CACHE_VER + '|');
+      if (!dead) {
+        try { const o = JSON.parse(localStorage.getItem(k)); dead = !o || Date.now() - o.at > MAP_TTL; }
+        catch (e) { dead = true; }
+      }
+      if (dead) localStorage.removeItem(k);
+    });
+  } catch (e) {}
+}
 function mapLoadPrefs() {
+  mapSweepDisk();
   try {
     const k = localStorage.getItem('wb_map_view');
     const i = MAP_VIEWS.findIndex(v => v.key === k);
@@ -295,21 +311,25 @@ function mapDiskGet(k) {
 function mapDiskSet(k, o) {
   try { localStorage.setItem('wb_map_' + k, JSON.stringify({ at: Date.now(), ...o })); }
   catch (e) {
-    // quota: drop older map entries and retry once
+    // quota: drop older map grids (not the map's saved settings) and retry once
     try {
-      Object.keys(localStorage).filter(x => x.startsWith('wb_map_')).forEach(x => localStorage.removeItem(x));
+      Object.keys(localStorage).filter(x => x.startsWith('wb_map_') && !/^wb_map_(view|layers)$/.test(x))
+        .forEach(x => localStorage.removeItem(x));
       localStorage.setItem('wb_map_' + k, JSON.stringify({ at: Date.now(), ...o }));
     } catch (e2) {}
   }
 }
+// v2: rain re-stamped to the hour it falls in — older cached grids aren't
+const MAP_CACHE_VER = 'v2';
 function mapCacheKey(tier) {
-  return [mapFramesKey(), tier || MAP.tier, MAP.spanLat,
+  return [MAP_CACHE_VER, mapFramesKey(), tier || MAP.tier, MAP.spanLat,
     (state.lat || 0).toFixed(2), (state.lon || 0).toFixed(2),
     Math.floor(Date.now() / 3600000)].join('|');
 }
 function mapAdopt(o) {
   MAP.raw = o.raw; MAP.times = o.times; MAP.nowIdx = o.nowIdx; MAP._offset = o.offset;
   MAP.bounds = o.bounds; MAP.points = o.points; MAP.tier = o.tier;
+  MAP.fetchHour = (o.fetchHour != null) ? o.fetchHour : Math.floor(Date.now() / 3600000);
   MAP.blend = {}; MAP.frames = {}; MAP.ready = true; MAP.error = null;
   if (MAP.hourSel == null || MAP.hourSel < 0) MAP.hourSel = o.nowIdx;
 }
@@ -354,6 +374,7 @@ function mapWatchVisibility() {
       // same state as before would never kick off a fetch.
       mapInitLeaflet();
       if (MAP.map) mapKick();
+      mapCheckStale();
       if (!MAP.ready && !MAP.loading && !MAP._locTimer) mapFetch();
       else if (MAP.ready && changed) { mapDraw(false); mapFit(); }
       mapDiag();
@@ -390,7 +411,9 @@ async function mapFetchTier(tier) {
 
     const hr = Math.floor(Date.now() / 3600000) * 3600000;
     const isoH = ms => new Date(ms).toISOString().slice(0, 13) + ':00';
-    const winStart = isoH(hr - 12 * 3600000), winEnd = isoH(hr + 11 * 3600000);
+    // one hour past the window: rain is re-stamped to the hour it falls in
+    // (see restampAccum), so the last hour shown needs the next hour's stamp
+    const winStart = isoH(hr - 12 * 3600000), winEnd = isoH(hr + 12 * 3600000);
 
     // only the layers on screen; wind direction only when arrows are shown
     mapPruneLayers();
@@ -430,6 +453,9 @@ async function mapFetchTier(tier) {
         });
         const o = { hourly: dst };
         if (typeof normalizeOM === 'function') normalizeOM(o);
+        // same hour convention as the table, or the map's rain would sit
+        // an hour behind the figure printed on it
+        if (typeof restampAccum === 'function') restampAccum(o.hourly);
         return o;
       });
       if (per[0] && per[0].hourly && Object.keys(per[0].hourly).length > 1) raw[k] = per;
@@ -438,9 +464,10 @@ async function mapFetchTier(tier) {
 
     MAP.raw = raw; MAP.points = pts; MAP.tier = tier;
     mapAlignTimes();
+    MAP.fetchHour = Math.floor(hr / 3600000);
     MAP.blend = {}; MAP.frames = {}; MAP.ready = true; MAP.loading = false;
     const store = { raw, times: MAP.times, nowIdx: MAP.nowIdx, offset: MAP._offset,
-      bounds: MAP.bounds, points: pts, tier };
+      bounds: MAP.bounds, points: pts, tier, fetchHour: MAP.fetchHour };
     MAP.cache[ck] = store; mapDiskSet(ck, store);
     mapStatus('');
     mapLog(tier + ': ' + Object.keys(raw).length + ' models, ' + P + ' pts');
@@ -448,13 +475,12 @@ async function mapFetchTier(tier) {
     return true;
   } catch (e) {
     MAP.loading = false;
-    if (tier === 'coarse') {
-      MAP.error = /429/.test(e.message)
-        ? 'Rate limited — wait a minute, then reopen the map' : e.message;
-      mapStatus('Could not load map data — ' + MAP.error);
-    } else {
-      mapLog('refine failed: ' + e.message);   // coarse is still on screen
-    }
+    // There is no coarse preview behind this any more, so a failure has to
+    // be said out loud — it used to be logged quietly and the map sat blank.
+    MAP.error = /429/.test(e.message)
+      ? 'Rate limited — wait a minute, then scroll back to the map' : e.message;
+    if (!MAP.ready) mapStatus('Could not load map data — ' + MAP.error);
+    mapLog(tier + ' fetch failed: ' + e.message);
     mapDiag();
     return false;
   }
@@ -991,6 +1017,10 @@ function mapBuildUI() {
   // tearing down a working map here caused a rebuild race on first load
   if (MAP.map) { try { MAP.map.remove(); } catch (e) {} }
   MAP.map = null; MAP.overlay = null; MAP.baseLayer = null; MAP.labelLayer = null;
+  // The visibility watcher is tied to the element being replaced below. Left
+  // in place it watched a detached node, so after any settings change the
+  // map stopped noticing when it was scrolled into or out of view.
+  if (MAP._io) { try { MAP._io.disconnect(); } catch (e) {} MAP._io = null; }
   const metrics = mapMetrics();
   if (metrics.indexOf(MAP.metric) < 0) MAP.metric = metrics[0];
   mapSyncMetric();
@@ -1051,6 +1081,7 @@ function mapBuildUI() {
   mapBindScrub();
   mapLegend();
   mapDiag();
+  mapWatchVisibility();                 // watch the new element
 }
 
 function mapLegend() {
@@ -1095,6 +1126,8 @@ function mapTableValueFor(metric) {
   } catch (e) { return null; }
 }
 function mapTableValue() { return mapTableValueFor(MAP.metric); }
+// amounts rounded the way the table and cards round them
+function mapMm(v) { const r = (typeof _rcell === 'function') ? _rcell(v) : Math.round(v * 10) / 10; return r < 0.05 ? '0' : r.toFixed(1); }
 
 function mapReadout() {
   const v = document.getElementById('mp-rd-val');
@@ -1105,7 +1138,7 @@ function mapReadout() {
   let txt = '—';
   if (val != null) {
     txt = (MAP.metric === 'temp') ? (typeof tempDisp === 'function' ? tempDisp(val) : val.toFixed(1)) + u
-      : (MAP.metric === 'rain' || MAP.metric === 'snow') ? (val < 0.05 ? '0' : val.toFixed(1)) + ' ' + u
+      : (MAP.metric === 'rain' || MAP.metric === 'snow') ? mapMm(val) + ' ' + u
         : (MAP.metric === 'uv') ? (Math.round(val * 10) / 10) + ''
           : Math.round(val) + (u === '%' ? u : ' ' + u);
   }
@@ -1117,7 +1150,7 @@ function mapReadout() {
       const t = mapTableValueFor(k);
       if (t == null) return '';
       const u = MAP_UNIT[k];
-      const f = (k === 'rain' || k === 'snow') ? (t < 0.05 ? '0' : t.toFixed(1))
+      const f = (k === 'rain' || k === 'snow') ? mapMm(t)
         : (k === 'temp') ? (typeof tempDisp === 'function' ? tempDisp(t) : t.toFixed(1))
           : Math.round(t);
       return `<span class="mp-rd-x mp-c-t-${k}">${f}${u === '%' || u === '°' ? u : ' ' + u}</span>`;
@@ -1232,6 +1265,7 @@ function mapEnsure() {
   mapWatchVisibility();
   mapInitLeaflet();
   if (MAP.map) requestAnimationFrame(() => MAP.map.invalidateSize());
+  mapCheckStale();
   if (MAP.ready) { mapDraw(false); mapFit(); return; }
   if (MAP.loading) return;
   // Building the UI is free; fetching is not. Wait until it is on screen.
@@ -1240,6 +1274,14 @@ function mapEnsure() {
   // paint, so the map used to give up before the app knew where it was.
   if (state.lat == null) { mapWaitForLocation(); return; }
   mapFetch();
+}
+// A grid from an earlier hour has the wrong "now". Treat it the way a reload
+// would: drop it, and fetch again only once the map is actually on screen.
+function mapCheckStale() {
+  if (MAP.ready && MAP.fetchHour != null && Math.floor(Date.now() / 3600000) !== MAP.fetchHour) {
+    MAP.ready = false; MAP.blend = {}; MAP.frames = {};
+    mapStop();
+  }
 }
 function mapWaitForLocation() {
   if (MAP._locTimer) return;
